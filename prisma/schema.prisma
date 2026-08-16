@@ -1,0 +1,193 @@
+// AI Network Lab - 智能网络科研工作台 - Prisma Schema
+// 文献/课题/实验/里程碑/笔记 + LLM 设置 + 组网仿真运行记录
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ 模块1: 选题 & 文献追踪 ============
+
+// 论文库（Zotero-like）—— 模块1基线论文清单 + 模块2阅读追踪
+model Paper {
+  id          String   @id @default(cuid())
+  title       String
+  authors     String   @default("")
+  venue       String   @default("")
+  year        Int      @default(2024)
+  citations   Int      @default(0)
+  relevance   Int      @default(5) // 1-10 与课题相关度
+  novelty     Int      @default(5) // 1-10 方法新颖度
+  priority    String   @default("medium") // high/medium/low
+  status      String   @default("unread") // unread/reading/read
+  codeUrl     String   @default("")
+  pdfUrl      String   @default("")
+  tags        String   @default("") // comma-separated
+  category    String   @default("") // survey/method/application/baseline
+  notes       String   @default("") // markdown 笔记
+  readingProgress String @default("{}") // JSON: {pass1: bool, pass2: bool, pass3: bool, pass1Notes: "", pass2Notes: "", pass3Notes: ""}
+  readingTime Int      @default(0) // 累计阅读时间（秒）
+  dateAdded   DateTime @default(now())
+  dateRead    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([priority])
+  @@index([category])
+}
+
+// 课题方向（topic_scorer.py）—— 模块1选题评估
+model Topic {
+  id          String   @id @default(cuid())
+  name        String
+  direction   String   @default("") // 物理层/MAC层/网络层
+  description String   @default("")
+  scores      String   @default("{}") // JSON: criterion -> sub_item -> score
+  totalScore  Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 关键词矩阵（keyword_matrix.py）—— 模块1文献检索
+model Keyword {
+  id        String @id @default(cuid())
+  text      String
+  dimension String // scenario / method / problem
+  createdAt DateTime @default(now())
+
+  @@index([dimension])
+}
+
+// ============ 模块3: 实验管理 ============
+
+// 实验（hyperparam_manager.py + 实验记录卡）
+model Experiment {
+  id          String   @id @default(cuid())
+  name        String
+  topic       String   @default("")
+  status      String   @default("planned") // planned/running/completed/failed
+  config      String   @default("{}") // JSON: hyperparameters
+  metrics     String   @default("{}") // JSON: results
+  baselines   String   @default("[]") // JSON: baseline methods
+  ablations   String   @default("[]") // JSON: ablation components
+  notes       String   @default("")
+  seed        Int      @default(42)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============ 模块5: 写作 & 模块6: 投稿 ============
+
+// 里程碑（Gantt + writing_timeline + submission_scheduler）
+model Milestone {
+  id          String   @id @default(cuid())
+  type        String   // gantt / writing / submission
+  title       String
+  description String   @default("")
+  startDate   String   @default("") // YYYY-MM-DD or week number
+  endDate     String   @default("")
+  duration    Int      @default(0) // days or weeks depending on type
+  progress    Int      @default(0) // 0-100
+  category    String   @default("") // survey/baseline/method/simulation/experiment/writing/submission/defense
+  color       String   @default("#10b981")
+  targetVenue String   @default("") // for submission type
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+}
+
+// ============ 笔记系统（Obsidian-like）============
+
+model Note {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   @default("") // markdown
+  tags      String   @default("") // comma-separated
+  links     String   @default("[]") // JSON: linked note ids
+  category  String   @default("literature") // literature/project/knowledge/template/daily
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+// ============ 检索记录（检索过程记录卡）============
+
+model SearchLog {
+  id         String   @id @default(cuid())
+  database   String   @default("IEEE Xplore")
+  query      String
+  resultsCount Int    @default(0)
+  keptCount  Int      @default(0)
+  notes      String   @default("")
+  createdAt  DateTime @default(now())
+}
+
+// ============ 阅读目标 ============
+model ReadingGoal {
+  id          String   @id @default(cuid())
+  type        String   // weekly / monthly
+  target      Int      // 目标论文数
+  period      String   // 例如 "2026-W27" 或 "2026-07"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([type, period])
+}
+
+// ============ 阅读会话记录 ============
+model ReadingSession {
+  id          String   @id @default(cuid())
+  paperId     String
+  paperTitle  String   @default("")
+  duration    Int      @default(0) // 秒
+  date        DateTime @default(now())
+
+  @@index([paperId])
+  @@index([date])
+}
+
+// ============ 论文引用关系 ============
+model Citation {
+  id           String   @id @default(cuid())
+  citingPaperId   String // 引用方论文 ID
+  citedPaperId    String // 被引论文 ID
+  context      String   @default("") // 引用上下文/备注
+  createdAt    DateTime @default(now())
+
+  @@unique([citingPaperId, citedPaperId])
+  @@index([citingPaperId])
+  @@index([citedPaperId])
+}
+
+// ============ 系统设置（LLM 网关等，个人单机部署，Key 仅存本地 SQLite）============
+model Setting {
+  key       String   @id
+  value     String // JSON
+  updatedAt DateTime @updatedAt
+}
+
+// ============ 组网仿真运行记录（可复现实验）============
+model SimRun {
+  id          String   @id @default(cuid())
+  label       String   @default("") // 实验备注名
+  topology    String // ring / spineleaf / mesh
+  algorithm   String // dijkstra / loadaware / qlearning
+  seed        Int
+  params      String   @default("{}") // JSON: 完整实验参数（复现依据）
+  metrics     String   @default("{}") // JSON: 汇总指标
+  detail      String   @default("{}") // JSON: 流级指标 + 训练曲线 + 链路利用率
+  status      String   @default("done") // done / failed
+  error       String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([topology])
+  @@index([algorithm])
+  @@index([createdAt])
+}
