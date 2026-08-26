@@ -1,6 +1,7 @@
 # AI Network Lab · 智能网络科研工作台
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
+[![CI](https://github.com/ctwannnabeabetterman/glm-test/actions/workflows/ci.yml/badge.svg)](https://github.com/ctwannnabeabetterman/glm-test/actions/workflows/ci.yml)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black)](package.json)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -72,7 +73,7 @@ engine.ts     离散事件仿真：三流业务(URLLC/eMBB/mMTC) × 有向边排
 index.ts      多种子批量运行 + 均值/标准差汇总
 ```
 
-**可复现承诺**：相同参数 + 种子 ⇒ 任意机器上字节级一致的结果（已自动化验证）。
+**可复现承诺**：相同参数 + 种子 ⇒ 任意机器上字节级一致的结果。该承诺由 41 个自动化单元测试持续守护（`npm test`），覆盖 RNG 流派生、三类拓扑确定性生成、路由算法、"状态含目的地"Q-Learning 回归、引擎字节级确定性快照与拥塞物理合理性，以及 LLM 网关的配置优先级与错误映射；另有 GitHub Actions 在每次 push / PR 时自动执行 typecheck + lint + test + build（Node 20/22 双版本矩阵）。
 
 **相对原始 demo 的工程修复**（详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)）：
 
@@ -118,6 +119,8 @@ index.ts      多种子批量运行 + 均值/标准差汇总
 | `npm run build && npm start` | 生产构建与启动 |
 | `npm run typecheck` | TypeScript 全量类型检查 |
 | `npm run lint` | ESLint |
+| `npm test` | 运行单元测试（仿真引擎 + LLM 网关，41 用例） |
+| `node scripts/smoke-api.mjs` | 全链路 HTTP 冒烟测试（需 dev server 运行中，32 检查点，自动清理） |
 | `npm run db:push` | 同步 schema 到 SQLite |
 | `npm run db:studio` | Prisma 数据浏览器 |
 
