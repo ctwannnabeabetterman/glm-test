@@ -8,6 +8,7 @@ next-env.d.ts
 
 # database（首次运行执行 npm run db:push 自动创建）
 db/
+*.db
 
 # env & secrets
 .env
@@ -16,6 +17,11 @@ db/
 
 # logs
 *.log
+
+# playwright e2e
+test-results/
+playwright-report/
+blob-report/
 
 # os / editor
 .DS_Store

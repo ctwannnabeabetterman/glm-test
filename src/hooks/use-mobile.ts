@@ -2,18 +2,22 @@ import * as React from "react"
 
 const MOBILE_BREAKPOINT = 768
 
+/**
+ * 用 useSyncExternalStore 订阅 matchMedia：
+ * 快照式读取替代「effect 内同步 setIsMobile」，
+ * 无级联渲染告警，且天然处理 SSR 水合（服务端快照恒为 false）。
+ */
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
-
-  React.useEffect(() => {
+  const subscribe = React.useCallback((onChange: () => void) => {
     const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
     mql.addEventListener("change", onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
     return () => mql.removeEventListener("change", onChange)
   }, [])
 
-  return !!isMobile
+  const getSnapshot = React.useCallback(
+    () => window.innerWidth < MOBILE_BREAKPOINT,
+    []
+  )
+
+  return React.useSyncExternalStore(subscribe, getSnapshot, () => false)
 }

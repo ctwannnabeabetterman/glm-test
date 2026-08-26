@@ -51,6 +51,9 @@ export function SettingsSection() {
   }, [])
 
   useEffect(() => {
+    // 挂载时拉取当前生效配置；load 内所有 setState 均在 await fetch 之后，
+    // 属合法的「取数挂载」模式，非同步级联渲染。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load()
   }, [load])
 

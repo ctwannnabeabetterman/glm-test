@@ -120,6 +120,7 @@ index.ts      多种子批量运行 + 均值/标准差汇总
 | `npm run typecheck` | TypeScript 全量类型检查 |
 | `npm run lint` | ESLint |
 | `npm test` | 运行单元测试（仿真引擎 + LLM 网关，41 用例） |
+| `npm run test:e2e` | Playwright 浏览器端到端测试（11 分区渲染 + 论文/仿真/设置三条工作流，15 用例） |
 | `node scripts/smoke-api.mjs` | 全链路 HTTP 冒烟测试（需 dev server 运行中，32 检查点，自动清理） |
 | `npm run db:push` | 同步 schema 到 SQLite |
 | `npm run db:studio` | Prisma 数据浏览器 |

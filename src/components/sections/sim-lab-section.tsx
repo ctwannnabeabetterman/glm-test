@@ -59,6 +59,9 @@ export function SimLabSection() {
   }, [])
 
   useEffect(() => {
+    // 挂载时加载实验历史；loadHistory 内唯一 setState 位于 await fetch 之后，
+    // 属合法的「取数挂载」模式，非同步级联渲染。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadHistory()
   }, [loadHistory])
 

@@ -109,26 +109,31 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', handler)
   }, [open])
 
-  // Debounced search
+  // Debounced search —— 所有 setState 都发生在定时器回调（事件语义）内，
+  // 避免 effect 内同步 setState 触发级联渲染
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!query.trim() || query.length < 1) {
-      setResults([])
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
-        const data = await res.json()
-        setResults(data.results || [])
-      } catch {
-        setResults([])
-      } finally {
-        setLoading(false)
-      }
-    }, 250)
+    const q = query.trim()
+    debounceRef.current = setTimeout(
+      async () => {
+        if (!q) {
+          setResults([])
+          setLoading(false)
+          return
+        }
+        setLoading(true)
+        try {
+          const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`)
+          const data = await res.json()
+          setResults(data.results || [])
+        } catch {
+          setResults([])
+        } finally {
+          setLoading(false)
+        }
+      },
+      q ? 250 : 0
+    )
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }

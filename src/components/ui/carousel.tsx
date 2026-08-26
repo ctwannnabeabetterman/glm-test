@@ -95,6 +95,9 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api) return
+    // shadcn/ui 上游模式：挂载时先同步一次按钮可用态，再订阅 embla 的
+    // select/reInit 事件做后续同步。此处 setState 与事件回调同构，属合法初始化。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     onSelect(api)
     api.on("reInit", onSelect)
     api.on("select", onSelect)
