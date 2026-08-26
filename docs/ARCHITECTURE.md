@@ -31,7 +31,7 @@ seed = 20260727
   └─ stream("qlearning:S>D")   → 该流对的 ε-greedy 探索序列
 ```
 
-mulberry32 输出由 `(seed XOR FNV1a(streamName))` 决定；流之间互不干扰，同一流内序列单调推进（持久注册表，而非每次重建）。**同参数 ⇒ 同字节输出**，已用自动化脚本验证（同种子两次请求指标 JSON 完全一致、不同种子结果不同）。
+mulberry32 输出由 `(seed XOR FNV1a(streamName))` 决定；流之间互不干扰，同一流内序列单调推进（持久注册表，而非每次重建）。**同参数 ⇒ 同字节输出**，由 `tests/sim/engine.test.ts` 的确定性快照回归与 `scripts/smoke-api.mjs` 的 API 层双跑比对持续守护；CI 工作流在 Node 20/22 矩阵上自动执行 typecheck → lint → test → 生产构建。
 
 ## 路由算法
 
