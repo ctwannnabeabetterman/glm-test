@@ -1,0 +1,27 @@
+# Electron 打包配置 —— electron-builder
+# 产物输出 release/；应用本体（asar 内仅桌面壳层脚本），
+# 自包含的 Next standalone 服务与数据库模板经 extraResources 落在 resources/ 下。
+appId: io.github.ctwannnabeabetterman.ai-network-lab
+productName: AI Network Lab
+directories:
+  output: release
+  buildResources: desktop/build
+files:
+  - desktop/**/*
+  - package.json
+asar: true
+extraResources:
+  - from: resources/app.zip
+    to: app.zip
+  - from: resources/db-template
+    to: db-template
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+  shortcutName: AI Network Lab

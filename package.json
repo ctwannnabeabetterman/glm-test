@@ -4,6 +4,10 @@
   "private": false,
   "description": "AI Network Lab —— 智能网络科研工作台：文献管理、选题评估、实验记录、论文写作 + 可复现组网仿真引擎 + 可接入个人 API Key 的 AI 助手",
   "license": "MIT",
+  "author": {
+    "name": "ctwannnabeabetterman"
+  },
+  "main": "desktop/main.js",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
@@ -13,6 +17,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "desktop:prepare": "node desktop/prepare-standalone.js",
+    "desktop:start": "npm run desktop:prepare && electron desktop/main.js",
+    "desktop:dist": "npm run desktop:prepare && electron-builder --win",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio"
@@ -88,6 +95,8 @@
     "@types/node": "26.2.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",

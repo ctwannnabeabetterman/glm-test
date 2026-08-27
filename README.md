@@ -60,6 +60,25 @@ LLM_MODEL=glm-4-flash                                # 免费模型，够用
 
 ---
 
+## 桌面应用（Electron 封装）
+
+除 Web 形态外，项目可封装为**桌面应用**：Electron 主进程在内部以子进程拉起 Next standalone 服务，绑定 `127.0.0.1:<随机空闲端口>`——仅回环可见、不对局域网暴露、不占用固定端口，用户视角就是一个普通桌面程序。
+
+```bash
+npm run build          # 产出 .next/standalone
+npm run desktop:start  # 补齐静态资源与数据库模板后启动桌面窗口（开发验证）
+npm run desktop:dist   # 产出 Windows 安装包 release/AI Network Lab-Setup-*.exe
+```
+
+要点：
+
+- **端口隐匿**：每次启动向系统申请临时空闲端口，外部无法通过固定端口探测服务；`netstat` 只会看到一条 `127.0.0.1:<随机>` 监听。
+- **自包含**：安装包内置 Electron 运行时与 standalone 服务（以 `ELECTRON_RUN_AS_NODE` 运行），目标机器无需安装 Node.js。
+- **数据位置**：SQLite 数据库在首次启动时从模板复制到 `%APPDATA%/ai-network-lab/db/custom.db`，卸载应用不会误删研究数据。
+- **中国网络环境**：安装依赖前设置 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 与 `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/` 可避免 Electron 二进制下载失败。
+
+---
+
 ## 组网仿真引擎（本项目的技术核心）
 
 `src/lib/sim/` 是一套纯 TypeScript、零依赖、前后端共用的仿真内核：
