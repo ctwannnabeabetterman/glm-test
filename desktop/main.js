@@ -19,26 +19,60 @@ const fs = require('fs')
 let mainWindow = null
 let serverProc = null
 
-/** 首次启动：把随包携带的 resources/app.zip 解压为 resources/app（standalone 服务本体） */
+/** 读取 zip 内 BUILD_ID（Next 每次构建都会生成不同值，用作版本标识）；失败返回 null */
+function readZipBuildId(zip) {
+  return new Promise((resolve) => {
+    execFile('tar', ['-xOf', zip, '.next/BUILD_ID'], { windowsHide: true }, (err, stdout) => {
+      if (err) return resolve(null)
+      resolve(String(stdout).trim())
+    })
+  })
+}
+
+/** 读取已解压目录的 BUILD_ID；不存在或读失败返回 null */
+function readAppBuildId(appDir) {
+  try {
+    const f = path.join(appDir, '.next', 'BUILD_ID')
+    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 解压随包携带的 resources/app.zip 到 resources/app（standalone 服务本体）。
+ * 以 BUILD_ID 为版本标识：仅当「已解压目录的版本 == 当前 zip 的版本」时跳过；
+ * 版本不一致（升级/重装，zip 更新过而旧目录仍是旧代码）则删除旧目录重新解压，
+ * 确保每次更新后客户端加载最新代码，而不是残留上一次解压的旧版本。
+ */
 function ensureAppExtracted() {
   if (!app.isPackaged) return Promise.resolve()
   const resDir = process.resourcesPath
   const appDir = path.join(resDir, 'app')
-  const serverJs = path.join(appDir, 'server.js')
-  if (fs.existsSync(serverJs)) return Promise.resolve()
   const zip = path.join(resDir, 'app.zip')
-  if (!fs.existsSync(zip)) return Promise.reject(new Error('安装不完整：缺少内置服务包 app.zip'))
-  fs.mkdirSync(appDir, { recursive: true })
-  return new Promise((resolve, reject) => {
-    // Windows 10+ 自带 bsdtar，支持 zip 提取
-    execFile('tar', ['-xf', zip, '-C', appDir], { windowsHide: true }, (err) => {
-      if (err) return reject(new Error('内置服务解压失败：' + err.message))
-      try {
-        fs.renameSync(zip, zip + '.done') // 已解压标记；保留改名后的包便于修复
-      } catch {
-        /* 改名失败不影响运行 */
-      }
-      resolve()
+
+  return readZipBuildId(zip).then((zipBuildId) => {
+    const serverJs = path.join(appDir, 'server.js')
+    const appBuildId = readAppBuildId(appDir)
+
+    // 已解压且版本与当前 zip 一致 → 直接复用，无需重解压
+    if (zipBuildId && serverJs && fs.existsSync(serverJs) && appBuildId === zipBuildId) {
+      return
+    }
+    // 缺 zip 且从未解压过 → 安装不完整
+    if (!fs.existsSync(zip)) {
+      if (serverJs && fs.existsSync(serverJs)) return // 有旧解压产物可兜底
+      throw new Error('安装不完整：缺少内置服务包 app.zip')
+    }
+
+    // 版本不一致或缺失 → 删除旧目录重新解压
+    fs.rmSync(appDir, { recursive: true, force: true })
+    fs.mkdirSync(appDir, { recursive: true })
+    return new Promise((resolve, reject) => {
+      execFile('tar', ['-xf', zip, '-C', appDir], { windowsHide: true }, (err) => {
+        if (err) return reject(new Error('内置服务解压失败：' + err.message))
+        resolve()
+      })
     })
   })
 }

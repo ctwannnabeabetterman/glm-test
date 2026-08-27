@@ -5,7 +5,13 @@
 
 ## 数据库与 Electron 桌面端
 
-### ✅ Next standalone 漏追 `xlsx` 依赖（本轮修复）
+### ✅ 桌面版升级后仍显示旧界面（本轮修复）
+- **现象**：每次更新代码、重新打包安装后，Electron 客户端打开仍是**上一次的旧界面**，新功能不生效。
+- **原因**：`desktop/main.js` 的 `ensureAppExtracted()` 只判断 `resources/app/server.js` 是否存在。升级安装时，新版 `resources/app.zip` 被更新，但 `resources/app/` 目录仍是**上一次版本解压出的旧代码**（`server.js` 已存在）→ 永远跳过解压 → 一直用旧版本代码。
+- **修复**：以 Next 的 `BUILD_ID`（每次构建都不同）为版本标识。启动时用 `tar -xOf zip .next/BUILD_ID` 读取新 zip 的版本，与已解压目录的版本对比；不一致则删除旧目录重新解压，确保升级后加载最新代码。
+- **验证**：隔离逻辑测试 PASS（版本不一致→重解压、版本一致→复用）；并做了真实升级端到端验证。
+
+### ✅ Next standalone 漏追 `xlsx` 依赖（上轮修复）
 - **现象**：`next build` 产出 `.next/standalone` 后，`xlsx`（SheetJS）未进入 `standalone/node_modules`。桌面版 `/api/notes/export/xlsx` 会抛 `Cannot find module 'xlsx'`。
 - **原因**：Next 的 `outputFileTracing`（turbopack）未把 `xlsx` 收录进该路由的 `route.js.nft.json`。
 - **修复**：`next.config.ts` 增设 `outputFileTracingIncludes: { "/api/notes/export/xlsx": ["./node_modules/xlsx/**/*"] }`，显式把该包纳入 standalone 产物。

@@ -13,6 +13,7 @@
 
 ### 修复（桌面端 / 数据库迁移）
 
+- **修复桌面版升级后仍显示旧界面**：`ensureAppExtracted()` 原先只判断 `resources/app/server.js` 存在与否，导致升级重装时旧解压目录残留、新 zip 永不被解压（一直用旧代码）。现以 Next 的 `BUILD_ID` 为版本标识，启动时对比新 zip 与已解压目录的版本，不一致则删除旧目录重新解压，确保每次更新后加载最新代码
 - **Next standalone 漏追 `xlsx` 依赖**：`outputFileTracingIncludes` 显式把 `node_modules/xlsx` 纳入 standalone，修复桌面版 `/api/notes/export/xlsx` 的 `Cannot find module 'xlsx'`
 - **旧数据库缺新列的无损迁移**：`desktop/main.js` 新增 `migrateDatabase()`，启动时用 `node:sqlite` 检测缺列并 `ALTER TABLE` 补齐（`Note.structured`/`lastReadAt`），保留既有数据，升级桌面版不再因缺列报错
 
