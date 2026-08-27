@@ -3,7 +3,9 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
-## [Unreleased]
+## [1.1.0] - 2026-08-27
+
+> 完整发布说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。本版重点：科研笔记阅读思考模板 + Excel 导出、内置技术应用说明书、Electron 升级后不更新的修复。
 
 ### 新增
 

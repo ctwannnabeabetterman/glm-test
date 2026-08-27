@@ -1,6 +1,6 @@
 {
   "name": "ai-network-lab",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": false,
   "description": "AI Network Lab —— 智能网络科研工作台：文献管理、选题评估、实验记录、论文写作 + 可复现组网仿真引擎 + 可接入个人 API Key 的 AI 助手",
   "license": "MIT",
