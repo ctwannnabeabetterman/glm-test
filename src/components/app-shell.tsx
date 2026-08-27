@@ -20,6 +20,7 @@ import {
   Database,
   Network,
   Settings,
+  HelpCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -44,6 +45,7 @@ const NAV_ITEMS: { id: Section; label: string; sublabel: string; icon: React.Com
   { id: 'methodology', label: '方法论浏览', sublabel: '6 Modules Guide', icon: GraduationCap, group: '写作与投稿' },
   { id: 'simlab', label: '组网仿真实验', sublabel: 'Seeded · Reproducible', icon: Network, group: '仿真实验' },
   { id: 'settings', label: '系统设置', sublabel: 'LLM API Key', icon: Settings, group: '系统' },
+  { id: 'docs', label: '使用说明', sublabel: 'User Guide · 文档', icon: HelpCircle, group: '系统' },
 ]
 
 export function AppShell({ children }: { children: React.ReactNode }) {

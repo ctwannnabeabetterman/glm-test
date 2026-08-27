@@ -12,6 +12,7 @@
 | 📚 科研管理 | 论文库（Zotero 风格）、关键词矩阵、选题评估打分、Gantt 规划、写作助手、**文献阅读思考模板笔记**（作者/题目/期刊/术语/方法/对象/框架/创新点/局限/启发）→ 一键导出 Excel |
 | 🧪 组网仿真 | **种子化可复现**的离散事件仿真引擎：Dijkstra / 负载感知 / Q-Learning 三种路由算法在环形骨干、Spine-Leaf、Mesh 拓扑下的对比实验 |
 | 🤖 AI 助手 | 摘要/关键点/追问、文献综述、选题 gap 分析、实验方案设计 —— **接入你自己的 API Key**（智谱 GLM / DeepSeek / OpenAI / Ollama 均可） |
+| 📖 内置文档 | 应用内「使用说明」功能区：快速开始、模块地图、接入 AI、API 端点速查、数据备份、FAQ（DeepSeek API 文档风格），首页与新手引导均可直达 |
 
 > 全栈单仓：Next.js 16 App Router + React 19 + Tailwind 4 + shadcn/ui + Prisma/SQLite。
 > 无外部服务依赖，`npm install && npm run db:push && npm run dev` 即可跑起来。

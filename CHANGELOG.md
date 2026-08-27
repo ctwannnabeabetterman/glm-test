@@ -16,9 +16,15 @@
 - **Next standalone 漏追 `xlsx` 依赖**：`outputFileTracingIncludes` 显式把 `node_modules/xlsx` 纳入 standalone，修复桌面版 `/api/notes/export/xlsx` 的 `Cannot find module 'xlsx'`
 - **旧数据库缺新列的无损迁移**：`desktop/main.js` 新增 `migrateDatabase()`，启动时用 `node:sqlite` 检测缺列并 `ALTER TABLE` 补齐（`Note.structured`/`lastReadAt`），保留既有数据，升级桌面版不再因缺列报错
 
+### 新增
+
+- **技术应用说明书（内置使用说明文档页）**：新增「使用说明」功能区，DeepSeek API 文档风格——左侧章节导航 + 右侧正文，含面包屑、PARAM/VALUE 配置表（base_url/api_key/model）、服务商预置表、API 端点速查、代码示例（带复制）、FAQ 折叠。覆盖快速开始 / 功能模块地图 / 接入 AI 助手 / API 端点速查 / 数据与备份 / 常见问题 6 章节
+- 入口集成：侧边栏「系统」组新增「使用说明」导航项；首页「总览仪表盘」hero 新增「使用说明」按钮；新手引导最后一步新增「查看使用说明」直达链接
+
 ### 文档
 
-- 新增 `KNOWN_ISSUES.md`：记录测试中发现的工程问题与规避方法（xlsx 漏追、旧库迁移、Electron 二进制下载拦截、旧笔记结构化字段为空、控制台 GBK 乱码等）
+- `KNOWN_ISSUES.md`：记录测试中发现的工程问题与规避方法（xlsx 漏追、旧库迁移、Electron 二进制下载拦截、旧笔记结构化字段为空、控制台 GBK 乱码等）
+- README 功能表新增「📖 内置文档」说明
 - `next.config.ts` 启用 `output: "standalone"`（增量产物，Web 部署方式不受影响）
 - 桌面壳层 `desktop/main.js`：空闲端口申请、内部服务健康等待、外部链接移交系统浏览器、服务异常退出联动关窗
 

@@ -118,6 +118,10 @@ export function OverviewSection() {
               <FileText className="h-4 w-4 mr-1.5" />
               浏览方法论
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setSection('docs')}>
+              <BookOpen className="h-4 w-4 mr-1.5" />
+              使用说明
+            </Button>
             <WidgetCustomizer />
           </div>
         </div>

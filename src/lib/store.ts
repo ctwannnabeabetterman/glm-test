@@ -13,6 +13,7 @@ export type Section =
   | 'methodology'
   | 'simlab'
   | 'settings'
+  | 'docs'
 
 interface AppState {
   activeSection: Section

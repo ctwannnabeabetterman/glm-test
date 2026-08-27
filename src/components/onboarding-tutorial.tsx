@@ -14,9 +14,10 @@ import { Progress } from '@/components/ui/progress'
 import {
   Sparkles, BookOpen, Search, Target, FlaskConical, Calendar,
   PenLine, StickyNote, GraduationCap, Command, ArrowRight, CheckCircle2,
-  ChevronLeft, ChevronRight, X,
+  ChevronLeft, ChevronRight, X, ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAppStore } from '@/lib/store'
 
 interface TourStep {
   title: string
@@ -88,6 +89,7 @@ const TOUR_STEPS: TourStep[] = [
 const STORAGE_KEY = 'onboarding-completed'
 
 export function OnboardingTutorial() {
+  const setSection = useAppStore((s) => s.setSection)
   const [open, setOpen] = useState(() => {
     if (typeof window === 'undefined') return false
     return !localStorage.getItem(STORAGE_KEY)
@@ -120,6 +122,12 @@ export function OnboardingTutorial() {
     if (step > 0) {
       setStep(step - 1)
     }
+  }
+
+  const handleOpenDocs = () => {
+    handleClose()
+    // 切换到「使用说明」功能区，让用户直接阅读技术应用说明书
+    setSection('docs')
   }
 
   const current = TOUR_STEPS[step]
@@ -199,9 +207,17 @@ export function OnboardingTutorial() {
 
         {/* Actions */}
         <div className="flex items-center justify-between pt-2 border-t border-border">
-          <Button variant="ghost" size="sm" className="text-xs" onClick={handleSkip}>
-            跳过引导
-          </Button>
+          <div className="flex items-center gap-1">
+            {step === TOUR_STEPS.length - 1 && (
+              <Button variant="ghost" size="sm" className="text-xs text-primary" onClick={handleOpenDocs}>
+                <BookOpen className="h-3.5 w-3.5 mr-1" />
+                查看使用说明
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" className="text-xs" onClick={handleSkip}>
+              跳过引导
+            </Button>
+          </div>
           <div className="flex gap-2">
             {step > 0 && (
               <Button variant="outline" size="sm" className="text-xs" onClick={handlePrev}>
