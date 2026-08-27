@@ -105,14 +105,18 @@ model Milestone {
 // ============ 笔记系统（Obsidian-like）============
 
 model Note {
-  id        String   @id @default(cuid())
-  title     String
-  content   String   @default("") // markdown
-  tags      String   @default("") // comma-separated
-  links     String   @default("[]") // JSON: linked note ids
-  category  String   @default("literature") // literature/project/knowledge/template/daily
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String    @id @default(cuid())
+  title      String
+  content    String    @default("") // markdown
+  tags       String    @default("") // comma-separated
+  links      String    @default("[]") // JSON: linked note ids
+  category   String    @default("literature") // literature/project/knowledge/template/daily
+  // 文献阅读思考模板（category=literature 时使用）：JSON 存储结构字段
+  //   { author, journal, terms, refs, method, object, framework, innovation, limitation, inspiration }
+  structured String   @default("{}")
+  lastReadAt DateTime? // 最近一次阅读该文献的时间
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([category])
 }

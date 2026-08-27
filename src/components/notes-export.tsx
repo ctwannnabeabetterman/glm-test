@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
-import { Download, FileText, FileCode, ChevronDown, FileJson } from 'lucide-react'
+import { Download, FileText, FileCode, ChevronDown, FileJson, FileSpreadsheet } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -58,6 +58,26 @@ ${tags ? `\n---\n*Tags: ${tags}*` : ''}
     toast.success('已导出为 JSON 文件')
   }
 
+  const exportExcel = async () => {
+    try {
+      const res = await fetch(`/api/notes/export/xlsx?category=literature`)
+      if (!res.ok) throw new Error('bad response')
+      const blob = await res.blob()
+      const cd = res.headers.get('Content-Disposition') || ''
+      const m = cd.match(/filename\*=UTF-8''(.+)/)
+      const filename = m ? decodeURIComponent(m[1]) : '文献阅读笔记.xlsx'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('已导出为 Excel 文件')
+    } catch {
+      toast.error('导出 Excel 失败')
+    }
+  }
+
   const downloadFile = (content: string, filename: string, mimeType: string) => {
     const blob = new Blob([content], { type: `${mimeType};charset=utf-8` })
     const url = URL.createObjectURL(blob)
@@ -84,6 +104,13 @@ ${tags ? `\n---\n*Tags: ${tags}*` : ''}
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>选择导出格式</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={exportExcel}>
+          <FileSpreadsheet className="h-3.5 w-3.5 mr-2 text-emerald-600" />
+          <div>
+            <div className="text-xs font-medium">Excel (.xlsx)</div>
+            <div className="text-[9px] text-muted-foreground">作者/题目/期刊/最近读日期</div>
+          </div>
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={exportMarkdown}>
           <FileCode className="h-3.5 w-3.5 mr-2 text-primary" />
           <div>

@@ -35,6 +35,7 @@ import { SectionHeader } from './papers-section'
 import { KnowledgeGraph } from '@/components/knowledge-graph'
 import { NoteTemplates } from '@/components/note-templates'
 import { NotesExport } from '@/components/notes-export'
+import { ReadingNoteEditor } from '@/components/reading-note-editor'
 import {
   StickyNote,
   Plus,
@@ -56,6 +57,8 @@ interface Note {
   tags: string
   links: string
   category: string
+  structured?: Record<string, string>
+  lastReadAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -311,6 +314,16 @@ function NoteDetail({ note, onUpdate, onDelete }: {
 
   // Simple markdown to HTML render (very basic)
   const rendered = renderMarkdown(content)
+
+  // 文献笔记（literature）使用结构化「阅读思考模板」文档视图
+  if (note.category === 'literature') {
+    return (
+      <ReadingNoteEditor
+        note={note}
+        onUpdate={(updated) => onUpdate(updated as Note)}
+      />
+    )
+  }
 
   return (
     <Card>
