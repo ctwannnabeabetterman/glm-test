@@ -10,6 +10,15 @@
 - **科研笔记「阅读思考模板」**：文献笔记（分类=文献笔记）升级为结构化思考模板文档，阅读时逐项填写——作者、题目、期刊、术语记录、参考文献导入、研究方法、研究对象、理论框架、创新点、局限性、对我的启发（`Note.structured` JSON 字段 + `lastReadAt` 记录最近阅读时间）
 - **一键导出 Excel (.xlsx)**：文献笔记可一键导出为 xlsx，列含「作者 / 题目 / 期刊 / 最近一次读的日期」，服务端 SheetJS 生成（`GET /api/notes/export/xlsx`），单测锁定表头与字段映射
 - **Electron 桌面应用封装**：`npm run desktop:start`（开发直跑）与 `npm run desktop:dist`（NSIS 安装包）。内部以 `ELECTRON_RUN_AS_NODE` 子进程拉起 Next standalone 服务，绑定 `127.0.0.1:<随机空闲端口>`——仅回环可达、不暴露固定端口；数据库模板随包携带、首次启动落位用户数据目录，目标机器无需安装 Node.js
+
+### 修复（桌面端 / 数据库迁移）
+
+- **Next standalone 漏追 `xlsx` 依赖**：`outputFileTracingIncludes` 显式把 `node_modules/xlsx` 纳入 standalone，修复桌面版 `/api/notes/export/xlsx` 的 `Cannot find module 'xlsx'`
+- **旧数据库缺新列的无损迁移**：`desktop/main.js` 新增 `migrateDatabase()`，启动时用 `node:sqlite` 检测缺列并 `ALTER TABLE` 补齐（`Note.structured`/`lastReadAt`），保留既有数据，升级桌面版不再因缺列报错
+
+### 文档
+
+- 新增 `KNOWN_ISSUES.md`：记录测试中发现的工程问题与规避方法（xlsx 漏追、旧库迁移、Electron 二进制下载拦截、旧笔记结构化字段为空、控制台 GBK 乱码等）
 - `next.config.ts` 启用 `output: "standalone"`（增量产物，Web 部署方式不受影响）
 - 桌面壳层 `desktop/main.js`：空闲端口申请、内部服务健康等待、外部链接移交系统浏览器、服务异常退出联动关窗
 

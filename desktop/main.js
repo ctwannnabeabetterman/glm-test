@@ -94,7 +94,43 @@ function ensureDatabase() {
     const tpl = path.join(dataRoot(), 'db-template', 'custom.db')
     if (fs.existsSync(tpl)) fs.copyFileSync(tpl, dbPath)
   }
+  migrateDatabase(dbPath)
   return dbPath
+}
+
+/**
+ * 无损数据库迁移：历史版本数据库缺新列（如 Note.structured/lastReadAt）时，
+ * 直接 ALTER TABLE 补齐，保留既有数据；不依赖打包内置的 prisma CLI。
+ * 用 node:sqlite（Electron 内 Node ≥22 可用）；若运行时无该模块则跳过并告警。
+ */
+function migrateDatabase(dbPath) {
+  let Database
+  try {
+    Database = require('node:sqlite').DatabaseSync
+  } catch {
+    console.warn('[desktop] node:sqlite 不可用，跳过数据库迁移（若旧库缺列可能运行报错）')
+    return
+  }
+  try {
+    const db = new Database(dbPath)
+    const noteCols = db.prepare("PRAGMA table_info('Note')").all().map((c) => c.name)
+    const addIfMissing = (col, ddl) => {
+      if (!noteCols.includes(col)) {
+        db.exec(`ALTER TABLE Note ADD COLUMN ${ddl}`)
+        console.log(`[desktop] db migrated: Note.${col} added`)
+      }
+    }
+    addIfMissing('content', "content TEXT DEFAULT ''")
+    addIfMissing('tags', "tags TEXT DEFAULT ''")
+    addIfMissing('links', "links TEXT DEFAULT '[]'")
+    addIfMissing('category', "category TEXT DEFAULT 'literature'")
+    addIfMissing('structured', "structured TEXT DEFAULT '{}'")
+    addIfMissing('lastReadAt', 'lastReadAt DATETIME')
+    // 若未来 schema 再变，可在下面继续追加 addIfMissing
+    db.close()
+  } catch (e) {
+    console.error('[desktop] 数据库迁移失败：', e && e.message ? e.message : e)
+  }
 }
 
 function startInternalServer(port, dbPath) {
