@@ -1,6 +1,6 @@
 {
   "name": "ai-network-lab",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": false,
   "description": "AI Network Lab —— 智能网络科研工作台：文献管理、选题评估、实验记录、论文写作 + 可复现组网仿真引擎 + 可接入个人 API Key 的 AI 助手",
   "license": "MIT",
@@ -18,8 +18,9 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "desktop:prepare": "node desktop/prepare-standalone.js",
-    "desktop:start": "npm run desktop:prepare && electron desktop/main.js",
-    "desktop:dist": "npm run desktop:prepare && electron-builder --win",
+    "desktop:build": "npm run db:generate && npm run build && npm run desktop:prepare",
+    "desktop:start": "npm run desktop:build && electron desktop/main.js",
+    "desktop:dist": "npm run desktop:build && electron-builder --win",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio"

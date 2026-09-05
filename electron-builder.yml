@@ -9,6 +9,7 @@ directories:
 files:
   - desktop/**/*
   - package.json
+  - '!node_modules/**/*'
 asar: true
 extraResources:
   - from: resources/app.zip
