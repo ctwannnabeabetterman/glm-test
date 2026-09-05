@@ -195,3 +195,46 @@ model SimRun {
   @@index([algorithm])
   @@index([createdAt])
 }
+
+// ============ INET 智能组网实验室 ============
+model InetScenario {
+  id          String   @id @default(cuid())
+  name        String
+  scenarioType String
+  description String   @default("")
+  parameters  String   @default("{}")
+  manifest    String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  runs        InetRun[]
+  @@index([scenarioType])
+}
+
+model InetRun {
+  id           String   @id @default(cuid())
+  scenarioId   String
+  scenario     InetScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  status       String   @default("queued")
+  parameters   String   @default("{}")
+  metrics      String   @default("{}")
+  logPath      String   @default("")
+  artifactHash String   @default("")
+  error        String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  artifacts    InetRunArtifact[]
+  @@index([status])
+  @@index([createdAt])
+}
+
+model InetRunArtifact {
+  id        String   @id @default(cuid())
+  runId     String
+  run       InetRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  fileName  String
+  path      String
+  sha256    String   @default("")
+  sizeBytes Int      @default(0)
+  createdAt DateTime @default(now())
+  @@index([runId])
+}
