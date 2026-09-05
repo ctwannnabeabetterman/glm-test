@@ -7,7 +7,7 @@
  *     （打包后首次启动复制到用户数据目录；示例数据由应用自身首访 seed 流程写入）
  */
 
-const { execSync } = require('child_process')
+const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
@@ -29,12 +29,15 @@ function copyInto(from, to) {
 
 async function makeDbTemplate() {
   const dir = path.join(ROOT, 'resources', 'db-template')
+  fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(dir, { recursive: true })
   const dbFile = path.join(dir, 'custom.db')
   if (fs.existsSync(dbFile)) fs.rmSync(dbFile)
+  // Prisma's Windows engine can fail opening a nonexistent SQLite file.
+  fs.writeFileSync(dbFile, '')
   // 相对路径按 Prisma 约定解析到 schema 目录，因此用绝对路径
   const url = 'file:' + dbFile.replace(/\\/g, '/')
-  execSync(`npx prisma db push --skip-generate`, {
+  execFileSync(process.execPath, [require.resolve('prisma/build/index.js'), 'db', 'push', '--skip-generate'], {
     cwd: ROOT,
     stdio: 'inherit',
     env: { ...process.env, DATABASE_URL: url },
@@ -50,7 +53,7 @@ async function packStandalone() {
   const zip = path.join(dir, 'app.zip')
   if (fs.existsSync(zip)) fs.rmSync(zip)
   // Windows 10+ 自带 bsdtar（tar.exe），-a 按扩展名产出 zip
-  execSync(`tar -a -cf "${zip}" .`, { cwd: STANDALONE, stdio: 'pipe' })
+  execFileSync('tar', ['-a', '-cf', zip, '--exclude=.env*', '--exclude=*.db', '.'], { cwd: STANDALONE, stdio: 'pipe', windowsHide: true })
   const mb = (fs.statSync(zip).size / 1024 / 1024).toFixed(1)
   console.log(`[desktop] packed standalone -> ${path.relative(ROOT, zip)} (${mb} MB)`)
 }
