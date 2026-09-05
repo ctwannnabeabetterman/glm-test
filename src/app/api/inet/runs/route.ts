@@ -3,8 +3,9 @@ import { db } from '@/lib/db'
 import { getScenarioTemplate, SCENARIO_TEMPLATES, type ScenarioType } from '@/lib/inet/scenarios'
 import { validateScenario, ScenarioValidationError } from '@/lib/inet/validation'
 
-export async function GET() {
-  const runs = await db.inetRun.findMany({ orderBy: { createdAt: 'desc' }, take: 30, include: { scenario: { select: { name: true, scenarioType: true } } } })
+export async function GET(request: Request) {
+  const limit = Math.min(100, Math.max(1, Number(new URL(request.url).searchParams.get('limit') ?? 30) || 30))
+  const runs = await db.inetRun.findMany({ orderBy: { createdAt: 'desc' }, take: limit, include: { scenario: { select: { name: true, scenarioType: true } } } })
   return NextResponse.json(runs)
 }
 
