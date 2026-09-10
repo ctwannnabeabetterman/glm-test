@@ -49,8 +49,9 @@ async function packStandalone() {
   fs.mkdirSync(dir, { recursive: true })
   const zip = path.join(dir, 'app.zip')
   if (fs.existsSync(zip)) fs.rmSync(zip)
-  // Windows 10+ 自带 bsdtar（tar.exe），-a 按扩展名产出 zip
-  execSync(`tar -a -cf "${zip}" .`, { cwd: STANDALONE, stdio: 'pipe' })
+  // 必须用 Windows 自带 bsdtar：Git Bash 的 tar 会把 "E:" 当成远程主机
+  const tarExe = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
+  execSync(`"${tarExe}" -a -cf "${zip}" .`, { cwd: STANDALONE, stdio: 'pipe', windowsHide: true })
   const mb = (fs.statSync(zip).size / 1024 / 1024).toFixed(1)
   console.log(`[desktop] packed standalone -> ${path.relative(ROOT, zip)} (${mb} MB)`)
 }
