@@ -15,6 +15,7 @@ const net = require('net')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
+const { migrateDatabase } = require('./migrate-database')
 
 let mainWindow = null
 let serverProc = null
@@ -125,56 +126,18 @@ function ensureDatabase() {
   fs.mkdirSync(dbDir, { recursive: true })
   const dbPath = path.join(dbDir, 'custom.db')
   if (!fs.existsSync(dbPath)) {
-    const tpl = path.join(dataRoot(), 'db-template', 'custom.db')
-    if (fs.existsSync(tpl)) fs.copyFileSync(tpl, dbPath)
-  }
-  migrateDatabase(dbPath)
-  return dbPath
-}
-
-/**
- * 无损数据库迁移：历史版本数据库缺新列（如 Note.structured/lastReadAt）时，
- * 直接 ALTER TABLE 补齐，保留既有数据；不依赖打包内置的 prisma CLI。
- * 用 node:sqlite（Electron 内 Node ≥22 可用）；若运行时无该模块则跳过并告警。
- */
-function migrateDatabase(dbPath) {
-  let Database
-  try {
-    Database = require('node:sqlite').DatabaseSync
-  } catch {
-    console.warn('[desktop] node:sqlite 不可用，跳过数据库迁移（若旧库缺列可能运行报错）')
-    return
+    const tpl = app.isPackaged
+      ? path.join(dataRoot(), 'db-template', 'custom.db')
+      : path.join(dataRoot(), 'resources', 'db-template', 'custom.db')
+    if (!fs.existsSync(tpl)) throw new Error('缺少数据库模板，请重新安装或执行 npm run desktop:prepare')
+    fs.copyFileSync(tpl, dbPath)
   }
   try {
-    const db = new Database(dbPath)
-    const noteCols = db.prepare("PRAGMA table_info('Note')").all().map((c) => c.name)
-    const addIfMissing = (col, ddl) => {
-      if (!noteCols.includes(col)) {
-        db.exec(`ALTER TABLE Note ADD COLUMN ${ddl}`)
-        console.log(`[desktop] db migrated: Note.${col} added`)
-      }
-    }
-    addIfMissing('content', "content TEXT DEFAULT ''")
-    addIfMissing('tags', "tags TEXT DEFAULT ''")
-    addIfMissing('links', "links TEXT DEFAULT '[]'")
-    addIfMissing('category', "category TEXT DEFAULT 'literature'")
-    addIfMissing('structured', "structured TEXT DEFAULT '{}'")
-    addIfMissing('lastReadAt', 'lastReadAt DATETIME')
-
-    const paperCols = db.prepare("PRAGMA table_info('Paper')").all().map((c) => c.name)
-    const addPaperIfMissing = (col, ddl) => {
-      if (!paperCols.includes(col)) {
-        db.exec(`ALTER TABLE Paper ADD COLUMN ${ddl}`)
-        console.log(`[desktop] db migrated: Paper.${col} added`)
-      }
-    }
-    addPaperIfMissing('doi', "doi TEXT DEFAULT ''")
-    addPaperIfMissing('zoteroKey', "zoteroKey TEXT DEFAULT ''")
-    addPaperIfMissing('pdfPath', "pdfPath TEXT DEFAULT ''")
-    db.close()
+    migrateDatabase(dbPath)
   } catch (e) {
     console.error('[desktop] 数据库迁移失败：', e && e.message ? e.message : e)
   }
+  return dbPath
 }
 
 function startInternalServer(port, dbPath) {
@@ -217,7 +180,7 @@ function createWindow(port) {
     height: 940,
     minWidth: 1100,
     minHeight: 700,
-    title: 'AI Network Lab',
+    title: `AI Network Lab ${app.getVersion()}`,
     autoHideMenuBar: true,
     backgroundColor: '#0a0a0a',
     show: false,
@@ -230,6 +193,7 @@ function createWindow(port) {
 
   // 隐藏 Windows 默认菜单栏
   Menu.setApplicationMenu(null)
+  mainWindow.on('page-title-updated', (event) => event.preventDefault())
 
   // 页面内 target=_blank / window.open 的外部链接交给系统浏览器，桌面窗口不漂移
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

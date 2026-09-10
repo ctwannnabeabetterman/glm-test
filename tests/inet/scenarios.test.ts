@@ -1,0 +1,2 @@
+import {describe,it,expect} from 'vitest'; import {SCENARIO_TEMPLATES} from '../../src/lib/inet/scenarios'; import {validateScenario,ScenarioValidationError} from '../../src/lib/inet/validation';
+describe('INET scenarios',()=>{for(const [type,t] of Object.entries(SCENARIO_TEMPLATES))it(`${type} defaults validate`,()=>expect(validateScenario(type as any,t.parameters)).toBe(true)); it('rejects bounds',()=>{expect(()=>validateScenario('b5g-mesh',{...SCENARIO_TEMPLATES['b5g-mesh'].parameters,topology:{nodeCount:1}})).toThrow(ScenarioValidationError)})});

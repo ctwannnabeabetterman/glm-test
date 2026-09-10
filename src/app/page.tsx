@@ -13,6 +13,7 @@ import { MethodologySection } from '@/components/sections/methodology-section'
 import { SimLabSection } from '@/components/sections/sim-lab-section'
 import { SettingsSection } from '@/components/sections/settings-section'
 import { DocsSection } from '@/components/sections/docs-section'
+import { InetLabSection } from '@/components/sections/inet-lab-section'
 import { useAppStore } from '@/lib/store'
 
 export default function Home() {
@@ -30,6 +31,7 @@ export default function Home() {
       {activeSection === 'notes' && <NotesSection />}
       {activeSection === 'methodology' && <MethodologySection />}
       {activeSection === 'simlab' && <SimLabSection />}
+      {activeSection === 'inetlab' && <InetLabSection />}
       {activeSection === 'settings' && <SettingsSection />}
       {activeSection === 'docs' && <DocsSection />}
     </AppShell>

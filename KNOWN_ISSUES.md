@@ -28,6 +28,11 @@
 - **影响**：受影响的用户会看到「内置服务解压失败」错误弹窗。
 - **规避**：现代 Windows 一律内置；若需兼容更老系统，可改用纯 JS 解压库或有损方案。当前作为已知限制记录。
 
+### ⚠️ v1.2.0 安装包体积约 1.3GB
+- **现象**：`AI Network Lab-Setup-1.2.0.exe` 比 1.1.0（约 315MB）大很多。
+- **原因**：`resources/app.zip`（Next standalone）随包装进 extraResources，本次 zip 约 1GB。
+- **影响**：只影响分发体积，不影响功能。下一步应把 standalone 依赖裁薄或改成差量更新。
+
 ### ⚠️ Electron 二进制下载常被 npm install-scripts 拦截
 - **现象**：`npm i electron` 时 `postinstall` 被 install-scripts 策略拦截，`node_modules\electron\dist\electron.exe` 不会自动下载。
 - **规避**：手动 `node node_modules\electron\install.js`，或环境变量设镜像：

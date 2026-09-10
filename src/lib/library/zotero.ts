@@ -95,13 +95,28 @@ export async function fetchZoteroItems(cfg: ZoteroConfig, limit = 100): Promise<
 
   while (items.length < cap) {
     const pageSize = Math.min(100, cap - items.length)
-    const url = `${base}?format=json&itemType=-attachment&sort=dateModified&direction=desc&limit=${pageSize}&start=${start}`
-    const res = await fetch(url, {
-      headers: {
-        'Zotero-API-Version': '3',
-        Authorization: `Bearer ${apiKey}`,
-      },
+    const params = new URLSearchParams({
+      format: 'json',
+      sort: 'dateModified',
+      direction: 'desc',
+      limit: String(pageSize),
+      start: String(start),
     })
+    const url = `${base}?${params.toString()}`
+    let res: Response
+    try {
+      res = await fetch(url, {
+        headers: {
+          'Zotero-API-Version': '3',
+          'Zotero-API-Key': apiKey,
+          Authorization: `Bearer ${apiKey}`,
+        },
+        cache: 'no-store',
+      })
+    } catch (e) {
+      const cause = e instanceof Error && 'cause' in e ? String((e as { cause?: unknown }).cause) : ''
+      throw new Error(`无法连接 Zotero API${cause ? '（' + cause + '）' : ''}：请检查本机能否访问 api.zotero.org`)
+    }
     if (res.status === 403 || res.status === 401) {
       throw new Error('Zotero 鉴权失败：请检查 User ID / API Key 是否匹配，并确认 Key 有 library 读取权限')
     }

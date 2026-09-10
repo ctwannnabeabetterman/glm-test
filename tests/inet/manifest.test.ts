@@ -1,0 +1,1 @@
+import {describe,it,expect} from 'vitest'; import {createManifest,validateManifest} from '../../src/lib/inet/manifest'; describe('manifest',()=>it('reports missing paths',()=>expect(validateManifest(createManifest({projectRoot:'C:/x',omnetppVersion:'6',inetVersion:'4'}),{existsSync:()=>false} as any).length).toBeGreaterThan(0)));
