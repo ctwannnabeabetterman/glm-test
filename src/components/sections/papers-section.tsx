@@ -1,7 +1,7 @@
 'use client'
 
 import { useFetch, useApi } from '@/lib/hooks'
-import { useState, useMemo } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import {
   Card,
   CardContent,
@@ -51,9 +51,11 @@ import {
   Calendar,
   Trophy,
   Download,
+  Upload,
   FileText,
   FileCode,
   ChevronDown,
+  RefreshCw,
   Star,
   Filter,
   ListChecks,
@@ -83,6 +85,9 @@ interface Paper {
   status: string
   codeUrl: string
   pdfUrl: string
+  doi: string
+  zoteroKey: string
+  pdfPath: string
   tags: string
   category: string
   notes: string
@@ -134,6 +139,11 @@ export function PapersSection() {
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
   const [newPaper, setNewPaper] = useState<Partial<Paper>>({
     title: '',
     authors: '',
@@ -214,17 +224,117 @@ export function PapersSection() {
     a.href = url
     a.download = `papers-${new Date().toISOString().slice(0, 10)}.${format === 'csv' ? 'csv' : format === 'endnote' ? 'ris' : 'bib'}`
     a.click()
-    toast.success(`已导出 ${format === 'csv' ? 'CSV' : format === 'endnote' ? 'EndNote/RIS' : 'BibTeX'} 格式`)
+    toast.success(`已导出论文列表（${format === 'csv' ? 'CSV' : format === 'endnote' ? 'EndNote/RIS' : 'BibTeX'}）`)
+  }
+
+  const handleImportBibliography = async () => {
+    if (!importText.trim()) {
+      toast.error('请粘贴 RIS 或 BibTeX')
+      return
+    }
+    setImporting(true)
+    try {
+      const res = await fetch('/api/papers/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: importText }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(`导入完成：新增 ${data.created}，更新 ${data.updated}（未调用 LLM）`)
+      setImportOpen(false)
+      setImportText('')
+      refetch()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleSyncZotero = async () => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/zotero/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(`Zotero 同步完成：新增 ${data.created}，更新 ${data.updated}`)
+      refetch()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const handleUploadPdf = async (file: File, paperId?: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (paperId) fd.append('paperId', paperId)
+    try {
+      const res = await fetch('/api/papers/pdf', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(data.created ? 'PDF 已入库并新建论文条目' : 'PDF 已挂到该论文')
+      refetch()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
   }
 
   return (
     <div className="space-y-4">
       <SectionHeader
         title="论文库"
-        desc="Zotero 风格的文献管理 + 阅读进度追踪 + 优先级排序"
+        desc="Zotero 管文献 · 本库管阅读笔记与实验。导入只写列表，不会自动调用 LLM。"
         icon={BookOpen}
         action={
           <div className="flex items-center gap-2">
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void handleUploadPdf(f)
+                e.target.value = ''
+              }}
+            />
+            <Button size="sm" variant="outline" onClick={() => pdfInputRef.current?.click()}>
+              <Upload className="h-4 w-4 mr-1" />
+              导入 PDF
+            </Button>
+            <Dialog open={importOpen} onOpenChange={setImportOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <Upload className="h-4 w-4 mr-1" />
+                  导入 RIS/BibTeX
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-xl">
+                <DialogHeader>
+                  <DialogTitle>从 Zotero / EndNote 导入</DialogTitle>
+                  <DialogDescription>
+                    在 Zotero 中选中条目 → 右键「导出」选 RIS 或 BibTeX，把文件内容粘贴到下方。只写入论文列表，不会调用 LLM。
+                  </DialogDescription>
+                </DialogHeader>
+                <Textarea
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  className="min-h-[220px] font-mono text-xs"
+                  placeholder={'TY  - JOUR\nTI  - Deep Reinforcement Learning for Wireless Networks\nAU  - Zhang, Wei\nPY  - 2024\nER  - '}
+                />
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setImportOpen(false)}>取消</Button>
+                  <Button onClick={handleImportBibliography} disabled={importing}>{importing ? '导入中…' : '导入到论文库'}</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <Button size="sm" variant="outline" onClick={handleSyncZotero} disabled={syncing}>
+              <RefreshCw className={cn('h-4 w-4 mr-1', syncing && 'animate-spin')} />
+              {syncing ? '同步中' : '同步 Zotero'}
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="outline">
@@ -597,6 +707,42 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
   const api = useApi()
   const [notes, setNotes] = useState(paper.notes)
   const [editing, setEditing] = useState(false)
+  const attachPdfRef = useRef<HTMLInputElement>(null)
+
+  const exportNotes = async (format: 'md' | 'pdf' | 'txt') => {
+    try {
+      const res = await fetch(`/api/papers/${paper.id}/notes?format=${format}`)
+      if (!res.ok) throw new Error('export failed')
+      const blob = await res.blob()
+      const cd = res.headers.get('Content-Disposition') || ''
+      const m = cd.match(/filename\*=UTF-8''(.+)/)
+      const filename = m ? decodeURIComponent(m[1]) : `${paper.title}.${format}`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success(format === 'md' ? '已导出 Markdown 笔记' : format === 'pdf' ? '已导出 PDF 笔记' : '已导出纯文本笔记')
+    } catch {
+      toast.error('笔记导出失败')
+    }
+  }
+
+  const attachPdf = async (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('paperId', paper.id)
+    try {
+      const res = await fetch('/api/papers/pdf', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success('PDF 已挂到本篇论文')
+      onUpdate({ ...paper, pdfPath: data.pdfPath })
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
 
   const saveNotes = async () => {
     try {
@@ -674,6 +820,31 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
           </a>
         )}
 
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+          <input
+            ref={attachPdfRef}
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void attachPdf(f)
+              e.target.value = ''
+            }}
+          />
+          {paper.pdfPath ? (
+            <a href={`/api/papers/pdf?id=${paper.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+              <FileText className="h-3.5 w-3.5" /> 打开已入库 PDF
+            </a>
+          ) : (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => attachPdfRef.current?.click()}>
+              <Upload className="h-3 w-3 mr-1" /> 挂载 PDF
+            </Button>
+          )}
+          {paper.doi && <span className="text-[10px] text-muted-foreground">DOI {paper.doi}</span>}
+          {paper.zoteroKey && <span className="text-[10px] text-muted-foreground">Zotero {paper.zoteroKey}</span>}
+        </div>
+
         <div>
           <div className="flex items-center justify-between mb-2">
             <Label className="text-xs">阅读笔记 (Markdown)</Label>
@@ -684,9 +855,23 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
                   <Button size="sm" className="h-7 text-xs" onClick={saveNotes}>保存</Button>
                 </>
               ) : (
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(true)}>
-                  <Pencil className="h-3 w-3 mr-1" /> 编辑
-                </Button>
+                <>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="outline" className="h-7 text-xs">
+                        <Download className="h-3 w-3 mr-1" /> 导出笔记
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => exportNotes('md')}>Markdown（Obsidian）</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => exportNotes('pdf')}>PDF</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => exportNotes('txt')}>纯文本</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(true)}>
+                    <Pencil className="h-3 w-3 mr-1" /> 编辑
+                  </Button>
+                </>
               )}
             </div>
           </div>

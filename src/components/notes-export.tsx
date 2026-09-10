@@ -27,23 +27,32 @@ interface NotesExportProps {
 }
 
 export function NotesExport({ note }: NotesExportProps) {
+  const exportViaApi = async (format: 'md' | 'pdf') => {
+    try {
+      const res = await fetch(`/api/notes/export/${note.id}?format=${format}`)
+      if (!res.ok) throw new Error('bad response')
+      const blob = await res.blob()
+      const cd = res.headers.get('Content-Disposition') || ''
+      const m = cd.match(/filename\*=UTF-8''(.+)/)
+      const filename = m ? decodeURIComponent(m[1]) : `${sanitizeFilename(note.title)}.${format}`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success(format === 'pdf' ? '已导出为 PDF' : '已导出为 Markdown')
+    } catch {
+      toast.error('导出失败')
+    }
+  }
+
   const exportMarkdown = () => {
-    const tags = note.tags ? note.tags.split(',').map((t) => `#${t.trim()}`).join(' ') : ''
-    const md = `---
-title: "${note.title}"
-date: ${new Date(note.updatedAt).toISOString()}
-category: ${note.category}
-tags: [${note.tags || ''}]
----
+    void exportViaApi('md')
+  }
 
-# ${note.title}
-
-${note.content}
-
-${tags ? `\n---\n*Tags: ${tags}*` : ''}
-`
-    downloadFile(md, `${sanitizeFilename(note.title)}.md`, 'text/markdown')
-    toast.success('已导出为 Markdown 文件')
+  const exportPdf = () => {
+    void exportViaApi('pdf')
   }
 
   const exportPlainText = () => {
@@ -115,7 +124,14 @@ ${tags ? `\n---\n*Tags: ${tags}*` : ''}
           <FileCode className="h-3.5 w-3.5 mr-2 text-primary" />
           <div>
             <div className="text-xs font-medium">Markdown (.md)</div>
-            <div className="text-[9px] text-muted-foreground">含 YAML front matter</div>
+            <div className="text-[9px] text-muted-foreground">Obsidian 可直接打开</div>
+          </div>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={exportPdf}>
+          <FileText className="h-3.5 w-3.5 mr-2 text-rose-600" />
+          <div>
+            <div className="text-xs font-medium">PDF (.pdf)</div>
+            <div className="text-[9px] text-muted-foreground">单篇笔记正文</div>
           </div>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={exportPlainText}>

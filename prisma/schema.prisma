@@ -26,6 +26,9 @@ model Paper {
   status      String   @default("unread") // unread/reading/read
   codeUrl     String   @default("")
   pdfUrl      String   @default("")
+  doi         String   @default("")
+  zoteroKey   String   @default("") // Zotero item key，用于增量同步去重
+  pdfPath     String   @default("") // 本机入库 PDF 相对路径（library/pdfs/...）
   tags        String   @default("") // comma-separated
   category    String   @default("") // survey/method/application/baseline
   notes       String   @default("") // markdown 笔记

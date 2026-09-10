@@ -11,6 +11,9 @@ next-env.d.ts
 db/
 *.db
 
+# 本地 PDF 入库（不要误伤 src/lib/library 源码）
+/library/
+
 # env & secrets
 .env
 .env.local

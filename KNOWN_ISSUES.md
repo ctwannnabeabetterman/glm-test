@@ -34,6 +34,24 @@
   `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
   `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`
 
+## 文献工作流（Zotero / PDF / 导出）
+
+### ✅ 论文笔记现在可以导出为 Markdown / PDF
+- **原现象**：论文详情只有编辑框，没有「导出这一篇笔记」；科研笔记的 Markdown 依赖前端拼 Blob，桌面端经常落不到文件。CSV 被当成「导出论文内容」。
+- **修复**：论文详情「导出笔记」走服务端附件下载；CSV 改为带 BOM 的论文列表。
+
+### ✅ 导入 PDF 不再触发 LLM
+- **原现象**：论文库不能直接入库 PDF；用户期望的是「文件进库」，实际路径却把文本丢给 LLM 再改列表/关系网络。
+- **修复**：`POST /api/papers/pdf` 只存文件并挂 `pdfPath`。关系网络仍按标签/作者/分类计算，导入后如需 AI 摘要请在详情页手动点。
+
+### ✅ Zotero 同步从口号变成接口
+- **原现象**：界面写「Zotero 风格」，Zotero 里更新条目后本软件完全不知道。
+- **修复**：设置页保存 User ID + API Key，论文库「同步 Zotero」拉 Web API 元数据并去重合并。附件 PDF 不会自动下载（Zotero 附件另有权限与存储，避免把实验室变成第二个 Zotero 文件库）。
+
+### ⚠️ Zotero 附件 PDF 不会随同步自动进来
+- **影响**：同步只更新题录。需要 PDF 时用「导入 PDF」挂到对应条目，或继续在 Zotero 里打开原文。
+- **规避**：保持 Zotero 为文件主库，本软件管阅读笔记与实验。
+
 ## 笔记（ReadingNote）
 
 ### ⚠️ 既有文献笔记没有结构化字段，导出时作者/期刊为空

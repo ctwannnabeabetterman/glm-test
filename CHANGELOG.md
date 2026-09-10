@@ -3,6 +3,24 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.2.0] - 2026-09-10
+
+补齐「Zotero → 本软件 → Obsidian」单向断裂的科研工作流。导入/同步**不会**自动调用 LLM。
+
+### 新增
+
+- **论文阅读笔记导出 Markdown / PDF / TXT**：论文详情页「导出笔记」走 `/api/papers/:id/notes`，导出的是这一篇的阅读笔记正文（含三遍阅读记录），可直接丢进 Obsidian
+- **科研笔记服务端导出 MD/PDF**：`/api/notes/export/:id`，桌面端不再依赖前端 Blob 拼文件
+- **论文库 CSV 是论文列表**：UTF-8 BOM + 题名/作者/期刊/年份/DOI/状态/标签等列，不再把笔记正文当成导出主体
+- **导入 RIS / BibTeX**：Zotero/EndNote 导出内容粘贴即写入论文列表，按 DOI / Zotero key / 标题去重合并
+- **导入 PDF 入库**：PDF 落到本机 `library/pdfs/`，可挂到已有论文或新建条目；**不解析、不送 LLM**
+- **Zotero Web API 同步**：设置页填写 User ID + API Key，论文库一键「同步 Zotero」拉条目元数据
+
+### 修复
+
+- 桌面端升级时对 `Paper.doi` / `zoteroKey` / `pdfPath` 做无损 `ALTER TABLE`
+- 论文库文案从「Zotero 风格」改为真实工作流说明，避免误导成已对接 Zotero
+
 ## [1.1.0] - 2026-08-27
 
 > 完整发布说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。本版重点：科研笔记阅读思考模板 + Excel 导出、内置技术应用说明书、Electron 升级后不更新的修复。

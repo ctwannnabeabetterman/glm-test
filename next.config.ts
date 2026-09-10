@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   // 桌面版 /api/notes/export/xlsx 会 Cannot find module。显式把该包纳入 standalone 产物。
   outputFileTracingIncludes: {
     "/api/notes/export/xlsx": ["./node_modules/xlsx/**/*"],
+    "/api/notes/export/[id]": ["./node_modules/xlsx/**/*"],
   },
 };
 

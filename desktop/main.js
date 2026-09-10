@@ -160,7 +160,17 @@ function migrateDatabase(dbPath) {
     addIfMissing('category', "category TEXT DEFAULT 'literature'")
     addIfMissing('structured', "structured TEXT DEFAULT '{}'")
     addIfMissing('lastReadAt', 'lastReadAt DATETIME')
-    // 若未来 schema 再变，可在下面继续追加 addIfMissing
+
+    const paperCols = db.prepare("PRAGMA table_info('Paper')").all().map((c) => c.name)
+    const addPaperIfMissing = (col, ddl) => {
+      if (!paperCols.includes(col)) {
+        db.exec(`ALTER TABLE Paper ADD COLUMN ${ddl}`)
+        console.log(`[desktop] db migrated: Paper.${col} added`)
+      }
+    }
+    addPaperIfMissing('doi', "doi TEXT DEFAULT ''")
+    addPaperIfMissing('zoteroKey', "zoteroKey TEXT DEFAULT ''")
+    addPaperIfMissing('pdfPath', "pdfPath TEXT DEFAULT ''")
     db.close()
   } catch (e) {
     console.error('[desktop] 数据库迁移失败：', e && e.message ? e.message : e)

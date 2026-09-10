@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { SectionHeader } from './papers-section'
 import { toast } from 'sonner'
-import { Settings, KeyRound, Plug, CheckCircle2, AlertCircle, ExternalLink, Loader2, Database, Info } from 'lucide-react'
+import { Settings, KeyRound, Plug, CheckCircle2, AlertCircle, ExternalLink, Loader2, Database, Info, BookMarked } from 'lucide-react'
 
 interface Preset {
   id: string
@@ -39,6 +39,12 @@ export function SettingsSection() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; latency?: number } | null>(null)
+  const [zoteroUserId, setZoteroUserId] = useState('')
+  const [zoteroKey, setZoteroKey] = useState('')
+  const [zoteroCollection, setZoteroCollection] = useState('')
+  const [zoteroHint, setZoteroHint] = useState('')
+  const [zoteroSaving, setZoteroSaving] = useState(false)
+  const [zoteroSyncing, setZoteroSyncing] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch('/api/settings/llm')
@@ -48,6 +54,14 @@ export function SettingsSection() {
     setModel(data.model)
     const matched = data.presets.find((p) => p.baseUrl === data.baseUrl)
     setPresetId(matched?.id ?? 'custom')
+    try {
+      const z = await fetch('/api/zotero/sync').then((r) => r.json())
+      setZoteroUserId(z.userId || '')
+      setZoteroCollection(z.collectionKey || '')
+      setZoteroHint(z.keyHint || '')
+    } catch {
+      /* ignore */
+    }
   }, [])
 
   useEffect(() => {
@@ -228,6 +242,75 @@ export function SettingsSection() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
+                <BookMarked className="h-5 w-5" /> Zotero 同步
+              </CardTitle>
+              <CardDescription>
+                Zotero 仍是文献主库。这里只拉条目元数据写入论文列表，不会自动让 LLM 读 PDF。User ID 在 zotero.org/settings/keys 页面顶部。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <Label>User ID</Label>
+                <Input value={zoteroUserId} onChange={(e) => setZoteroUserId(e.target.value)} placeholder="例如 1234567" />
+              </div>
+              <div className="space-y-2">
+                <Label>API Key{zoteroHint ? `（已保存 ${zoteroHint}）` : ''}</Label>
+                <Input type="password" value={zoteroKey} onChange={(e) => setZoteroKey(e.target.value)} placeholder="粘贴 Zotero API Key" />
+              </div>
+              <div className="space-y-2">
+                <Label>Collection Key（可选，留空同步整个库）</Label>
+                <Input value={zoteroCollection} onChange={(e) => setZoteroCollection(e.target.value)} placeholder="ABCDEF12" />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  disabled={zoteroSaving}
+                  onClick={async () => {
+                    setZoteroSaving(true)
+                    try {
+                      const body: Record<string, string> = { userId: zoteroUserId, collectionKey: zoteroCollection }
+                      if (zoteroKey.trim()) body.apiKey = zoteroKey.trim()
+                      const res = await fetch('/api/zotero/sync', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+                      const data = await res.json()
+                      if (!res.ok) throw new Error(data.error)
+                      setZoteroHint(data.keyHint || '')
+                      setZoteroKey('')
+                      toast.success('Zotero 配置已保存')
+                    } catch (e) {
+                      toast.error((e as Error).message)
+                    } finally {
+                      setZoteroSaving(false)
+                    }
+                  }}
+                >
+                  {zoteroSaving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}保存 Zotero
+                </Button>
+                <Button
+                  disabled={zoteroSyncing}
+                  onClick={async () => {
+                    setZoteroSyncing(true)
+                    try {
+                      const res = await fetch('/api/zotero/sync', { method: 'POST' })
+                      const data = await res.json()
+                      if (!res.ok) throw new Error(data.error)
+                      toast.success(`同步完成：新增 ${data.created}，更新 ${data.updated}`)
+                    } catch (e) {
+                      toast.error((e as Error).message)
+                    } finally {
+                      setZoteroSyncing(false)
+                    }
+                  }}
+                >
+                  {zoteroSyncing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                  立即同步
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
                 <Database className="h-5 w-5" /> 数据与安全说明
               </CardTitle>
             </CardHeader>
@@ -235,6 +318,7 @@ export function SettingsSection() {
               <p>· API Key 仅保存在本机 SQLite（个人单机部署场景），不会上传到任何第三方</p>
               <p>· 也可不进应用，直接在项目根目录 <code className="rounded bg-muted px-1">.env</code> 写入 <code className="rounded bg-muted px-1">LLM_API_KEY</code></p>
               <p>· 应用内配置优先于环境变量；读取接口只返回脱敏 Key</p>
+              <p>· 推荐工作流：Zotero 管文献 → 本软件同步列表/写阅读笔记/做实验 → Markdown 导出到 Obsidian</p>
             </CardContent>
           </Card>
         </div>

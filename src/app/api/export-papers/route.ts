@@ -14,25 +14,28 @@ export async function GET(request: NextRequest) {
     const papers = await db.paper.findMany({ where, orderBy: [{ year: 'desc' }, { title: 'asc' }] })
 
     if (format === 'csv') {
-      const headers = ['ID', 'Title', 'Authors', 'Venue', 'Year', 'Citations', 'Relevance', 'Novelty', 'Priority', 'Status', 'Category', 'Tags', 'CodeURL', 'DateAdded', 'DateRead']
-      const rows = papers.map((p) => [
-        p.id,
-        `"${p.title.replace(/"/g, '""')}"`,
-        `"${p.authors.replace(/"/g, '""')}"`,
-        `"${p.venue.replace(/"/g, '""')}"`,
-        p.year,
-        p.citations,
-        p.relevance,
-        p.novelty,
-        p.priority,
-        p.status,
-        p.category,
-        `"${p.tags.replace(/"/g, '""')}"`,
-        `"${p.codeUrl.replace(/"/g, '""')}"`,
-        p.dateAdded.toISOString().slice(0, 10),
-        p.dateRead ? p.dateRead.toISOString().slice(0, 10) : '',
-      ])
-      const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+      const { buildPapersCsv } = await import('@/lib/library/paper-notes')
+      const headers = ['Title', 'Authors', 'Venue', 'Year', 'DOI', 'Status', 'Priority', 'Category', 'Tags', 'Citations', 'Relevance', 'Novelty', 'CodeURL', 'ZoteroKey', 'HasPDF', 'DateAdded', 'DateRead']
+      const rows = papers.map((p) => ({
+        Title: p.title,
+        Authors: p.authors,
+        Venue: p.venue,
+        Year: p.year,
+        DOI: p.doi,
+        Status: p.status,
+        Priority: p.priority,
+        Category: p.category,
+        Tags: p.tags,
+        Citations: p.citations,
+        Relevance: p.relevance,
+        Novelty: p.novelty,
+        CodeURL: p.codeUrl,
+        ZoteroKey: p.zoteroKey,
+        HasPDF: p.pdfPath ? 'yes' : 'no',
+        DateAdded: p.dateAdded.toISOString().slice(0, 10),
+        DateRead: p.dateRead ? p.dateRead.toISOString().slice(0, 10) : '',
+      }))
+      const csv = buildPapersCsv(rows, headers)
       return new NextResponse(csv, {
         headers: {
           'Content-Type': 'text/csv; charset=utf-8',
