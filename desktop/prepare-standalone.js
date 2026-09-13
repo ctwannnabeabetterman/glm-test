@@ -46,6 +46,10 @@ async function makeDbTemplate() {
 }
 
 async function packStandalone() {
+  // Next standalone 目录可能残留上一次构建复制的 release/tests/docs 等目录。
+  // 先清理非运行时目录，避免旧代码、旧安装包和测试数据库进入桌面包并增加内存/体积。
+  const staleDirs = ['release', 'resources', 'tests', 'test-results', 'docs', 'desktop', 'scripts']
+  for (const name of staleDirs) fs.rmSync(path.join(STANDALONE, name), { recursive: true, force: true })
   // electron-builder 对 extraResources 中名为 node_modules 的目录会做依赖收集式过滤，
   // 导致 standalone 的依赖层丢失；因此压成单文件随包携带，由桌面壳层首次启动时自解压。
   const dir = path.join(ROOT, 'resources')
