@@ -19,6 +19,17 @@ const { migrateDatabase } = require('./migrate-database')
 
 let mainWindow = null
 let serverProc = null
+// SQLite 是单用户本地库：锁定为单实例，避免多进程并发写入造成数据竞争。
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  })
+}
 let trustedOrigin = null
 let savingFile = false
 
