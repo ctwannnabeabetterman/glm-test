@@ -708,6 +708,7 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
   const api = useApi()
   const [notes, setNotes] = useState(paper.notes)
   const [editing, setEditing] = useState(false)
+  const [pdfOpen, setPdfOpen] = useState(false)
   const attachPdfRef = useRef<HTMLInputElement>(null)
 
   const exportNotes = async (format: 'md' | 'pdf' | 'txt') => {
@@ -823,9 +824,14 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
             }}
           />
           {paper.pdfPath ? (
-            <a href={`/api/papers/pdf?id=${paper.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-              <FileText className="h-3.5 w-3.5" /> 打开已入库 PDF
-            </a>
+            <>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setPdfOpen(true)}>
+                <FileText className="h-3.5 w-3.5 mr-1" /> 内联阅读 PDF
+              </Button>
+              <a href={`/api/papers/pdf?id=${paper.id}`} target="_blank" rel="noreferrer" className="text-[10px] text-muted-foreground hover:text-primary hover:underline">
+                新窗口打开
+              </a>
+            </>
           ) : (
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => attachPdfRef.current?.click()}>
               <Upload className="h-3 w-3 mr-1" /> 挂载 PDF
@@ -834,6 +840,19 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
           {paper.doi && <span className="text-[10px] text-muted-foreground">DOI {paper.doi}</span>}
           {paper.zoteroKey && <span className="text-[10px] text-muted-foreground">Zotero {paper.zoteroKey}</span>}
         </div>
+
+        <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
+          <DialogContent className="max-w-6xl w-[96vw] h-[92vh] p-2 flex flex-col">
+            <DialogHeader className="px-3 py-1">
+              <DialogTitle className="text-sm truncate">PDF 阅读：{paper.title}</DialogTitle>
+            </DialogHeader>
+            <iframe
+              title={`PDF 阅读器：${paper.title}`}
+              src={`/api/papers/pdf?id=${paper.id}`}
+              className="w-full flex-1 rounded border bg-muted"
+            />
+          </DialogContent>
+        </Dialog>
 
         <div>
           <div className="flex items-center justify-between mb-2">
