@@ -1,22 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { buildPaperMarkdown, buildSimplePdf, sanitizeFilename } from '@/lib/library/paper-notes'
+import { buildSimplePdf } from '@/lib/library/pdf'
+import { buildResearchNoteMarkdown, buildResearchNotePlainText, sanitizeFilename } from '@/lib/library/research-note'
 
-function noteToMarkdown(note: { title: string; content: string; tags: string; category: string; updatedAt: Date }): string {
-  return `---
-title: ${JSON.stringify(note.title)}
-category: ${note.category}
-tags: [${note.tags}]
-updatedAt: ${note.updatedAt.toISOString()}
----
-
-# ${note.title}
-
-${note.content || ''}
-`
-}
-
-// GET /api/notes/export/:id?format=md|pdf —— 单篇科研笔记真正落盘
+// GET /api/notes/export/:id?format=md|pdf|txt —— 单篇科研笔记落盘（含阅读思考模板字段）
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
@@ -24,13 +11,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const note = await db.note.findUnique({ where: { id } })
     if (!note) return NextResponse.json({ error: '笔记不存在' }, { status: 404 })
     const name = sanitizeFilename(note.title)
-    const md = noteToMarkdown(note)
+    const md = buildResearchNoteMarkdown(note)
     if (format === 'pdf') {
-      const pdf = buildSimplePdf(note.title, `${note.title}\n\n${note.content || ''}`)
+      const pdf = await buildSimplePdf(note.title, buildResearchNotePlainText(note))
       return new NextResponse(Buffer.from(pdf), {
         headers: {
           'Content-Type': 'application/pdf',
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name + '.pdf')}`,
+        },
+      })
+    }
+    if (format === 'txt') {
+      return new NextResponse(buildResearchNotePlainText(note), {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name + '.txt')}`,
         },
       })
     }

@@ -9,7 +9,7 @@
  * 打包后：server 位于 <resources>/app，数据库模板位于 <resources>/db-template。
  */
 
-const { app, BrowserWindow, Menu, shell } = require('electron')
+const { app, BrowserWindow, Menu, shell, ipcMain, dialog } = require('electron')
 const { spawn, execFile } = require('child_process')
 const net = require('net')
 const http = require('http')
@@ -19,6 +19,8 @@ const { migrateDatabase } = require('./migrate-database')
 
 let mainWindow = null
 let serverProc = null
+let trustedOrigin = null
+let savingFile = false
 
 /** 读取 zip 内 BUILD_ID（Next 每次构建都会生成不同值，用作版本标识）；失败返回 null */
 function readZipBuildId(zip) {
@@ -175,6 +177,7 @@ function startInternalServer(port, dbPath) {
 }
 
 function createWindow(port) {
+  trustedOrigin = `http://127.0.0.1:${port}`
   mainWindow = new BrowserWindow({
     width: 1500,
     height: 940,
@@ -185,6 +188,7 @@ function createWindow(port) {
     backgroundColor: '#0a0a0a',
     show: false,
     webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -216,6 +220,44 @@ async function bootstrap() {
   await waitForServer(`http://127.0.0.1:${port}/api/settings/llm`)
   createWindow(port)
 }
+
+ipcMain.handle('save-file', async (event, payload) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return { ok: false, error: 'Untrusted sender' }
+  try {
+    if (!trustedOrigin || new URL(event.senderFrame.url).origin !== trustedOrigin) return { ok: false, error: 'Untrusted origin' }
+  } catch { return { ok: false, error: 'Untrusted origin' } }
+  if (savingFile) return { ok: false, error: 'A save is already in progress' }
+  if (!payload || typeof payload.filename !== 'string' || payload.filename.length > 200 ||
+      /[<>:"/\\|?*\u0000-\u001f]/.test(payload.filename) || !/\.(md|pdf|xlsx|txt|csv)$/i.test(payload.filename) ||
+      typeof payload.mime !== 'string' || payload.mime.length > 150 ||
+      !(payload.buffer instanceof ArrayBuffer) || payload.buffer.byteLength > 50 * 1024 * 1024) {
+    return { ok: false, error: 'Invalid export payload' }
+  }
+  savingFile = true
+  try {
+    const filename = payload.filename
+    const mime = payload.mime
+    const filters = []
+    if (filename.endsWith('.md')) filters.push({ name: 'Markdown', extensions: ['md'] })
+    else if (filename.endsWith('.pdf')) filters.push({ name: 'PDF', extensions: ['pdf'] })
+    else if (filename.endsWith('.xlsx')) filters.push({ name: 'Excel', extensions: ['xlsx'] })
+    else if (filename.endsWith('.txt')) filters.push({ name: 'Text', extensions: ['txt'] })
+    else if (filename.endsWith('.csv')) filters.push({ name: 'CSV', extensions: ['csv'] })
+    filters.push({ name: 'All Files', extensions: ['*'] })
+    const result = await dialog.showSaveDialog(mainWindow || undefined, {
+      defaultPath: filename,
+      filters,
+    })
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+    const buffer = Buffer.from(payload.buffer)
+    fs.writeFileSync(result.filePath, buffer)
+    return { ok: true, path: result.filePath, mime }
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) }
+  } finally {
+    savingFile = false
+  }
+})
 
 app.whenReady().then(bootstrap).catch((err) => {
   // 无窗口阶段的致命错误：弹系统级提示并退出

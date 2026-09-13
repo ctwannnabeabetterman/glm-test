@@ -34,6 +34,7 @@ import {
 import { SectionHeader } from './papers-section'
 import { TOPIC_CRITERIA, TOPIC_DIRECTIONS } from '@/lib/methodology-data'
 import { AIGapAnalysis } from '@/components/ai-gap-analysis'
+import { AIDirectionExplorer } from '@/components/ai-direction-explorer'
 import {
   Target,
   Plus,
@@ -187,7 +188,8 @@ export function TopicsSection() {
         }
       />
 
-      {/* AI Gap Analysis */}
+      {/* 先探索候选方向，再做全库 Gap 分析，避免重复选题 */}
+      <AIDirectionExplorer />
       <AIGapAnalysis />
 
       {/* Theory card */}

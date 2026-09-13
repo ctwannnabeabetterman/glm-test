@@ -18,6 +18,7 @@ import { Progress } from '@/components/ui/progress'
 import { SectionHeader } from './papers-section'
 import { AIAbstractGenerator } from '@/components/ai-abstract-generator'
 import { AIReviewGenerator } from '@/components/ai-review-generator'
+import { AIDirectionExplorer } from '@/components/ai-direction-explorer'
 import { PAPER_SECTIONS, ACADEMIC_PHRASES, REVIEW_RESPONSE_PHRASES, SUBMISSION_CHECKLIST } from '@/lib/methodology-data'
 import {
   PenLine,
@@ -71,6 +72,7 @@ export function WritingSection() {
         <TabsContent value="structure"><StructureChecker /></TabsContent>
         <TabsContent value="abstract">
           <div className="space-y-3">
+            <AIDirectionExplorer />
             <AIAbstractGenerator />
             <AbstractGenerator />
           </div>

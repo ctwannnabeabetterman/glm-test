@@ -124,7 +124,7 @@ export function NotesSection() {
     <div className="space-y-4">
       <SectionHeader
         title="科研笔记"
-        desc="Obsidian 风格 · Markdown · 双向链接 · 多维分类"
+        desc="打开一篇笔记后，点右上角「导出」可保存为 Markdown / PDF（桌面会弹出另存为）"
         icon={StickyNote}
         action={
           <Dialog open={addOpen} onOpenChange={setAddOpen}>

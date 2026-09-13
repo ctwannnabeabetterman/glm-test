@@ -56,17 +56,7 @@ async function packStandalone() {
   const tarExe = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
   execFileSync(tarExe, [
     '-a', '-cf', zip,
-    '--exclude=.env*',
-    '--exclude=*.db',
-    '--exclude=release',
-    '--exclude=resources',
-    '--exclude=tests',
-    '--exclude=docs',
-    '--exclude=desktop',
-    '--exclude=scripts',
-    '--exclude=electron-builder.yml',
-    '--exclude=package-lock.json',
-    '.',
+    'server.js', 'package.json', 'node_modules', '.next', 'public',
   ], { cwd: STANDALONE, stdio: 'pipe', windowsHide: true })
   const mb = (fs.statSync(zip).size / 1024 / 1024).toFixed(1)
   console.log(`[desktop] packed standalone -> ${path.relative(ROOT, zip)} (${mb} MB)`)

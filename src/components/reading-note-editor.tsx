@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useApi } from '@/lib/hooks'
 import { toast } from 'sonner'
+import { NotesExport } from '@/components/notes-export'
+import { downloadFromApi } from '@/lib/download'
 import {
   BookOpen,
   Save,
@@ -94,18 +96,7 @@ export function ReadingNoteEditor({ note, onUpdate }: ReadingNoteEditorProps) {
 
   const exportExcel = async () => {
     try {
-      const res = await fetch(`/api/notes/export/xlsx?category=literature`)
-      if (!res.ok) throw new Error('bad response')
-      const blob = await res.blob()
-      const cd = res.headers.get('Content-Disposition') || ''
-      const m = cd.match(/filename\*=UTF-8''(.+)/)
-      const filename = m ? decodeURIComponent(m[1]) : '文献阅读笔记.xlsx'
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(url)
+      if (!await downloadFromApi('/api/notes/export/xlsx?category=literature', '文献阅读笔记.xlsx')) return
       toast.success('已导出为 Excel')
     } catch {
       toast.error('导出 Excel 失败')
@@ -120,7 +111,7 @@ export function ReadingNoteEditor({ note, onUpdate }: ReadingNoteEditorProps) {
           文献阅读思考模板
         </CardTitle>
         <div className="text-xs text-muted-foreground">
-          阅读时逐项填写思考，保存后可在论文库/综述写作中复用，并一键导出 Excel。
+          阅读时逐项填写思考，请先保存修改，再导出 Markdown / PDF 或 Excel 列表。
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -148,6 +139,7 @@ export function ReadingNoteEditor({ note, onUpdate }: ReadingNoteEditorProps) {
             {note.lastReadAt ? new Date(note.lastReadAt).toLocaleDateString('zh-CN') : '未记录'}
           </Badge>
           <div className="ml-auto flex gap-1.5">
+            <NotesExport note={note} compact />
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={exportExcel}>
               <FileSpreadsheet className="h-3 w-3 mr-1" /> 导出 Excel
             </Button>

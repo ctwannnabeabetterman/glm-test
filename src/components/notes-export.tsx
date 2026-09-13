@@ -9,143 +9,65 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
-import { Download, FileText, FileCode, ChevronDown, FileJson, FileSpreadsheet } from 'lucide-react'
+import { Download, FileText, FileCode, ChevronDown, FileSpreadsheet } from 'lucide-react'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
+import { downloadFromApi } from '@/lib/download'
 
 interface Note {
   id: string
   title: string
-  content: string
-  tags: string
-  category: string
-  updatedAt: string
 }
 
 interface NotesExportProps {
   note: Note
+  compact?: boolean
 }
 
-export function NotesExport({ note }: NotesExportProps) {
-  const exportViaApi = async (format: 'md' | 'pdf') => {
+export function NotesExport({ note, compact }: NotesExportProps) {
+  const exportViaApi = async (format: 'md' | 'pdf' | 'xlsx') => {
     try {
-      const res = await fetch(`/api/notes/export/${note.id}?format=${format}`)
-      if (!res.ok) throw new Error('bad response')
-      const blob = await res.blob()
-      const cd = res.headers.get('Content-Disposition') || ''
-      const m = cd.match(/filename\*=UTF-8''(.+)/)
-      const filename = m ? decodeURIComponent(m[1]) : `${sanitizeFilename(note.title)}.${format}`
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(url)
-      toast.success(format === 'pdf' ? '已导出为 PDF' : '已导出为 Markdown')
+      const url = format === 'xlsx'
+        ? `/api/notes/export/xlsx?category=literature`
+        : `/api/notes/export/${note.id}?format=${format}`
+      const fallback = format === 'xlsx' ? '文献阅读笔记.xlsx' : `${note.title}.${format}`
+      if (!await downloadFromApi(url, fallback)) return
+      toast.success(format === 'pdf' ? '已导出 PDF' : format === 'xlsx' ? '已导出 Excel' : '已导出 Markdown')
     } catch {
-      toast.error('导出失败')
+      toast.error('导出失败：请检查是否已打开一篇笔记')
     }
-  }
-
-  const exportMarkdown = () => {
-    void exportViaApi('md')
-  }
-
-  const exportPdf = () => {
-    void exportViaApi('pdf')
-  }
-
-  const exportPlainText = () => {
-    const text = `${note.title}\n${'='.repeat(note.title.length)}\n\n${note.content}\n`
-    downloadFile(text, `${sanitizeFilename(note.title)}.txt`, 'text/plain')
-    toast.success('已导出为纯文本文件')
-  }
-
-  const exportJSON = () => {
-    const json = JSON.stringify(note, null, 2)
-    downloadFile(json, `${sanitizeFilename(note.title)}.json`, 'application/json')
-    toast.success('已导出为 JSON 文件')
-  }
-
-  const exportExcel = async () => {
-    try {
-      const res = await fetch(`/api/notes/export/xlsx?category=literature`)
-      if (!res.ok) throw new Error('bad response')
-      const blob = await res.blob()
-      const cd = res.headers.get('Content-Disposition') || ''
-      const m = cd.match(/filename\*=UTF-8''(.+)/)
-      const filename = m ? decodeURIComponent(m[1]) : '文献阅读笔记.xlsx'
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(url)
-      toast.success('已导出为 Excel 文件')
-    } catch {
-      toast.error('导出 Excel 失败')
-    }
-  }
-
-  const downloadFile = (content: string, filename: string, mimeType: string) => {
-    const blob = new Blob([content], { type: `${mimeType};charset=utf-8` })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const sanitizeFilename = (name: string) => {
-    return name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_').slice(0, 50)
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="ghost" className="h-7 text-xs">
+        <Button size="sm" variant={compact ? 'outline' : 'ghost'} className="h-7 text-xs">
           <Download className="h-3 w-3 mr-1" />
           导出
           <ChevronDown className="h-3 w-3 ml-0.5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuLabel>选择导出格式</DropdownMenuLabel>
+        <DropdownMenuLabel>导出这一篇笔记</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={exportExcel}>
-          <FileSpreadsheet className="h-3.5 w-3.5 mr-2 text-emerald-600" />
-          <div>
-            <div className="text-xs font-medium">Excel (.xlsx)</div>
-            <div className="text-[9px] text-muted-foreground">作者/题目/期刊/最近读日期</div>
-          </div>
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={exportMarkdown}>
+        <DropdownMenuItem onClick={() => void exportViaApi('md')}>
           <FileCode className="h-3.5 w-3.5 mr-2 text-primary" />
           <div>
             <div className="text-xs font-medium">Markdown (.md)</div>
             <div className="text-[9px] text-muted-foreground">Obsidian 可直接打开</div>
           </div>
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={exportPdf}>
+        <DropdownMenuItem onClick={() => void exportViaApi('pdf')}>
           <FileText className="h-3.5 w-3.5 mr-2 text-rose-600" />
           <div>
             <div className="text-xs font-medium">PDF (.pdf)</div>
-            <div className="text-[9px] text-muted-foreground">单篇笔记正文</div>
+            <div className="text-[9px] text-muted-foreground">含阅读思考模板字段</div>
           </div>
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={exportPlainText}>
-          <FileText className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+        <DropdownMenuItem onClick={() => void exportViaApi('xlsx')}>
+          <FileSpreadsheet className="h-3.5 w-3.5 mr-2 text-emerald-600" />
           <div>
-            <div className="text-xs font-medium">纯文本 (.txt)</div>
-            <div className="text-[9px] text-muted-foreground">仅标题和内容</div>
-          </div>
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={exportJSON}>
-          <FileJson className="h-3.5 w-3.5 mr-2 text-amber-600" />
-          <div>
-            <div className="text-xs font-medium">JSON (.json)</div>
-            <div className="text-[9px] text-muted-foreground">完整数据结构</div>
+            <div className="text-xs font-medium">Excel 列表 (.xlsx)</div>
+            <div className="text-[9px] text-muted-foreground">全部文献笔记的作者/题目/期刊</div>
           </div>
         </DropdownMenuItem>
       </DropdownMenuContent>

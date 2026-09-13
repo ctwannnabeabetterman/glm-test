@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { buildPaperMarkdown, buildPaperPlainText, buildSimplePdf, sanitizeFilename } from '@/lib/library/paper-notes'
+import { buildPaperMarkdown, buildPaperPlainText, sanitizeFilename } from '@/lib/library/paper-notes'
+import { buildSimplePdf } from '@/lib/library/pdf'
 
 // GET /api/papers/:id/notes?format=md|txt|pdf —— 导出这一篇论文的阅读笔记
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
     if (format === 'pdf') {
       const md = buildPaperPlainText(paper)
-      const pdf = buildSimplePdf(paper.title, md)
+      const pdf = await buildSimplePdf(paper.title, md)
       return new NextResponse(Buffer.from(pdf), {
         headers: {
           'Content-Type': 'application/pdf',

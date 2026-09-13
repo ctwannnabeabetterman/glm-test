@@ -67,6 +67,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { downloadFromApi } from '@/lib/download'
 import { AISummary } from '@/components/ai-summary'
 import { ReadingTimer } from '@/components/reading-timer'
 import { PaperRelations } from '@/components/paper-relations'
@@ -711,18 +712,7 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
 
   const exportNotes = async (format: 'md' | 'pdf' | 'txt') => {
     try {
-      const res = await fetch(`/api/papers/${paper.id}/notes?format=${format}`)
-      if (!res.ok) throw new Error('export failed')
-      const blob = await res.blob()
-      const cd = res.headers.get('Content-Disposition') || ''
-      const m = cd.match(/filename\*=UTF-8''(.+)/)
-      const filename = m ? decodeURIComponent(m[1]) : `${paper.title}.${format}`
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(url)
+      if (!await downloadFromApi(`/api/papers/${paper.id}/notes?format=${format}`, `${paper.title}.${format}`)) return
       toast.success(format === 'md' ? '已导出 Markdown 笔记' : format === 'pdf' ? '已导出 PDF 笔记' : '已导出纯文本笔记')
     } catch {
       toast.error('笔记导出失败')
