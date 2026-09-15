@@ -3,6 +3,38 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.2.3] - 2026-09-15
+
+移除一个实测不可用的功能，并让笔记导出真正接入 Obsidian。**建议桌面版用户升级。**
+
+### 移除
+
+- **移除「智能组网实验室」（INET）**。实测结论：该功能有两个互相独立的阻塞点——① 前端从未提供 manifest 配置入口（只发 `scenarioType` + `parameters`，全前端搜索 `manifest` 在组件层零命中），服务端因此必然判定为 failed，**即使自行装好 OMNeT++/INET 也无法从界面运行**；② 依赖外部 OMNeT++/INET 工具链，需用户自行编译数 GB 环境。要求用户为此自建环境不划算，故整体移除
+  - 删除 `src/lib/inet/`、`src/app/api/inet/`、`src/components/sections/inet-lab-section.tsx`、导航与分区注册、相关测试与文档
+  - `prisma/schema.prisma` 移除 `InetScenario` / `InetRun` / `InetRunArtifact` 三个模型
+  - `desktop/migrate-database.js` 不再创建这些表；改为**在升级时清理已建出的空表**（先子表后父表，避免外键阻挡），老数据不受影响
+  - 真正的组网仿真能力由内置引擎的「组网仿真实验」承担（无需任何外部依赖，结果可复现）
+
+### 新增
+
+- **导出 Markdown 直接写入 Obsidian vault**：设置页新增「Obsidian 笔记库」（vault 目录 + vault 内子目录 + 开关，可用系统原生目录选择器）；导出菜单新增「同步这一篇 / 全部文献笔记同步到 vault」；「导出 Markdown」在 vault 可用时顺便写入。写盘由内部服务完成，只有「选目录」走 Electron IPC
+  - 路径安全：绝对路径 / `..` / 盘符 / UNC 一律拒绝或净化，写入前用 `path.resolve` 二次校验必须仍在 vault 内（E2E 实测确认 vault 外目录不被写入）
+  - 同名笔记自动追加短 id 后缀，批量同步不会互相覆盖
+
+### 修复
+
+- **INET runner 启动失败会打崩整个后端**：`InetRunner.run` 未监听子进程的 `'error'` 事件。实测 `opp_run` 不存在时只 emit `'error'`、不再 emit `'close'`，EventEmitter 无监听者即抛未捕获异常 → 进程直接退出；而该调用位于 fire-and-forget 的异步 IIFE 中，等于一次失败的实验让整个内部服务消失（用户侧表现为界面失去响应）。现已统一收敛为「resolve 成 failed + 可操作提示」
+- **测试套件跑完不退出，会让 CI 卡死**：`vitest run` 在本项目里全绿后进程不退出（既有问题，改动前的基线同样复现），会使发布工作流的 `Unit tests` 步骤一直挂到 GitHub 默认的 6 小时上限，安装包永远发不出来。改用 `pool: 'threads'`（实测连续多次稳定退出），并给发布 job 加 `timeout-minutes` 兜底
+- **未知导出格式静默回退**：`/api/notes/export/:id?format=tex` 原先不报错、静默返回 md（用户以为拿到 tex，实际是 md），现改为显式 400 并列出支持的格式
+- **E2E 分区断言失真**：`e2e/sections.spec.ts` 文案写死「11 个分区」而实际侧边栏有 12 项、且断言未覆盖「使用说明」，长期无人发现。改为数量从列表派生并补齐全部分区
+- **`electron-builder.yml` 用了不存在的键 `win.locales`，导致打包直接失败**：electron-builder 26 的语言包选项叫 `win.electronLanguages`；写成 `locales` 会让 JSON schema 拒绝整个 `win` 段并终止打包，报错仅一句 `configuration.win should be one of these: null`，不指向具体字段。**CI 的发布 job 会因同样原因失败，即 v1.2.2 的 Release 从未产出可用安装包。** 已改为 `win.electronLanguages` 并在本机跑通完整打包链路
+
+## [1.2.2] - 2026-09-15
+
+- 新增：导出 Markdown 直接写入 Obsidian vault，交给 Obsidian 管理（详见 1.2.3 条目）
+- 修复：INET runner 子进程启动失败导致后端进程退出
+- 修复：测试套件全绿后进程不退出，改用 `pool: 'threads'`
+
 ## [1.2.1] - 2026-09-15
 
 桌面端打包与升级链路的可靠性修复，并大幅削减安装包与运行时体积。**建议桌面版用户升级**——本次修复了"升级后不生效"的隐患，并解决内存占用偏高问题。

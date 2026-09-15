@@ -1,9 +1,13 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * 11 个功能分区的导航渲染冒烟：
+ * 全部功能分区的导航渲染冒烟：
  * 点击侧边栏每一项 ⇒ 对应分区标题出现、无 Next.js 错误浮层。
  * 这是历史运行时崩溃（多种子记录渲染崩溃）的回归防线。
+ *
+ * 注意：这里的条数**从数组派生**，不要写死数字。
+ * 曾经写死「11 个」，而这套断言实际只覆盖 11 项、侧边栏却有 12 项入口，
+ * 数字与事实脱节又长期无人发现（断言本身不校验总数，所以一直是绿的）。
  */
 
 const SECTIONS = [
@@ -18,6 +22,7 @@ const SECTIONS = [
   '方法论浏览',
   '组网仿真实验',
   '系统设置',
+  '使用说明',
 ] as const
 
 // E2E 每次都是「新访客」：预先标记引导已完成，
@@ -46,7 +51,7 @@ test.describe.serial('分区导航', () => {
     })
   }
 
-  test('侧边栏恰好包含 11 个分区入口', async ({ page }) => {
+  test(`侧边栏包含全部 ${SECTIONS.length} 个分区入口`, async ({ page }) => {
     await page.goto('/')
     for (const label of SECTIONS) {
       await expect(page.getByRole('button', { name: new RegExp(label) }).first()).toBeVisible()

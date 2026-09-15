@@ -52,7 +52,10 @@ win:
       arch: [x64]
   # Chromium 默认随包携带 55 个语言包（约 48 MB）。本应用界面为中文、
   # 英文作为兜底，只保留这两个即可，其余对用户不可见。
-  locales:
+  # ⚠️ 键名必须是 electronLanguages。写成 locales 会让 JSON schema 校验失败、
+  # 整个 win 段被拒（报错只说 "configuration.win should be null"，不指向具体字段，
+  # 极难排查），且 CI 的发布 job 会以同样原因失败、安装包永远发不出来。
+  electronLanguages:
     - zh-CN
     - en-US
 nsis:

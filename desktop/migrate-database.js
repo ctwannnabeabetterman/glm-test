@@ -15,45 +15,15 @@ const paperColumns = {
   pdfPath: "pdfPath TEXT DEFAULT ''",
 }
 
-const inetSchema = `
-  CREATE TABLE IF NOT EXISTS "InetScenario" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "name" TEXT NOT NULL,
-    "scenarioType" TEXT NOT NULL,
-    "description" TEXT NOT NULL DEFAULT '',
-    "parameters" TEXT NOT NULL DEFAULT '{}',
-    "manifest" TEXT NOT NULL DEFAULT '{}',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS "InetRun" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "scenarioId" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'queued',
-    "parameters" TEXT NOT NULL DEFAULT '{}',
-    "metrics" TEXT NOT NULL DEFAULT '{}',
-    "logPath" TEXT NOT NULL DEFAULT '',
-    "artifactHash" TEXT NOT NULL DEFAULT '',
-    "error" TEXT NOT NULL DEFAULT '',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    FOREIGN KEY ("scenarioId") REFERENCES "InetScenario" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-  );
-  CREATE TABLE IF NOT EXISTS "InetRunArtifact" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "runId" TEXT NOT NULL,
-    "fileName" TEXT NOT NULL,
-    "path" TEXT NOT NULL,
-    "sha256" TEXT NOT NULL DEFAULT '',
-    "sizeBytes" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY ("runId") REFERENCES "InetRun" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-  );
-  CREATE INDEX IF NOT EXISTS "InetScenario_scenarioType_idx" ON "InetScenario" ("scenarioType");
-  CREATE INDEX IF NOT EXISTS "InetRun_status_idx" ON "InetRun" ("status");
-  CREATE INDEX IF NOT EXISTS "InetRun_createdAt_idx" ON "InetRun" ("createdAt");
-  CREATE INDEX IF NOT EXISTS "InetRunArtifact_runId_idx" ON "InetRunArtifact" ("runId");
-`
+/**
+ * 已下线功能的遗留表。
+ *
+ * 「智能组网实验室」(INET) 依赖外部 OMNeT++/INET 工具链——用户得自行编译数 GB 环境，
+ * 实际不可用，因此整个功能已移除。这里负责把老版本迁移时建出来的空表清掉，
+ * 否则它们会永远以空表形式留在用户库里。
+ * 删除顺序必须是「先子表后父表」，否则外键约束会挡住 DROP。
+ */
+const legacyTables = ['InetRunArtifact', 'InetRun', 'InetScenario']
 
 function migrateDatabase(dbPath) {
   const db = new DatabaseSync(dbPath)
@@ -67,17 +37,17 @@ function migrateDatabase(dbPath) {
       ? Object.keys(paperColumns).filter((name) => !paperColNames.includes(name))
       : []
     const objects = new Set(db.prepare('SELECT name FROM sqlite_master').all().map((row) => row.name))
-    const required = ['InetScenario', 'InetRun', 'InetRunArtifact', 'InetScenario_scenarioType_idx', 'InetRun_status_idx', 'InetRun_createdAt_idx', 'InetRunArtifact_runId_idx']
-    if (!missingColumns.length && !missingPaperColumns.length && required.every((name) => objects.has(name))) return { changed: false }
+    const hasLegacyTables = legacyTables.some((name) => objects.has(name))
+    if (!missingColumns.length && !missingPaperColumns.length && !hasLegacyTables) return { changed: false }
 
     // VACUUM INTO includes committed WAL data, unlike a raw file copy while SQLite is open.
-    const backupPath = `${dbPath}.pre-inet-${Date.now()}.bak`
+    const backupPath = `${dbPath}.pre-migrate-${Date.now()}.bak`
     db.prepare('VACUUM INTO ?').run(backupPath)
     db.exec('BEGIN IMMEDIATE')
     try {
       for (const name of missingColumns) db.exec(`ALTER TABLE Note ADD COLUMN ${noteColumns[name]}`)
       for (const name of missingPaperColumns) db.exec(`ALTER TABLE Paper ADD COLUMN ${paperColumns[name]}`)
-      db.exec(inetSchema)
+      for (const name of legacyTables) db.exec(`DROP TABLE IF EXISTS "${name}"`)
       db.exec('COMMIT')
     } catch (error) {
       db.exec('ROLLBACK')
@@ -89,4 +59,4 @@ function migrateDatabase(dbPath) {
   }
 }
 
-module.exports = { migrateDatabase }
+module.exports = { migrateDatabase, noteColumns, paperColumns, legacyTables }

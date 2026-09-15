@@ -12,7 +12,6 @@ export type Section =
   | 'notes'
   | 'methodology'
   | 'simlab'
-  | 'inetlab'
   | 'settings'
   | 'docs'
 
