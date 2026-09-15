@@ -1,5 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronSaveFile', (payload) => ipcRenderer.invoke('save-file', payload))
-// 渲染层可选调用：手动检查更新（返回 { ok, current, latest, hasUpdate }）
+
 contextBridge.exposeInMainWorld('electronCheckUpdates', () => ipcRenderer.invoke('check-for-updates'))
+
+// 原生目录选择器：浏览器无法获得目录绝对路径，只有壳层能给（用于选 Obsidian vault）
+contextBridge.exposeInMainWorld('electronPickVaultDir', () => ipcRenderer.invoke('obsidian-pick-vault'))

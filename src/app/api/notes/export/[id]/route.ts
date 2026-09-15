@@ -4,10 +4,19 @@ import { buildSimplePdf } from '@/lib/library/pdf'
 import { buildResearchNoteMarkdown, buildResearchNotePlainText, sanitizeFilename } from '@/lib/library/research-note'
 
 // GET /api/notes/export/:id?format=md|pdf|txt —— 单篇科研笔记落盘（含阅读思考模板字段）
+// 注意：不支持的 format 必须显式报错，不能静默回退成 md（否则用户以为拿到了 tex，实际是 md）
+const SUPPORTED_FORMATS = new Set(['md', 'pdf', 'txt'])
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const format = request.nextUrl.searchParams.get('format') || 'md'
+    const format = (request.nextUrl.searchParams.get('format') || 'md').toLowerCase()
+    if (!SUPPORTED_FORMATS.has(format)) {
+      return NextResponse.json(
+        { error: `不支持的导出格式：${format}`, supported: [...SUPPORTED_FORMATS] },
+        { status: 400 },
+      )
+    }
     const note = await db.note.findUnique({ where: { id } })
     if (!note) return NextResponse.json({ error: '笔记不存在' }, { status: 404 })
     const name = sanitizeFilename(note.title)

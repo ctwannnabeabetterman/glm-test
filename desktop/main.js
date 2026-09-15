@@ -501,6 +501,38 @@ ipcMain.handle('check-for-updates', async (event) => {
   }
 })
 
+/**
+ * 渲染层请求用系统原生对话框挑选 Obsidian vault 目录。
+ * 浏览器环境拿不到目录的绝对路径，只有壳层能提供，所以这里走 IPC。
+ * 注意：只负责「选目录并回传路径」，真正的写盘由内部服务完成
+ * （见 src/app/api/notes/export/obsidian/route.ts），避免多开一条写文件通道。
+ */
+ipcMain.handle('obsidian-pick-vault', async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
+    return { ok: false, error: 'Untrusted sender' }
+  }
+  try {
+    if (!trustedOrigin || new URL(event.senderFrame.url).origin !== trustedOrigin) {
+      return { ok: false, error: 'Untrusted origin' }
+    }
+  } catch {
+    return { ok: false, error: 'Untrusted origin' }
+  }
+  try {
+    const result = await dialog.showOpenDialog(mainWindow || undefined, {
+      title: '选择 Obsidian vault 目录',
+      buttonLabel: '选用此目录',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { ok: false, canceled: true }
+    }
+    return { ok: true, path: result.filePaths[0] }
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) }
+  }
+})
+
 app.whenReady().then(bootstrap).catch((err) => {
   // 无窗口阶段的致命错误：弹系统级提示并退出
   const { dialog } = require('electron')
