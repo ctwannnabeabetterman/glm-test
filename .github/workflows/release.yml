@@ -30,6 +30,9 @@ jobs:
   release:
     name: Build & Publish (Windows NSIS)
     runs-on: windows-latest
+    # 兜底超时：本项目出现过「测试全绿但进程不退出」的挂起（见 vitest.config.ts 的 pool 说明）。
+    # 没有这个上限，一旦复发整个 job 会一直挂到 GitHub 默认的 6 小时上限，白烧额度还看不到失败原因。
+    timeout-minutes: 45
 
     env:
       # Prisma Client 在模块导入时实例化，构建期只需一个合法的 SQLite 占位 DSN
