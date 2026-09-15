@@ -44,6 +44,59 @@ ER  -
     expect(parseBibliography('hello world')).toEqual([])
   })
 
+  // 回归：旧实现用 /@\w+\s*\{[\s\S]*?\n\}/g，要求闭合 } 紧跟换行，
+  // 导致「单行紧凑写法」一条都解析不出来。用户从网页/对话里粘贴时常是单行。
+  it('parses a single-line BibTeX entry (regression)', () => {
+    const bib = '@article{styleB, title={Compact One Line}, author={Gamma, Guy}, year={2026}}'
+    const recs = parseBibtex(bib)
+    expect(recs).toHaveLength(1)
+    expect(recs[0].title).toBe('Compact One Line')
+    expect(recs[0].authors).toBe('Gamma, Guy')
+    expect(recs[0].year).toBe(2026)
+  })
+
+  it('parses a single-line BibTeX entry with spaces around the equals sign', () => {
+    const bib = '@article{styleC, title = {Compact With Spaces}, author = {Delta, Dan}, year = {2026} }'
+    const recs = parseBibtex(bib)
+    expect(recs).toHaveLength(1)
+    expect(recs[0].title).toBe('Compact With Spaces')
+  })
+
+  it('keeps nested braces inside field values intact', () => {
+    const bib = '@article{nested, title = {A {B} C Survey}, author = {X, Y}, year = {2024}}'
+    const recs = parseBibtex(bib)
+    expect(recs).toHaveLength(1)
+    // 非贪婪匹配会在值内的第一个 } 处提前截断，配平扫描则不会
+    expect(recs[0].title).toBe('A B C Survey')
+  })
+
+  it('parses multiple entries mixing single-line and multi-line forms', () => {
+    const bib = `@article{one, title={First Paper}, year={2020}}
+@article{two,
+  title = {Second Paper},
+  year = {2021}
+}`
+    const recs = parseBibtex(bib)
+    expect(recs).toHaveLength(2)
+    expect(recs.map((r) => r.title)).toEqual(['First Paper', 'Second Paper'])
+  })
+
+  // 回归：字段名缺少左边界时，`title =` 会匹配到 `subtitle =` 里的 `title`
+  it('does not mistake subtitle for title (field name boundary)', () => {
+    const bib = '@article{boundary, title={Real Title}, subtitle={Should Not Win}, year={2024}}'
+    const recs = parseBibtex(bib)
+    expect(recs).toHaveLength(1)
+    expect(recs[0].title).toBe('Real Title')
+  })
+
+  it('reads quoted field values', () => {
+    const bib = '@article{q, title = "Quoted Title", author = "Quoted, Author", year = 2023}'
+    const recs = parseBibtex(bib)
+    expect(recs).toHaveLength(1)
+    expect(recs[0].title).toBe('Quoted Title')
+    expect(recs[0].year).toBe(2023)
+  })
+
   it('identity prefers DOI over title', () => {
     expect(paperIdentityKey({ doi: '10.1/Abc', title: 'Hello' })).toBe('doi:10.1/abc')
   })

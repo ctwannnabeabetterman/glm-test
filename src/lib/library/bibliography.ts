@@ -137,18 +137,126 @@ function unbrace(s: string): string {
   return clean(s.replace(/[{}]/g, '').replace(/\\&/g, '&'))
 }
 
-/** 解析精简 BibTeX（@article/@inproceedings 等常见字段） */
+/**
+ * 读取 BibTeX 条目里某个字段的值。
+ *
+ * 旧实现是 ``new RegExp(`${name}\\s*=\\s*[{"]...`)``，有两个缺陷：
+ *  1. 值用非贪婪 `[\s\S]*?` 匹配到**第一个** `}`/`"` 就结束 —— 而 Zotero /
+ *     BetterBibTeX 导出会用嵌套花括号保护大小写（`title = {The {IEEE} Standard}`），
+ *     于是标题被截断成 `The IEEE` 之后的内容全部丢失。
+ *  2. 字段名没有左边界 —— `title` 会匹配到 `subtitle = ...` 里的 `title`。
+ * 这里改为：字段名要求前置边界（行首 / 空白 / 逗号 / `{`），值按花括号配平或引号配对取值。
+ */
+function readBibtexField(chunk: string, name: string): string {
+  const re = new RegExp(`(^|[\\s,{])${name}\\s*=\\s*`, 'i')
+  const m = re.exec(chunk)
+  if (!m) return ''
+  let i = m.index + m[0].length
+  while (i < chunk.length && /\s/.test(chunk[i])) i++
+  const first = chunk[i]
+
+  if (first === '{') {
+    const start = i
+    let depth = 0
+    let inQuoted = false
+    for (; i < chunk.length; i++) {
+      const c = chunk[i]
+      if (c === '\\') {
+        i++
+        continue
+      }
+      if (c === '"') {
+        inQuoted = !inQuoted
+        continue
+      }
+      if (inQuoted) continue
+      if (c === '{') {
+        depth++
+      } else if (c === '}') {
+        depth--
+        if (depth === 0) {
+          i++
+          break
+        }
+      }
+    }
+    return unbrace(chunk.slice(start + 1, Math.max(start + 1, i - 1)))
+  }
+
+  if (first === '"') {
+    const start = i
+    i++
+    for (; i < chunk.length; i++) {
+      if (chunk[i] === '\\') {
+        i++
+        continue
+      }
+      if (chunk[i] === '"') break
+    }
+    return unbrace(chunk.slice(start + 1, i))
+  }
+
+  // 裸值：数字或宏（如 year = 2024 / year = pubyear）
+  const start = i
+  while (i < chunk.length && !/[,}\n]/.test(chunk[i])) i++
+  return unbrace(chunk.slice(start, i))
+}
+
+/**
+ * 按花括号配平切分 BibTeX 条目。
+ *
+ * 旧实现用 `/@\w+\s*\{[\s\S]*?\n\}/g` —— 要求闭合 `}` 紧跟换行，于是
+ * 「单行紧凑写法」`@article{k, title={T}, year={2026}}` 一条都匹配不到，
+ * 用户粘贴这类内容会被误判为「未解析到文献条目」。
+ *
+ * 也不能简单把 `\n\}` 改成 `\}`：字段值本身就含嵌套花括号
+ * （如 `title={A {B} C}`），非贪婪匹配会在值内的闭合处提前截断。
+ * 因此改为配平扫描：自 `@type{` 起累计大括号深度，深度归零处即条目结尾。
+ */
+function splitBibtexEntries(text: string): string[] {
+  const out: string[] = []
+  const starter = /@\w+\s*\{/g
+  let m: RegExpExecArray | null
+  while ((m = starter.exec(text)) !== null) {
+    const open = m.index + m[0].length - 1 // 指向 '@type{' 里的 '{'
+    let depth = 0
+    let inQuoted = false
+    let end = -1
+    for (let i = open; i < text.length; i++) {
+      const ch = text[i]
+      if (ch === '\\') {
+        i++ // 跳过 \{ \} 之类的转义
+        continue
+      }
+      if (ch === '"') {
+        inQuoted = !inQuoted
+        continue
+      }
+      if (inQuoted) continue
+      if (ch === '{') {
+        depth++
+      } else if (ch === '}') {
+        depth--
+        if (depth === 0) {
+          end = i
+          break
+        }
+      }
+    }
+    if (end === -1) break // 括号不配平：放弃后续解析，避免产出半截条目
+    out.push(text.slice(m.index, end + 1))
+    starter.lastIndex = end + 1
+  }
+  return out
+}
+
+/** 解析精简 BibTeX（@article/@inproceedings 等常见字段；多行与单行写法均支持） */
 export function parseBibtex(text: string): BibliographyRecord[] {
   const records: BibliographyRecord[] = []
-  const entryRe = /@\w+\s*\{[\s\S]*?\n\}/g
-  const chunks = text.match(entryRe) ?? []
+  const chunks = splitBibtexEntries(text)
   for (const chunk of chunks) {
     const rec: BibliographyRecord = { ...EMPTY }
-    const field = (name: string) => {
-      const re = new RegExp(`${name}\\s*=\\s*[{\"]([\\s\\S]*?)[}\"]\\s*,?`, 'i')
-      const m = chunk.match(re)
-      return m ? unbrace(m[1]) : ''
-    }
+    const field = (name: string) => readBibtexField(chunk, name)
     rec.title = field('title')
     rec.authors = field('author').replace(/\s+and\s+/gi, ', ')
     rec.venue = field('journal') || field('booktitle') || field('publisher')
