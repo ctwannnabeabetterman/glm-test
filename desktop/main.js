@@ -33,12 +33,26 @@ if (!gotSingleInstanceLock) {
 let trustedOrigin = null
 let savingFile = false
 
+/**
+ * 定位可用的 tar 可执行文件。
+ * Windows 10 1803+ 自带 bsdtar（C:\Windows\System32\tar.exe），但 PATH 被裁剪时
+ * 仅靠 `tar` 这个名字可能解析不到，因此优先用绝对路径兜底。
+ */
+function resolveTar() {
+  if (process.platform === 'win32') {
+    const abs = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+    if (fs.existsSync(abs)) return abs
+  }
+  return 'tar'
+}
+
 /** 读取 zip 内 BUILD_ID（Next 每次构建都会生成不同值，用作版本标识）；失败返回 null */
 function readZipBuildId(zip) {
   return new Promise((resolve) => {
-    execFile('tar', ['-xOf', zip, '.next/BUILD_ID'], { windowsHide: true }, (err, stdout) => {
+    execFile(resolveTar(), ['-xOf', zip, '.next/BUILD_ID'], { windowsHide: true }, (err, stdout) => {
       if (err) return resolve(null)
-      resolve(String(stdout).trim())
+      const id = String(stdout).trim()
+      resolve(id || null)
     })
   })
 }
@@ -54,40 +68,129 @@ function readAppBuildId(appDir) {
 }
 
 /**
+ * 「解压完成」标记文件的路径。
+ * 这是本模块的关键防线：只有**整包解压并校验通过之后**才会写入，
+ * 内容为本次解压对应的 BUILD_ID。因此「标记存在且等于 zip 的 BUILD_ID」
+ * 才能真正代表目录完整；光看 BUILD_ID 是不够的——压缩包里 `.next/BUILD_ID`
+ * 位于第 1347/2337 个条目，若解压在后半段被中断，BUILD_ID 已就位而静态资源缺失，
+ * 只比 BUILD_ID 就会误判为「版本一致」而永远跳过修复。
+ */
+function extractMarkerPath(appDir) {
+  return path.join(appDir, '.extract-ok')
+}
+
+function isAppDirComplete(appDir, zipBuildId) {
+  if (!zipBuildId) return false
+  if (!fs.existsSync(path.join(appDir, 'server.js'))) return false
+  if (!fs.existsSync(path.join(appDir, '.next', 'server'))) return false
+  try {
+    return fs.readFileSync(extractMarkerPath(appDir), 'utf8').trim() === zipBuildId
+  } catch {
+    return false
+  }
+}
+
+function extractZip(zip, destDir) {
+  return new Promise((resolve, reject) => {
+    execFile(resolveTar(), ['-xf', zip, '-C', destDir], { windowsHide: true }, (err) => {
+      if (err) return reject(new Error('内置服务解压失败：' + err.message))
+      resolve()
+    })
+  })
+}
+
+/**
  * 解压随包携带的 resources/app.zip 到 resources/app（standalone 服务本体）。
- * 以 BUILD_ID 为版本标识：仅当「已解压目录的版本 == 当前 zip 的版本」时跳过；
- * 版本不一致（升级/重装，zip 更新过而旧目录仍是旧代码）则删除旧目录重新解压，
- * 确保每次更新后客户端加载最新代码，而不是残留上一次解压的旧版本。
+ *
+ * 语义（每条都是有意的）：
+ *  1. **fail-safe**：读不出 zip 版本时**保留现有目录**，绝不因为一次只读探测失败
+ *     就删掉可用的服务目录——旧实现会这么干，导致「启动即自毁」。
+ *  2. **原子替换**：先解压到 app.new，校验通过后再 rename 切换。解压期间
+ *     resources/app 始终是完整的旧版本，不会出现半残状态。
+ *  3. **完整性标记**：解压后校验 BUILD_ID 与 server.js / .next/server 是否齐备，
+ *     全部通过才写 .extract-ok 标记。中断的解压不会留标记，下次启动自动重做。
+ *  4. **失败回滚**：切换失败时把旧目录 rename 回来，保证应用仍可用。
  */
 function ensureAppExtracted() {
   if (!app.isPackaged) return Promise.resolve()
   const resDir = process.resourcesPath
   const appDir = path.join(resDir, 'app')
   const zip = path.join(resDir, 'app.zip')
+  const stagingDir = appDir + '.new'
+  const backupDir = appDir + '.old'
 
-  return readZipBuildId(zip).then((zipBuildId) => {
-    const serverJs = path.join(appDir, 'server.js')
-    const appBuildId = readAppBuildId(appDir)
+  // 清理上一次运行可能留下的中间目录；若 app 缺失但备份还在，先把备份恢复回来
+  if (!fs.existsSync(appDir) && fs.existsSync(backupDir)) {
+    try {
+      fs.renameSync(backupDir, appDir)
+      console.log('[desktop] 上次切换未完成，已回滚旧服务目录')
+    } catch (e) {
+      console.warn('[desktop] 回滚旧服务目录失败：', e.message)
+    }
+  }
+  fs.rmSync(stagingDir, { recursive: true, force: true })
 
-    // 已解压且版本与当前 zip 一致 → 直接复用，无需重解压
-    if (zipBuildId && serverJs && fs.existsSync(serverJs) && appBuildId === zipBuildId) {
+  return readZipBuildId(zip).then(async (zipBuildId) => {
+    // ① 目录完整且版本一致 → 复用，零 IO
+    if (isAppDirComplete(appDir, zipBuildId)) {
+      fs.rmSync(backupDir, { recursive: true, force: true })
       return
     }
-    // 缺 zip 且从未解压过 → 安装不完整
+
+    // ② fail-safe：无法确定 zip 版本时保留现状，绝不做破坏性操作
+    if (!zipBuildId) {
+      if (fs.existsSync(path.join(appDir, 'server.js'))) {
+        console.warn('[desktop] 无法读取 app.zip 的 BUILD_ID，保留现有服务目录')
+        return
+      }
+      if (!fs.existsSync(zip)) throw new Error('安装不完整：缺少内置服务包 app.zip')
+      throw new Error('内置服务包 app.zip 无法读取，请重新安装')
+    }
+
     if (!fs.existsSync(zip)) {
-      if (serverJs && fs.existsSync(serverJs)) return // 有旧解压产物可兜底
+      if (fs.existsSync(path.join(appDir, 'server.js'))) return // 有旧解压产物可兜底
       throw new Error('安装不完整：缺少内置服务包 app.zip')
     }
 
-    // 版本不一致或缺失 → 删除旧目录重新解压
-    fs.rmSync(appDir, { recursive: true, force: true })
-    fs.mkdirSync(appDir, { recursive: true })
-    return new Promise((resolve, reject) => {
-      execFile('tar', ['-xf', zip, '-C', appDir], { windowsHide: true }, (err) => {
-        if (err) return reject(new Error('内置服务解压失败：' + err.message))
-        resolve()
-      })
-    })
+    // ③ 需要重建 → 解压到 staging，校验通过后再原子切换
+    fs.mkdirSync(stagingDir, { recursive: true })
+    try {
+      await extractZip(zip, stagingDir)
+
+      const stagedBuildId = readAppBuildId(stagingDir)
+      if (!stagedBuildId || stagedBuildId !== zipBuildId) {
+        throw new Error(`解压校验失败：期望 BUILD_ID ${zipBuildId}，实际 ${stagedBuildId || '缺失'}`)
+      }
+      if (!fs.existsSync(path.join(stagingDir, 'server.js')) ||
+          !fs.existsSync(path.join(stagingDir, '.next', 'server'))) {
+        throw new Error('解压校验失败：服务入口或服务端产物缺失')
+      }
+      // 校验全部通过，最后一步才写「解压完成」标记
+      fs.writeFileSync(extractMarkerPath(stagingDir), zipBuildId)
+
+      // 原子切换：旧目录先让位，staging 顶上来
+      fs.rmSync(backupDir, { recursive: true, force: true })
+      if (fs.existsSync(appDir)) fs.renameSync(appDir, backupDir)
+      fs.renameSync(stagingDir, appDir)
+      fs.rmSync(backupDir, { recursive: true, force: true })
+      console.log(`[desktop] 服务目录已更新到 BUILD_ID ${zipBuildId}`)
+    } catch (err) {
+      // 回滚：只要旧目录还能找回来，应用就仍然可用
+      fs.rmSync(stagingDir, { recursive: true, force: true })
+      if (!fs.existsSync(appDir) && fs.existsSync(backupDir)) {
+        try {
+          fs.renameSync(backupDir, appDir)
+          console.warn('[desktop] 更新失败，已回滚到旧服务目录')
+        } catch (e) {
+          console.error('[desktop] 回滚失败：', e.message)
+        }
+      }
+      if (fs.existsSync(path.join(appDir, 'server.js'))) {
+        console.warn('[desktop] 本次更新未生效，继续使用旧服务目录：', err.message)
+        return
+      }
+      throw err
+    }
   })
 }
 

@@ -20,6 +20,11 @@ win:
   target:
     - target: nsis
       arch: [x64]
+  # Chromium 默认随包携带 55 个语言包（约 48 MB）。本应用界面为中文、
+  # 英文作为兜底，只保留这两个即可，其余对用户不可见。
+  locales:
+    - zh-CN
+    - en-US
 nsis:
   oneClick: false
   perMachine: false
