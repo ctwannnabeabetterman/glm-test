@@ -3,6 +3,22 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.2.1] - 2026-09-15
+
+桌面端打包与升级链路的可靠性修复，并大幅削减安装包与运行时体积。**建议桌面版用户升级**——本次修复了"升级后不生效"的隐患，并解决内存占用偏高问题。
+
+### 修复（桌面端 / 打包链路）
+
+- **解压改为 fail-safe 原子替换**：`desktop/main.js` 的 `ensureAppExtracted()` 不再"先删后解压"。改为先解压到 `app.new` 并校验，通过后再原子改名替换，成功写入 `.extract-ok` 完整性标记；任一步失败均保留原目录，不会把可用安装破坏成打不开
+- **standalone 裁剪由黑名单改为白名单**：`desktop/prepare-standalone.js` 的 `pruneStandalone()` 顶层仅保留 `server.js` / `package.json` / `node_modules` / `.next` / `public`，递归清除 `*.tmp*`、非 sqlite 的 `wasm-base64`、`*.map`、`*.d.ts`。实测 standalone 由 **607 MB 降至 92.9 MB**
+- **Next tracing 补挡测试/开发目录**：`outputFileTracingExcludes` 增加 `test-results` / `playwright-report` / `e2e` / `tests` / `docs` / `.github` / `db` / `*.db`（曾实测 `test-results` 被 tracing 拷入 **366 MB**）
+- **Chromium 语言包裁剪**：`electron-builder.yml` 仅保留 `zh-CN` / `en-US`，去掉其余 53 个语言包（约 **47 MB**）
+
+### 工程卫生
+
+- 移除已完全合并的 `feature/inet-lab` git 工作树与本地分支
+- 归档并移除两个早期废弃仓库（初版四 demo 之一的 `AI-net` 教学仿真前端、更早的 `智谱AI` 分支）——功能已并入正式源码 v1.2，删除不造成功能缺失
+
 ## [1.2.0] - 2026-09-10
 
 补齐「Zotero → 本软件 → Obsidian」单向断裂的科研工作流。导入/同步**不会**自动调用 LLM。
