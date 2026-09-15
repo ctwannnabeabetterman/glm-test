@@ -17,6 +17,19 @@ const path = require('path')
 const fs = require('fs')
 const { migrateDatabase } = require('./migrate-database')
 
+/**
+ * 自动更新器（electron-updater）。
+ *
+ * 用 try/catch 包住 require：更新依赖被打进 asar（见 electron-builder.yml 的 files 白名单），
+ * 但万一打包时漏了，也绝不能让整个应用起不来——「更新不可用」远好过「应用打不开」。
+ */
+let autoUpdater = null
+try {
+  ;({ autoUpdater } = require('electron-updater'))
+} catch (e) {
+  console.warn('[update] electron-updater 不可用，本次跳过自动更新：', e && e.message ? e.message : e)
+}
+
 let mainWindow = null
 let serverProc = null
 // SQLite 是单用户本地库：锁定为单实例，避免多进程并发写入造成数据竞争。
@@ -326,6 +339,97 @@ function createWindow(port) {
   mainWindow.loadURL(`http://127.0.0.1:${port}/`)
 }
 
+/**
+ * 自动更新：启动后台静默检查 → 有新版用系统对话框询问 → 下载 → 退出时安装。
+ *
+ * 刻意不改动 Next 前端：全部用 Electron 原生 dialog + 窗口标题显示进度，
+ * 这样前端一行代码都不用动，更新链路就能独立跑通。
+ * 更新源来自 electron-builder 的 publish 配置生成的 app-update.yml（GitHub Releases）。
+ */
+function setupAutoUpdate() {
+  if (!autoUpdater) return
+  if (!app.isPackaged) {
+    console.log('[update] 开发模式，跳过自动更新检查')
+    return
+  }
+  // 先问再下：避免在用户不知情时占用带宽；退出时自动安装已下载的更新
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', async (info) => {
+    try {
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        buttons: ['下载更新', '稍后'],
+        defaultId: 0,
+        cancelId: 1,
+        title: '发现新版本',
+        message: `发现新版本 ${info.version}`,
+        detail: `当前版本 ${app.getVersion()}。是否现在下载？下载完成后会在退出时自动安装。`,
+      })
+      if (response === 0) {
+        autoUpdater.downloadUpdate().catch((e) => {
+          dialog.showErrorBox('下载更新失败', String(e && e.message ? e.message : e))
+        })
+      }
+    } catch (e) {
+      console.warn('[update] 提示失败：', e && e.message ? e.message : e)
+    }
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    console.log(`[update] 已是最新版本 ${app.getVersion()}`)
+  })
+
+  autoUpdater.on('download-progress', (p) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setTitle(`AI Network Lab ${app.getVersion()} — 正在下载更新 ${Math.round(p.percent || 0)}%`)
+    }
+  })
+
+  autoUpdater.on('update-downloaded', async (info) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setTitle(`AI Network Lab ${app.getVersion()}`)
+    }
+    try {
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        buttons: ['立即重启并安装', '退出时安装'],
+        defaultId: 0,
+        cancelId: 1,
+        title: '更新已下载',
+        message: `新版本 ${info.version} 已下载完成`,
+        detail: '选择「立即重启并安装」会关闭应用并完成更新；也可以稍后退出时自动安装。',
+      })
+      if (response === 0) {
+        app.isQuitting = true
+        if (serverProc) {
+          try {
+            serverProc.kill() // 先释放 SQLite 文件句柄，再交给安装器
+          } catch {
+            /* 进程可能已自行退出 */
+          }
+        }
+        setImmediate(() => autoUpdater.quitAndInstall())
+      }
+    } catch (e) {
+      console.warn('[update] 安装提示失败：', e && e.message ? e.message : e)
+    }
+  })
+
+  // 网络/权限类错误一律吞掉：更新是增强能力，不能影响正常使用
+  autoUpdater.on('error', (e) => {
+    console.warn('[update] 更新检查出错（已忽略）：', e && e.message ? e.message : e)
+  })
+
+  // 延后 6 秒再查，避免与启动阶段的解压/建库抢磁盘 IO
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((e) => {
+      console.warn('[update] 检查更新失败：', e && e.message ? e.message : e)
+    })
+  }, 6000)
+}
+
 async function bootstrap() {
   await ensureAppExtracted()
   const port = await getFreePort()
@@ -333,6 +437,7 @@ async function bootstrap() {
   startInternalServer(port, dbPath)
   await waitForServer(`http://127.0.0.1:${port}/api/settings/llm`)
   createWindow(port)
+  setupAutoUpdate()
 }
 
 ipcMain.handle('save-file', async (event, payload) => {
@@ -370,6 +475,29 @@ ipcMain.handle('save-file', async (event, payload) => {
     return { ok: false, error: e && e.message ? e.message : String(e) }
   } finally {
     savingFile = false
+  }
+})
+
+/** 渲染层可主动触发一次更新检查（供「关于/设置」页做手动检查按钮用） */
+ipcMain.handle('check-for-updates', async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
+    return { ok: false, error: 'Untrusted sender' }
+  }
+  try {
+    if (!trustedOrigin || new URL(event.senderFrame.url).origin !== trustedOrigin) {
+      return { ok: false, error: 'Untrusted origin' }
+    }
+  } catch {
+    return { ok: false, error: 'Untrusted origin' }
+  }
+  if (!autoUpdater) return { ok: false, error: '更新器不可用（未打包 electron-updater）' }
+  if (!app.isPackaged) return { ok: false, error: '开发模式不检查更新' }
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    const latest = result && result.updateInfo ? result.updateInfo.version : null
+    return { ok: true, current: app.getVersion(), latest, hasUpdate: Boolean(latest && latest !== app.getVersion()) }
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) }
   }
 })
 

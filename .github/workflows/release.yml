@@ -1,0 +1,108 @@
+name: Release
+
+# 发布链路：打 tag 即自动产出 Windows 安装包并上传到 GitHub Release。
+# 客户端（electron-updater）正是从这个 Release 读 latest.yml 来判断/下载更新。
+#
+# 触发方式：
+#   git tag v1.2.1 && git push origin v1.2.1
+#
+# 前置要求（一次性）：
+#   - 仓库 Settings → Actions → General → Workflow permissions 设为
+#     "Read and write permissions"（否则 GITHUB_TOKEN 无法创建 Release）。
+#   - GITHUB_TOKEN 由 Actions 自动注入，无需手动配 secret。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # 允许手动触发（用当前分支版本号试产，不发布）
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: '是否发布到 GitHub Release（false 则只产出本地产物）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish (Windows NSIS)
+    runs-on: windows-latest
+
+    env:
+      # Prisma Client 在模块导入时实例化，构建期只需一个合法的 SQLite 占位 DSN
+      DATABASE_URL: file:./ci.db
+      # electron-builder 读取 GH_TOKEN 以发布到 GitHub Release
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # ---------- 版本校验：tag 必须与 package.json 一致 ----------
+      # 这一步存在的意义：本项目历史上出现过「tag 指向落后 14 个提交的旧提交」、
+      # 「package.json 版本号从没 bump」的问题。若不一致，直接失败，避免又发一个名实不符的版本。
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $pkgVersion = (Get-Content package.json | ConvertFrom-Json).version
+          $tagName = "${{ github.ref_name }}"
+          Write-Host "package.json version = $pkgVersion"
+          Write-Host "git tag              = $tagName"
+          if ($tagName -ne "v$pkgVersion") {
+            Write-Error "版本不一致：tag '$tagName' 与 package.json 'v$pkgVersion' 不匹配。请先 bump package.json 再打 tag。"
+            exit 1
+          }
+          Write-Host "版本校验通过 ✓"
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # ---------- 构建：next build + 白名单裁剪 + 生成 resources/app.zip ----------
+      - name: Build desktop bundle (Next standalone + prune + app.zip)
+        run: npm run desktop:build
+
+      # ---------- 打包 NSIS 并发布 ----------
+      # --publish always：把 exe / blockmap / latest.yml 上传到 GitHub Release。
+      # latest.yml 是 electron-updater 判定「有没有新版本」的唯一依据。
+      - name: Package & publish Windows installer
+        shell: pwsh
+        run: |
+          $publish = 'always'
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            if ('${{ inputs.publish }}' -eq 'true') { $publish = 'always' } else { $publish = 'never' }
+          }
+          Write-Host "publish mode = $publish"
+          npx electron-builder --win --publish $publish
+
+      - name: Upload artifacts (backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: warn
+          retention-days: 14

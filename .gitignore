@@ -2,6 +2,9 @@
 node_modules/
 .worktrees/
 
+# 本机审计/冒烟脚本与原始输出（可复核，但不入库；内含数据库副本，勿提交）
+.recon/
+
 # next.js
 .next/
 out/

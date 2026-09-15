@@ -9,8 +9,38 @@ directories:
 files:
   - desktop/**/*
   - package.json
+  # 壳层代码只有 desktop/ 下几个脚本，体积靠「不打进 node_modules」来保证。
+  # 但 electron-updater 需要在壳里被 require（asar 内解析不到就静默降级为「无更新」），
+  # 因此把它的依赖闭包重新包含回来 —— electron-builder 的 files 按顺序处理，
+  # 后面的模式可以重新包含前面被 ! 排除的文件（见官方文档 Multiple Glob Patterns）。
+  # 清单由 .recon/updater-deps.js 实际遍历 node_modules 依赖树得出；升级该依赖后请重跑。
   - '!node_modules/**/*'
+  - 'node_modules/electron-updater/**/*'
+  - 'node_modules/builder-util-runtime/**/*'
+  - 'node_modules/fs-extra/**/*'
+  - 'node_modules/graceful-fs/**/*'
+  - 'node_modules/jsonfile/**/*'
+  - 'node_modules/universalify/**/*'
+  - 'node_modules/js-yaml/**/*'
+  - 'node_modules/argparse/**/*'
+  - 'node_modules/lazy-val/**/*'
+  - 'node_modules/lodash.escaperegexp/**/*'
+  - 'node_modules/lodash.isequal/**/*'
+  - 'node_modules/semver/**/*'
+  - 'node_modules/tiny-typed-emitter/**/*'
+  - 'node_modules/debug/**/*'
+  - 'node_modules/ms/**/*'
+  - 'node_modules/sax/**/*'
 asar: true
+
+# 自动更新发布通道 —— electron-updater 在打包时会据此生成 resources/app-update.yml，
+# 客户端启动后就是按这个地址去 GitHub Releases 找 latest.yml 判断有没有新版本。
+# CI 用 `electron-builder --win --publish always` 把产物传到这里。
+publish:
+  - provider: github
+    owner: ctwannnabeabetterman
+    repo: glm-test
+
 extraResources:
   - from: resources/app.zip
     to: app.zip
