@@ -69,6 +69,21 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
         expect(objects).not.toContain(name)
       }
       expect(objects.filter((n) => /Inet/i.test(n))).toEqual([])
+
+      // 新增的表必须补齐（写作工作台），索引也要建上
+      expect(objects).toContain('Manuscript')
+      expect(objects).toContain('Manuscript_createdAt_idx')
+      const msCols = upgraded.prepare("PRAGMA table_info('Manuscript')").all().map((c) => (c as { name: string }).name)
+      expect(msCols).toEqual(
+        expect.arrayContaining(['id', 'title', 'venue', 'targetWords', 'sections', 'status', 'createdAt', 'updatedAt']),
+      )
+      // 默认值必须与 Prisma schema 一致，否则新表写入会与 Prisma Client 不一致
+      upgraded.prepare("INSERT INTO Manuscript (id, title, updatedAt) VALUES ('ms-1', 'Draft', '2026-01-01')").run()
+      expect(upgraded.prepare('SELECT targetWords, sections, status FROM Manuscript').get()).toEqual({
+        targetWords: 0,
+        sections: '[]',
+        status: 'draft',
+      })
     } finally {
       upgraded.close()
     }
@@ -92,6 +107,7 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
     db.exec(`
       CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, links TEXT, category TEXT, structured TEXT, lastReadAt DATETIME);
       CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT);
+      CREATE TABLE Manuscript (id TEXT PRIMARY KEY, title TEXT, venue TEXT, targetWords INTEGER, sections TEXT, status TEXT, createdAt DATETIME, updatedAt DATETIME);
     `)
     db.close()
 

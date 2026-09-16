@@ -173,6 +173,22 @@ model Citation {
   @@index([citedPaperId])
 }
 
+// ============ 论文写作工作台（稿件 = 章节大纲 + 正文 + 引用）============
+model Manuscript {
+  id          String   @id @default(cuid())
+  title       String
+  venue       String   @default("") // 目标期刊/会议
+  targetWords Int      @default(0) // 全稿目标字数，0 表示不设目标
+  // JSON: [{ id, title, targetWords, content }]
+  // content 为 markdown，正文中用 [@<paperId>] 标记引用（导出时替换为 [n]）
+  sections    String   @default("[]")
+  status      String   @default("draft") // draft / submitted
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
 // ============ 系统设置（LLM 网关等，个人单机部署，Key 仅存本地 SQLite）============
 model Setting {
   key       String   @id

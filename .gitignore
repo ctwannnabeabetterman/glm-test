@@ -5,6 +5,11 @@ node_modules/
 # 本机审计/冒烟脚本与原始输出（可复核，但不入库；内含数据库副本，勿提交）
 .recon/
 
+# 本机打包用的 PowerShell shim（内含本机绝对路径；electron-builder 26 需要它才能取到依赖树）
+# 注意：npm.ps1 必须纯 ASCII —— PowerShell 5.1 会把无 BOM 的 ps1 按 GBK 解码，
+# 带中文注释会导致脚本体静默不执行、打包报 "No JSON content found in output"。
+.pshims/
+
 # next.js
 .next/
 out/

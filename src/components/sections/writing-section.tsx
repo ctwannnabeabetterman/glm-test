@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { SectionHeader } from './papers-section'
+import { WritingWorkbench } from '@/components/writing-workbench'
 import { AIAbstractGenerator } from '@/components/ai-abstract-generator'
 import { AIReviewGenerator } from '@/components/ai-review-generator'
 import { AIDirectionExplorer } from '@/components/ai-direction-explorer'
@@ -41,12 +42,16 @@ export function WritingSection() {
     <div className="space-y-4">
       <SectionHeader
         title="论文写作"
-        desc="结构检查 · 学术句式 · 审稿回复 · 投稿清单"
+        desc="写作工作台 · 结构检查 · 学术句式 · 审稿回复 · 投稿清单"
         icon={PenLine}
       />
 
-      <Tabs defaultValue="structure">
+      <Tabs defaultValue="workbench">
         <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="workbench">
+            <BookMarked className="h-3.5 w-3.5 mr-1.5" />
+            写作工作台
+          </TabsTrigger>
           <TabsTrigger value="structure">
             <ListChecks className="h-3.5 w-3.5 mr-1.5" />
             结构检查
@@ -69,6 +74,7 @@ export function WritingSection() {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="workbench"><WritingWorkbench /></TabsContent>
         <TabsContent value="structure"><StructureChecker /></TabsContent>
         <TabsContent value="abstract">
           <div className="space-y-3">
