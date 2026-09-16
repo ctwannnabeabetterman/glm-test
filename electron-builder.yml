@@ -40,6 +40,13 @@ publish:
   - provider: github
     owner: ctwannnabeabetterman
     repo: glm-test
+    # ⚠️ 必须显式写成 release。electron-builder 的默认值是 `draft`，
+    # 而草稿 release 在 GitHub 上既不是「latest」、匿名也访问不到：
+    #   · /releases/latest 不再指向某个 tag（页面直接说「没有任何 release」）
+    #   · electron-updater 的 getLatestTagName() 请求 /releases/latest 期望 JSON，
+    #     跟随跳转后拿到 406 → 报 "Cannot parse releases feed" → 检查更新永远失败
+    # 实测这条默认值就是「自动更新一直不生效」的真因：CI 每次都只产出草稿。
+    releaseType: release
 
 extraResources:
   - from: resources/app.zip
@@ -50,6 +57,11 @@ win:
   target:
     - target: nsis
       arch: [x64]
+  # 不设这个键时 electron-builder 会打日志 "default Electron icon is used"，
+  # 装出来的程序在任务栏/开始菜单都是 Electron 默认的原子图标。
+  # 图标由 `node scripts/make-icon.mjs` 生成：ico 内含 16/24/32/48/64/128/256 七个尺寸，
+  # 其中 ≤32px 用「去连线」的简化几何 —— 完整版缩到 16px 时连线会把节点糊成一个十字。
+  icon: build/icon.ico
   # Chromium 默认随包携带 55 个语言包（约 48 MB）。本应用界面为中文、
   # 英文作为兜底，只保留这两个即可，其余对用户不可见。
   # ⚠️ 键名必须是 electronLanguages。写成 locales 会让 JSON schema 校验失败、
@@ -61,6 +73,12 @@ win:
 nsis:
   oneClick: false
   perMachine: false
-  allowToChangeInstallationDirectory: true
+  # ⚠️ 必须 false。「单一版本」在安装器这一层同样要保证：
+  # 允许改安装目录时，用户完全可以把 1.2.4 装到另一个目录，于是磁盘上同时存在
+  # 两份不同版本 —— 它们共享同一个 userData 和同一个 SQLite 库（%APPDATA%\ai-network-lab），
+  # 一旦先后启动就是两个写者，这正是「用多版本开并发」的入口。
+  # 固定目录后：升级会直接覆盖旧版本（electron-builder 的 NSIS 在检出已安装版本时
+  # 会沿用注册表里记录的目录），磁盘上永远只有一份 AI Network Lab。
+  allowToChangeInstallationDirectory: false
   artifactName: ${productName}-Setup-${version}.${ext}
   shortcutName: AI Network Lab

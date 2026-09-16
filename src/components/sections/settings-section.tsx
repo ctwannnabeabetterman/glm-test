@@ -11,7 +11,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
 import { SectionHeader } from './papers-section'
 import { toast } from 'sonner'
-import { Settings, KeyRound, Plug, CheckCircle2, AlertCircle, ExternalLink, Loader2, Database, Info, BookMarked, FolderOpen, FolderSync } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Settings, KeyRound, Plug, CheckCircle2, AlertCircle, ExternalLink, Loader2, Database, Info, BookMarked, FolderOpen, FolderSync, RefreshCw, Download, Rocket, PackageCheck } from 'lucide-react'
 import {
   DEFAULT_OBSIDIAN_STATUS,
   loadObsidianStatus,
@@ -20,6 +21,17 @@ import {
   syncToObsidian,
   type ObsidianStatus,
 } from '@/lib/obsidian-client'
+import {
+  hasDesktopUpdate,
+  getAppInfo,
+  checkForUpdates,
+  downloadUpdate,
+  installUpdate,
+  onUpdateStatus,
+  type AppInfo,
+  type UpdateCheckResult,
+  type UpdateStatusPayload,
+} from '@/lib/desktop-update'
 
 interface Preset {
   id: string
@@ -59,6 +71,69 @@ export function SettingsSection() {
   const [subfolderInput, setSubfolderInput] = useState('AI Network Lab')
   const [obsidianSaving, setObsidianSaving] = useState(false)
   const [obsidianSyncing, setObsidianSyncing] = useState(false)
+
+  // ---- 软件更新 ----
+  // 桌面壳里才有更新能力；浏览器直跑（npm run dev）时整块只做说明展示
+  const [desktopUpdate, setDesktopUpdate] = useState(false)
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
+  const [updateState, setUpdateState] = useState<UpdateStatusPayload | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [installing, setInstalling] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    // 放进 then 回调而不是 effect 体内同步执行：避免「同步 setState 触发级联渲染」，
+    // 也顺带避开 SSR 没有 window 的问题（服务端先渲染「浏览器环境」，挂载后再补真实态）
+    void getAppInfo().then((info) => {
+      if (!alive) return
+      setDesktopUpdate(hasDesktopUpdate())
+      setAppInfo(info)
+      if (info?.updateStatus) setUpdateState(info.updateStatus)
+    })
+    // 主进程推来的状态（例如启动后后台检查发现新版本）同步到这张卡片
+    const off = onUpdateStatus((p) => setUpdateState(p))
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+
+  const runUpdateCheck = useCallback(async () => {
+    setChecking(true)
+    setUpdateResult(null)
+    try {
+      const r = await checkForUpdates()
+      setUpdateResult(r)
+      if (r.ok && r.hasUpdate) toast.success(`发现新版本 ${r.latest}`)
+      else if (r.ok) toast.success('已是最新版本')
+      else toast.error(r.error || '检查更新失败')
+    } finally {
+      setChecking(false)
+    }
+  }, [])
+
+  const runDownload = useCallback(async () => {
+    setDownloading(true)
+    try {
+      const r = await downloadUpdate()
+      if (!r.ok) toast.error(r.error || '下载更新失败')
+      else toast.success('已开始下载，完成后会提示重启安装')
+    } finally {
+      setDownloading(false)
+    }
+  }, [])
+
+  const runInstall = useCallback(async () => {
+    setInstalling(true)
+    try {
+      const r = await installUpdate()
+      if (!r.ok) toast.error(r.error || '安装更新失败')
+    } finally {
+      setInstalling(false)
+    }
+  }, [])
 
   const load = useCallback(async () => {
     const res = await fetch('/api/settings/llm')
@@ -483,6 +558,177 @@ export function SettingsSection() {
               <p>· 推荐工作流：Zotero 管文献 → 本软件同步列表/写阅读笔记/做实验 → 一键写入 Obsidian vault 长期管理</p>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <PackageCheck className="h-5 w-5" /> 软件更新
+              </CardTitle>
+              <CardDescription>
+                当前版本
+                <Badge variant="secondary" className="mx-1 font-mono">
+                  v{appInfo?.version ?? '—'}
+                </Badge>
+                {appInfo?.ok && !appInfo.isPackaged && '（开发模式，不检查更新）'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!desktopUpdate ? (
+                <p className="text-sm text-muted-foreground">
+                  检查更新只在桌面客户端里可用。浏览器里也可以手动对比发布页确认版本。
+                </p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => void runUpdateCheck()} disabled={checking}>
+                      {checking ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-1.5 h-4 w-4" />
+                      )}
+                      检查更新
+                    </Button>
+                    {updateState?.state === 'available' && (
+                      <Button size="sm" variant="outline" onClick={() => void runDownload()} disabled={downloading}>
+                        {downloading ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Download className="mr-1.5 h-4 w-4" />
+                        )}
+                        下载更新
+                      </Button>
+                    )}
+                    {updateState?.state === 'downloaded' && (
+                      <Button size="sm" variant="outline" onClick={() => void runInstall()} disabled={installing}>
+                        {installing ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Rocket className="mr-1.5 h-4 w-4" />
+                        )}
+                        立即重启并安装
+                      </Button>
+                    )}
+                  </div>
+                  <UpdateStatusLine state={updateState} result={updateResult} />
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type UpdateTone = 'ok' | 'pending' | 'error'
+
+interface UpdateLine {
+  tone: UpdateTone
+  title: string
+  hint?: string
+}
+
+/** 把主进程给的 reason 翻译成「下一步该干什么」 */
+function hintForReason(reason?: string): string | undefined {
+  switch (reason) {
+    case 'no-release':
+      return '这是发布侧的问题：更新源上没有可用的正式 Release（不是本机故障）。'
+    case 'no-channel':
+      return '更新源缺少 latest.yml，说明上一次发布流程没有跑完。'
+    case 'network':
+      return '请检查网络或代理设置后重试。'
+    case 'dev':
+      return '开发模式不检查更新，请用打包后的客户端。'
+    case 'no-updater':
+      return '打包时没把更新组件带进去，建议重新安装一次。'
+    case 'no-bridge':
+      return '当前是浏览器环境，没有更新能力。'
+    default:
+      return undefined
+  }
+}
+
+function describeUpdateState(state: UpdateStatusPayload | null): UpdateLine | null {
+  if (!state) return null
+  switch (state.state) {
+    case 'checking':
+      return { tone: 'pending', title: '正在检查更新…' }
+    case 'available':
+      return {
+        tone: 'ok',
+        title: `发现新版本 ${state.version}`,
+        hint: `当前 ${state.current}，点「下载更新」，下载完成后退出时会自动安装。`,
+      }
+    case 'latest':
+      return { tone: 'ok', title: `已是最新版本${state.current ? `（${state.current}）` : ''}` }
+    case 'downloading':
+      return { tone: 'pending', title: `正在下载更新 ${state.percent ?? 0}%` }
+    case 'downloaded':
+      return {
+        tone: 'ok',
+        title: `新版本 ${state.version} 已下载完成`,
+        hint: '点「立即重启并安装」生效，也可以等退出时自动安装。',
+      }
+    case 'error':
+      return { tone: 'error', title: state.message || '检查更新失败', hint: hintForReason(state.reason) }
+    case 'conflict':
+      return {
+        tone: 'error',
+        title: '检测到另一个版本的客户端正在运行',
+        hint: '请关闭它再继续使用：两个版本同时运行会并发写同一个本地数据库，可能损坏数据。',
+      }
+    default:
+      return null
+  }
+}
+
+function UpdateStatusLine({
+  state,
+  result,
+}: {
+  state: UpdateStatusPayload | null
+  result: UpdateCheckResult | null
+}) {
+  // 手动检查的结果优先（它带回了 latest/current 这类具体字段），其次才是推过来的状态
+  let line: UpdateLine | null = null
+  if (result) {
+    if (!result.ok) {
+      line = { tone: 'error', title: result.error || '检查更新失败', hint: hintForReason(result.reason) }
+    } else if (result.hasUpdate) {
+      line = {
+        tone: 'ok',
+        title: `发现新版本 ${result.latest}`,
+        hint: `当前 ${result.current}，点「下载更新」，下载完成后会提示重启安装。`,
+      }
+    } else {
+      line = { tone: 'ok', title: `已是最新版本（${result.current}）` }
+    }
+  } else {
+    line = describeUpdateState(state)
+  }
+
+  if (!line) {
+    return <p className="text-xs text-muted-foreground">还没有检查过，点上面的按钮可以手动检查一次。</p>
+  }
+
+  const Icon = line.tone === 'error' ? AlertCircle : line.tone === 'pending' ? Loader2 : CheckCircle2
+  return (
+    <div
+      className={cn(
+        'rounded-md border px-3 py-2 text-xs',
+        line.tone === 'error' ? 'border-destructive/40 bg-destructive/10' : 'border-border bg-muted/40',
+      )}
+    >
+      <div className="flex items-start gap-1.5">
+        <Icon
+          className={cn(
+            'mt-0.5 h-3.5 w-3.5 shrink-0',
+            line.tone === 'error' ? 'text-destructive' : line.tone === 'pending' ? 'animate-spin text-muted-foreground' : 'text-primary',
+          )}
+        />
+        <div className="min-w-0">
+          <p className="font-medium">{line.title}</p>
+          {line.hint && <p className="mt-0.5 text-muted-foreground">{line.hint}</p>}
         </div>
       </div>
     </div>

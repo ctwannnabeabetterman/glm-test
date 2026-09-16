@@ -15,7 +15,8 @@ const net = require('net')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
-const { migrateDatabase } = require('./migrate-database')
+const { migrateDatabase, readDatabaseVersion, encodeVersion, formatVersion } = require('./migrate-database')
+const { findForeignLabInstances, buildConflictDetail } = require('./instance-guard')
 
 /**
  * 自动更新器（electron-updater）。
@@ -32,12 +33,67 @@ try {
 
 let mainWindow = null
 let serverProc = null
-// SQLite 是单用户本地库：锁定为单实例，避免多进程并发写入造成数据竞争。
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
-  app.quit()
+
+/** 最近一次更新状态，供前端「关于/设置」页在打开时直接取用，而不是只有推送 */
+let lastUpdateStatus = { state: 'idle' }
+
+/**
+ * 把更新状态推给渲染层。
+ *
+ * 为什么不能只靠系统对话框：用户点一次「稍后」对话框就消失了，之后再没有任何痕迹，
+ * 等于「提醒过了但用户没记住」。推一份到界面，可以做成常驻提示，用户随时能看到。
+ */
+function sendUpdateStatus(payload) {
+  lastUpdateStatus = payload
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', payload)
+  }
+}
+
+/**
+ * 把 electron-updater 的原始报错翻译成用户看得懂、能行动的话。
+ *
+ * 最典型的一种：GitHub 侧没有「正式发布」时，getLatestTagName() 请求
+ * /releases/latest 会跟随跳转拿到 406，报错原文是
+ * `Cannot parse releases feed: ... HttpError: 406` —— 对用户零信息量，
+ * 实际含义只是「更新源还没有可用的正式版本」。这类错误原来被 console.warn
+ * 悄悄吞掉，用户永远不知道发生了什么，所以必须分类后显式回传。
+ */
+function classifyUpdateError(e) {
+  const msg = String((e && (e.message || e.stack)) || e || '')
+  if (/406|Cannot parse releases feed|LATEST_VERSION_NOT_FOUND|Unable to find latest version|No published versions/i.test(msg)) {
+    return {
+      reason: 'no-release',
+      message: '更新源暂时没有可用的正式发布（GitHub Releases）。等作者发布新版本后即可检测到。',
+    }
+  }
+  if (/CHANNEL_FILE_NOT_FOUND|Cannot find latest\.yml|404/i.test(msg)) {
+    return { reason: 'no-channel', message: '更新源缺少 latest.yml，说明上一次发布流程没有跑完。' }
+  }
+  if (/ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|ECONNRESET|getaddrinfo|socket hang up/i.test(msg)) {
+    return { reason: 'network', message: '网络不可用，连不上更新源。请检查网络后重试。' }
+  }
+  return { reason: 'unknown', message: msg.split('\n')[0].slice(0, 200) }
+}
+
+/**
+ * SQLite 是单用户本地库：锁定为单实例 —— 多开会并发写同一个 db 文件，造成数据竞争。
+ *
+ * 这里用 `app.exit(0)` 而不是 `app.quit()`：quit 只是「请求退出」，要等 before-quit
+ * 走完才真正结束进程，而 `app.whenReady()` 在这个窗口期仍可能被触发 —— 那样第二个
+ * 实例会照样走完 bootstrap、拉起第二份内部服务，表现为「多开一个客户端 + 多一批
+ * node 子进程 + 第二个 SQLite 句柄」。exit 是立即终止，配合下面的 isSecondaryInstance
+ * 兜底，才能保证拿不到锁的进程绝不再往下启动。
+ *
+ * 实测（win-unpacked 双开）：第二个实例确实会在打印启动警告后自行退出，
+ * 进程总数不增加；关窗后 5 个进程全部归零，无残留。
+ */
+const isSecondaryInstance = !app.requestSingleInstanceLock()
+if (isSecondaryInstance) {
+  app.exit(0)
 } else {
   app.on('second-instance', () => {
+    // 用户又点了一次图标：把已有窗口顶到前面，而不是再开一个
     if (!mainWindow) return
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
@@ -261,8 +317,30 @@ function ensureDatabase() {
     if (!fs.existsSync(tpl)) throw new Error('缺少数据库模板，请重新安装或执行 npm run desktop:prepare')
     fs.copyFileSync(tpl, dbPath)
   }
+
+  // ── 版本一致性（降级保护）──────────────────────────────────────────────
+  // 库里记的版本比当前程序新，说明本机数据已经被更新的版本写过。旧代码不认识新增的
+  // 列/表，继续启动就可能把新数据写坏，而且坏得很安静 —— 所以宁可直接拒绝启动。
+  // 升级方向（库比程序旧）永远放行，由下面的 migrateDatabase 补齐结构。
+  const appVersion = app.getVersion()
+  const stored = readDatabaseVersion(dbPath)
+  const self = encodeVersion(appVersion)
+  if (stored > 0 && self !== null && stored > self) {
+    const detail = [
+      `本机数据库已由更高版本（${formatVersion(stored)}）创建，当前程序是 ${appVersion}。`,
+      '',
+      '继续用旧版本打开会破坏新版本写入的数据，因此已停止启动。',
+      '请安装最新的 AI Network Lab 后再打开；本机数据不会被删除。',
+    ].join('\n')
+    console.error(`[guard] 数据库版本 ${formatVersion(stored)} 高于程序版本 ${appVersion}，拒绝启动`)
+    dialog.showErrorBox('版本不一致', detail)
+    app.exit(0)
+  }
+
   try {
-    migrateDatabase(dbPath)
+    // 顺带把本程序的版本写进库头的 user_version —— 下次若拿更老的程序来开，
+    // 上面的检查就能拦住它。
+    migrateDatabase(dbPath, { appVersion })
   } catch (e) {
     console.error('[desktop] 数据库迁移失败：', e && e.message ? e.message : e)
   }
@@ -337,10 +415,49 @@ function createWindow(port) {
 
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.loadURL(`http://127.0.0.1:${port}/`)
+
+  // 窗口重新获得焦点时做一次「是不是又开了别的版本」的复检（内部已按 60s 节流）。
+  // 用户切回来这个动作本身往往就意味着他刚点过旧版本的图标。
+  mainWindow.on('focus', () => {
+    void watchForeignInstances()
+  })
+}
+
+/** 先释放 SQLite 句柄再交给安装器，否则安装程序可能覆盖不掉正在被占用的文件 */
+function applyUpdateAndRestart() {
+  if (!autoUpdater) return
+  app.isQuitting = true
+  if (serverProc) {
+    try {
+      serverProc.kill()
+    } catch {
+      /* 进程可能已自行退出 */
+    }
+  }
+  setImmediate(() => autoUpdater.quitAndInstall())
+}
+
+/** 开始下载更新（系统对话框与界面按钮共用同一条路径，行为一致） */
+function startUpdateDownload() {
+  if (!autoUpdater) return { ok: false, error: '更新组件不可用' }
+  if (!app.isPackaged) return { ok: false, error: '开发模式不下载更新' }
+  sendUpdateStatus({
+    state: 'downloading',
+    current: app.getVersion(),
+    percent: 0,
+    message: '正在下载更新…',
+  })
+  autoUpdater.downloadUpdate().catch((e) => {
+    const info = classifyUpdateError(e)
+    sendUpdateStatus({ state: 'error', reason: info.reason, message: info.message, current: app.getVersion() })
+    dialog.showErrorBox('下载更新失败', info.message)
+  })
+  return { ok: true }
 }
 
 /**
- * 自动更新：启动后台静默检查 → 有新版用系统对话框询问 → 下载 → 退出时安装。
+ * 自动更新：启动后台静默检查 → 有新版用系统对话框询问 + 推给界面常驻提示
+ * → 下载 → 退出时安装。
  *
  * 刻意不改动 Next 前端：全部用 Electron 原生 dialog + 窗口标题显示进度，
  * 这样前端一行代码都不用动，更新链路就能独立跑通。
@@ -357,6 +474,13 @@ function setupAutoUpdate() {
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('update-available', async (info) => {
+    // 先推给界面做常驻提示，再弹对话框 —— 用户点「稍后」也不会漏掉这次提醒
+    sendUpdateStatus({
+      state: 'available',
+      current: app.getVersion(),
+      version: info.version,
+      message: `发现新版本 ${info.version}（当前 ${app.getVersion()}）`,
+    })
     try {
       const { response } = await dialog.showMessageBox(mainWindow, {
         type: 'info',
@@ -367,30 +491,45 @@ function setupAutoUpdate() {
         message: `发现新版本 ${info.version}`,
         detail: `当前版本 ${app.getVersion()}。是否现在下载？下载完成后会在退出时自动安装。`,
       })
-      if (response === 0) {
-        autoUpdater.downloadUpdate().catch((e) => {
-          dialog.showErrorBox('下载更新失败', String(e && e.message ? e.message : e))
-        })
-      }
+      if (response === 0) startUpdateDownload()
     } catch (e) {
       console.warn('[update] 提示失败：', e && e.message ? e.message : e)
     }
   })
 
-  autoUpdater.on('update-not-available', () => {
+  autoUpdater.on('update-not-available', (info) => {
     console.log(`[update] 已是最新版本 ${app.getVersion()}`)
+    sendUpdateStatus({
+      state: 'latest',
+      current: app.getVersion(),
+      version: (info && info.version) || app.getVersion(),
+      message: '已是最新版本',
+    })
   })
 
   autoUpdater.on('download-progress', (p) => {
+    const percent = Math.round(p.percent || 0)
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.setTitle(`AI Network Lab ${app.getVersion()} — 正在下载更新 ${Math.round(p.percent || 0)}%`)
+      mainWindow.setTitle(`AI Network Lab ${app.getVersion()} — 正在下载更新 ${percent}%`)
     }
+    sendUpdateStatus({
+      state: 'downloading',
+      current: app.getVersion(),
+      percent,
+      message: `正在下载更新 ${percent}%`,
+    })
   })
 
   autoUpdater.on('update-downloaded', async (info) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setTitle(`AI Network Lab ${app.getVersion()}`)
     }
+    sendUpdateStatus({
+      state: 'downloaded',
+      current: app.getVersion(),
+      version: info.version,
+      message: `新版本 ${info.version} 已下载完成，重启后生效`,
+    })
     try {
       const { response } = await dialog.showMessageBox(mainWindow, {
         type: 'info',
@@ -401,36 +540,35 @@ function setupAutoUpdate() {
         message: `新版本 ${info.version} 已下载完成`,
         detail: '选择「立即重启并安装」会关闭应用并完成更新；也可以稍后退出时自动安装。',
       })
-      if (response === 0) {
-        app.isQuitting = true
-        if (serverProc) {
-          try {
-            serverProc.kill() // 先释放 SQLite 文件句柄，再交给安装器
-          } catch {
-            /* 进程可能已自行退出 */
-          }
-        }
-        setImmediate(() => autoUpdater.quitAndInstall())
-      }
+      if (response === 0) applyUpdateAndRestart()
     } catch (e) {
       console.warn('[update] 安装提示失败：', e && e.message ? e.message : e)
     }
   })
 
-  // 网络/权限类错误一律吞掉：更新是增强能力，不能影响正常使用
+  // 网络/权限类错误一律吞掉：更新是增强能力，不能影响正常使用。
+  // 这里只记日志、不打扰用户 —— 手动检查的报错由 IPC 直接回传给界面，
+  // 启动时的静默检查失败更不该弹窗（否则每次开机都要被念一遍）。
   autoUpdater.on('error', (e) => {
-    console.warn('[update] 更新检查出错（已忽略）：', e && e.message ? e.message : e)
+    const info = classifyUpdateError(e)
+    console.warn(`[update] 更新检查出错（已忽略）：${info.reason} — ${info.message}`)
   })
 
   // 延后 6 秒再查，避免与启动阶段的解压/建库抢磁盘 IO
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((e) => {
-      console.warn('[update] 检查更新失败：', e && e.message ? e.message : e)
+      const info = classifyUpdateError(e)
+      console.warn(`[update] 启动静默检查未成功：${info.reason} — ${info.message}`)
     })
   }, 6000)
 }
 
 async function bootstrap() {
+  // 兜底：拿不到单实例锁的进程绝不启动内部服务（见 isSecondaryInstance 的说明）
+  if (isSecondaryInstance) return
+  // 「单一版本」检查必须排在最前面：一旦发现别的版本在跑，连解压/建库都不做，
+  // 更不能拉起内部服务去写共享的 SQLite 库。
+  await enforceSingleVersion()
   await ensureAppExtracted()
   const port = await getFreePort()
   const dbPath = ensureDatabase()
@@ -440,11 +578,96 @@ async function bootstrap() {
   setupAutoUpdate()
 }
 
-ipcMain.handle('save-file', async (event, payload) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return { ok: false, error: 'Untrusted sender' }
+/**
+ * 「单一版本使用限制」的启动闸门。
+ *
+ * 与 app.requestSingleInstanceLock() 分工：进程内锁只认「同一份安装」的第二个实例，
+ * 且要求双方都调用它 —— 而 v1.2.0 及更早的版本没有这段代码，历史二进制改不了。
+ * 它们与新版共用同一个 userData 和同一个 custom.db，同时运行就是两个写者。
+ * 所以这里再主动扫一遍系统：只要发现有**另一个安装路径**的同名客户端在跑，就拒绝启动。
+ */
+async function enforceSingleVersion() {
+  const foreign = await findForeignLabInstances(process.pid, process.execPath)
+  if (foreign === null) {
+    // 查询失败（PowerShell 被策略禁用 / 超时）→ 放行，只留日志。
+    // 宁可少拦一次，也不能因为查不出来就把用户挡在自己的应用外面。
+    console.warn('[guard] 无法枚举同名进程，本次跳过跨版本检查')
+    return
+  }
+  if (!foreign.length) return
+  console.error('[guard] 检测到其他版本的实例，拒绝启动：', JSON.stringify(foreign))
+  dialog.showErrorBox('检测到另一个版本正在运行', buildConflictDetail(foreign, process.execPath))
+  app.exit(0)
+}
+
+/**
+ * 运行期的反向检查：新版已经在跑，用户又去点了旧版本的图标。
+ *
+ * 旧版本内部没有守卫代码，拦不住它自己启动 —— 能做的只有「尽快让用户知道」。
+ * 挂在窗口获得焦点时触发：用户切回来往往正是因为刚点了旧图标，而且这个时机天然
+ * 由用户行为驱动，不会让后台隔几秒就 spawn 一次 PowerShell。
+ */
+// 用「进程启动时刻」初始化节流基准：启动时 enforceSingleVersion() 刚扫过一遍，
+// 窗口随后自动获得焦点会再触发一次 focus 事件，没必要紧接着重复 spawn PowerShell。
+let lastForeignCheckAt = Date.now()
+let foreignWarnedPids = ''
+async function watchForeignInstances() {
+  if (Date.now() - lastForeignCheckAt < 60_000) return
+  lastForeignCheckAt = Date.now()
+  const foreign = await findForeignLabInstances(process.pid, process.execPath)
+  if (!foreign || !foreign.length) return
+  const key = foreign.map((f) => f.pid).sort().join(',')
+  if (key === foreignWarnedPids) return
+  foreignWarnedPids = key
+  console.error('[guard] 运行期检测到其他版本的实例：', JSON.stringify(foreign))
+  sendUpdateStatus({ state: 'conflict', message: '检测到另一个版本的客户端正在运行，请关闭它以免数据冲突' })
   try {
-    if (!trustedOrigin || new URL(event.senderFrame.url).origin !== trustedOrigin) return { ok: false, error: 'Untrusted origin' }
-  } catch { return { ok: false, error: 'Untrusted origin' } }
+    await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      buttons: ['我知道了'],
+      title: '检测到另一个版本正在运行',
+      message: '另一个版本的 AI Network Lab 已启动',
+      detail: buildConflictDetail(foreign, process.execPath),
+    })
+  } catch (e) {
+    console.warn('[guard] 提醒失败：', e && e.message ? e.message : e)
+  }
+}
+
+/**
+ * 渲染层 IPC 的统一调用方校验：必须是本窗口的主框架，且来源是内部服务那个受信任源。
+ * 返回错误字符串表示拒绝，返回 null 表示放行。
+ */
+function guardSender(event) {
+  if (!mainWindow || event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame) {
+    return 'Untrusted sender'
+  }
+  try {
+    if (!trustedOrigin || new URL(event.senderFrame.url).origin !== trustedOrigin) return 'Untrusted origin'
+  } catch {
+    return 'Untrusted origin'
+  }
+  return null
+}
+
+/** 壳层与应用信息：界面用它显示当前版本，并判断是不是跑在桌面端 */
+ipcMain.handle('app-info', async (event) => {
+  const bad = guardSender(event)
+  if (bad) return { ok: false, error: bad }
+  return {
+    ok: true,
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    electron: process.versions.electron,
+    updateStatus: lastUpdateStatus,
+  }
+})
+
+ipcMain.handle('save-file', async (event, payload) => {
+  const bad = guardSender(event)
+  if (bad) return { ok: false, error: bad }
   if (savingFile) return { ok: false, error: 'A save is already in progress' }
   if (!payload || typeof payload.filename !== 'string' || payload.filename.length > 200 ||
       /[<>:"/\\|?*\u0000-\u001f]/.test(payload.filename) || !/\.(md|pdf|xlsx|txt|csv)$/i.test(payload.filename) ||
@@ -478,27 +701,50 @@ ipcMain.handle('save-file', async (event, payload) => {
   }
 })
 
-/** 渲染层可主动触发一次更新检查（供「关于/设置」页做手动检查按钮用） */
+/**
+ * 渲染层主动触发一次更新检查（「设置 → 软件更新」的手动检查按钮）。
+ *
+ * 与启动时的静默检查不同：这里的失败要**如实回传**，让用户知道到底怎么了
+ * （原来失败只 console.warn，用户点完按钮什么反馈都没有，看起来像按钮坏了）。
+ */
 ipcMain.handle('check-for-updates', async (event) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
-    return { ok: false, error: 'Untrusted sender' }
+  const bad = guardSender(event)
+  if (bad) return { ok: false, reason: 'untrusted', error: bad, current: app.getVersion() }
+  if (!autoUpdater) {
+    return { ok: false, reason: 'no-updater', error: '更新组件缺失', current: app.getVersion() }
   }
-  try {
-    if (!trustedOrigin || new URL(event.senderFrame.url).origin !== trustedOrigin) {
-      return { ok: false, error: 'Untrusted origin' }
-    }
-  } catch {
-    return { ok: false, error: 'Untrusted origin' }
+  if (!app.isPackaged) {
+    return { ok: false, reason: 'dev', error: '开发模式不检查更新', current: app.getVersion() }
   }
-  if (!autoUpdater) return { ok: false, error: '更新器不可用（未打包 electron-updater）' }
-  if (!app.isPackaged) return { ok: false, error: '开发模式不检查更新' }
   try {
     const result = await autoUpdater.checkForUpdates()
     const latest = result && result.updateInfo ? result.updateInfo.version : null
-    return { ok: true, current: app.getVersion(), latest, hasUpdate: Boolean(latest && latest !== app.getVersion()) }
+    const hasUpdate = Boolean(latest && latest !== app.getVersion())
+    if (!hasUpdate) {
+      sendUpdateStatus({ state: 'latest', current: app.getVersion(), version: latest, message: '已是最新版本' })
+    }
+    return { ok: true, current: app.getVersion(), latest, hasUpdate }
   } catch (e) {
-    return { ok: false, error: e && e.message ? e.message : String(e) }
+    const info = classifyUpdateError(e)
+    sendUpdateStatus({ state: 'error', reason: info.reason, message: info.message, current: app.getVersion() })
+    return { ok: false, reason: info.reason, error: info.message, current: app.getVersion() }
   }
+})
+
+/** 界面上的「下载更新」按钮 */
+ipcMain.handle('download-update', async (event) => {
+  const bad = guardSender(event)
+  if (bad) return { ok: false, error: bad }
+  return startUpdateDownload()
+})
+
+/** 界面上的「立即重启并安装」按钮 */
+ipcMain.handle('install-update', async (event) => {
+  const bad = guardSender(event)
+  if (bad) return { ok: false, error: bad }
+  if (!autoUpdater) return { ok: false, error: '更新组件不可用' }
+  applyUpdateAndRestart()
+  return { ok: true }
 })
 
 /**
@@ -508,16 +754,8 @@ ipcMain.handle('check-for-updates', async (event) => {
  * （见 src/app/api/notes/export/obsidian/route.ts），避免多开一条写文件通道。
  */
 ipcMain.handle('obsidian-pick-vault', async (event) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
-    return { ok: false, error: 'Untrusted sender' }
-  }
-  try {
-    if (!trustedOrigin || new URL(event.senderFrame.url).origin !== trustedOrigin) {
-      return { ok: false, error: 'Untrusted origin' }
-    }
-  } catch {
-    return { ok: false, error: 'Untrusted origin' }
-  }
+  const bad = guardSender(event)
+  if (bad) return { ok: false, error: bad }
   try {
     const result = await dialog.showOpenDialog(mainWindow || undefined, {
       title: '选择 Obsidian vault 目录',
@@ -533,24 +771,28 @@ ipcMain.handle('obsidian-pick-vault', async (event) => {
   }
 })
 
-app.whenReady().then(bootstrap).catch((err) => {
-  // 无窗口阶段的致命错误：弹系统级提示并退出
-  const { dialog } = require('electron')
-  dialog.showErrorBox('AI Network Lab 启动失败', String(err && err.message ? err.message : err))
-  app.quit()
-})
+// 以下启动与生命周期钩子只在「拿到单实例锁」的进程里注册。
+// 第二个实例在上面已经 exit，这里再挡一道，避免 quit 竞态下重复拉起内部服务。
+if (!isSecondaryInstance) {
+  app.whenReady().then(bootstrap).catch((err) => {
+    // 无窗口阶段的致命错误：弹系统级提示并退出
+    const { dialog } = require('electron')
+    dialog.showErrorBox('AI Network Lab 启动失败', String(err && err.message ? err.message : err))
+    app.quit()
+  })
 
-app.on('window-all-closed', () => {
-  app.quit()
-})
+  app.on('window-all-closed', () => {
+    app.quit()
+  })
 
-app.on('before-quit', () => {
-  app.isQuitting = true
-  if (serverProc) {
-    try {
-      serverProc.kill()
-    } catch {
-      /* 进程可能已自行退出 */
+  app.on('before-quit', () => {
+    app.isQuitting = true
+    if (serverProc) {
+      try {
+        serverProc.kill()
+      } catch {
+        /* 进程可能已自行退出 */
+      }
     }
-  }
-})
+  })
+}

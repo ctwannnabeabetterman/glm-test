@@ -3,6 +3,56 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.2.4] - 2026-09-16
+
+把「检查更新」真正打通、补上应用图标，并给多版本并发装上闸门。**这一版修掉了自动更新长期不生效的真因，同时只允许一个版本、一个客户端在跑。**
+
+### 修复
+
+- **自动更新一直不生效的真因：CI 每次都只产出草稿 release。** `electron-builder.yml` 的 `publish` 没有写 `releaseType`，而 electron-builder 的**默认值就是 `draft`**。草稿 release 在 GitHub 上既不算「latest」、匿名也访问不到，于是：
+  - `https://github.com/<owner>/<repo>/releases/latest` 不再指向任何 tag（实测它 302 到 releases 列表页）
+  - electron-updater 的 `getLatestTagName()` 请求该地址并带 `Accept: application/json`，跟随跳转后拿到 **406**，报 `Cannot parse releases feed`，**整条检查更新链路直接抛错**
+  - 而这条错误又被 `console.warn` 悄悄吞掉 —— 用户侧表现为「检查更新毫无反应」，实际上每次启动都在失败
+  - 已显式写入 `releaseType: release`。**注意：已存在的历史 release 需要在 GitHub 上手动改成正式发布，或重新发一次 tag 让 CI 覆盖**
+
+- **更新失败不再静默**：原先 `autoUpdater` 的 `error` 事件只打日志、返回值也只有一句 `e.message`。现在按 `no-release / no-channel / network / dev / no-updater` 分类，翻译成用户看得懂、能行动的中文说明（例如「更新源暂时没有可用的正式发布（GitHub Releases）」），并在设置页如实展示
+- **单实例锁的退出竞态**：拿不到锁时原先只调 `app.quit()`。quit 是「请求退出」，要等 `before-quit` 走完才结束进程，而 `app.whenReady()` 在这个窗口期仍可能被触发 —— 那样第二个实例会照样走完 bootstrap、拉起第二份内部服务（多一批子进程 + 第二个 SQLite 句柄）。改为 `app.exit(0)` 立即终止，并给 `bootstrap()` 与启动钩子都加了短路兜底
+  - 实测（win-unpacked 双开）：第二个实例会在打印启动警告后自行退出，进程总数不增加；关窗后 5 个进程全部归零、无残留
+
+### 新增
+
+- **应用图标**：`node scripts/make-icon.mjs` 生成 `build/icon.ico`（含 16/24/32/48/64/128/256 七个尺寸）与 `build/icon.png`，`win.icon` 已接入 —— 打包日志不再出现 `default Electron icon is used`
+  - 图案为「中心枢纽 + 四卫星节点」，配色深蓝→青
+  - **≤32px 用单独的简化几何（去掉连线、放大节点）**：实测带连线的完整版缩到 16px 时，连线会把节点糊成一个「十字」，看着像医疗标志；简化版在 16px 下能清楚认出是网络拓扑
+- **检查更新的界面入口**（原先前端从未调用过壳层暴露的检查接口，等于没有入口）：
+  - 设置页新增「软件更新」卡片：显示当前版本、手动检查、按状态给出「已是最新 / 发现新版本 / 具体失败原因」
+  - 新增全局更新提醒横幅：发现新版本时常驻顶部（可忽略），并提供「下载更新」；下载完成提供「立即重启并安装」
+  - 有新版时**系统对话框 + 界面横幅 + toast 三重提醒** —— 原先只有对话框，用户点「稍后」就再无痕迹
+- 壳层新增 IPC：`app-info`、`download-update`、`install-update`，以及主进程 → 渲染层的 `update-status` 推送（preload 用 id 退订，避免 React 严格模式重复挂载导致重复提示）
+- 渲染层 IPC 调用方校验抽成 `guardSender()`，四个 handler 共用同一套「本窗口主框架 + 受信任源」判断
+- **单一版本使用限制（跨版本守卫）**：`requestSingleInstanceLock` 的互斥只在「双方都调用它」时成立，而 **v1.2.0 及更早版本里根本没有这段代码**（锁是 v1.2.1 才引入的），历史二进制改不了；它们与新版共用同一个 userData 与同一个 `custom.db`，同时运行就是两个写者。新增 `desktop/instance-guard.js`：
+  - 启动时枚举同名进程，**只要发现另一个安装路径的同名客户端在跑，就弹框说明并 `app.exit(0)`**，连解压/建库都不做。判定只看「exe 绝对路径不同」——同路径的第二个实例仍交给 `requestSingleInstanceLock`，这样升级后自动重启时旧进程尚未退干净也不会把自己卡在启动对话框上
+  - 进程鉴别靠命令行特征：排除带 `--type=` 的渲染/GPU/utility 子进程，以及跑 `server.js` 的内部服务子进程（同一个 exe 用 `ELECTRON_RUN_AS_NODE` 起服务），避免把自己刚拉起的子进程误判成第二个客户端
+  - 反向场景（新版在跑、用户又去点旧版图标）无法在旧版内部拦截，改为窗口获得焦点时节流复检（60 s），发现后弹系统提醒 + 界面横幅提示关闭
+  - 枚举走 PowerShell `Get-CimInstance Win32_Process`（`wmic` 已在 Windows 11 24H2 移除）；**查询失败时放行并只记日志**（fail-open），避免被安全策略挡住的机器一启动就被自己的弹窗拦住
+  - ⚠️ **实测踩到「WMI 偶发返回空结果」导致守卫静默失效**：进程明明在跑，90 秒连续采样里却有两次查到 0 个（见 `.recon/debug-old-watch.mjs`）。而「空」在「有没有别的客户端在跑」这个问题上恰好等价于「没有冲突」，于是不报错、不弹窗，就是拦不住。现在空结果会用 `tasklist`（走另一条内核快照路径、不经 WMI）**交叉确认**并**最多重试 3 次**，只有两边都说「没有」才敢相信；一直拿不到可信结果则返回「查询失败」走 fail-open
+  - 「同一路径但代码是旧版本」这一种不归守卫管，由**安装器**在覆盖文件前解决：electron-builder 的 NSIS 会执行 `FIND_PROCESS`/`KILL_PROCESS`（`templates/nsis/include/allowOnlyOneInstallerInstance.nsh`），按 `$_.Path.StartsWith('$INSTDIR')` 找出正在运行的旧进程，提示「应用正在运行」并结束它 —— 否则文件根本覆盖不了。所以「同路径不同代码」不会并存
+- **版本一致性（数据库降级保护）**：把程序版本写进 SQLite 文件头自带的 `PRAGMA user_version`（无需建表，Prisma 也看不见）。启动时若「库里记录的版本 > 当前程序版本」，说明本机数据已被更新的版本写过，旧代码继续写就可能悄悄写坏新数据 —— 直接弹框拒绝启动并保留数据。老库从没写过该值（读到 0），因此升级方向永远放行
+- **安装目录固定**：`nsis.allowToChangeInstallationDirectory` 由 `true` 改为 `false`。原先用户可以把新版本装到另一个目录，磁盘上就同时有两份不同版本 —— 这正是「多版本开并发」的入口；固定后升级会覆盖旧版本（NSIS 检出已安装版本时沿用注册表记录的目录），磁盘上永远只有一份
+- **图标生成并入构建链**：新增 `npm run desktop:icon`，并前置到 `desktop:build`。原先 `electron-builder.yml` 引用的 `build/icon.ico` 只在本机手工生成过，CI 从未跑过这个脚本 —— 换个干净检出打包就会退回 Electron 默认图标。`build/icon.ico` 与 `build/icon.png`（由脚本确定性产出）一并入库作为兜底
+- 新增 `tests/desktop/instance-guard.test.ts`（19 例，覆盖主进程/子进程鉴别、同路径放行、路径归一化、非法输入、`tasklist` CSV 解析、以及「CIM 空结果 → 交叉确认 → 重试」的时序）与 `tests/desktop/db-version.test.ts`（5 例，覆盖版本编码、写戳幂等、降级判定），单测总数 128 → 152
+- 打包产物一致性校验：`.recon/verify-packed-shell.mjs` 逐个 sha256 比对 `app.asar` 里的 `desktop/*.js` 与仓库源码，并断言六个关键修复点确实打进去了 —— 防止「测的是新的、装的是旧的」
+
+### 验证范围（如实说明）
+
+- **已跑通**：`tsc --noEmit`、`eslint .` 全绿；单测 `152/152`；asar 与源码 sha256 逐文件一致；`app.zip` 内含全部前端改动且版本已注入为 `1.2.4`
+- **未跑通**：跨版本守卫的**实机端到端**验证（`.recon/guard-live-test2.mjs`，用两段安装路径互相拒绝）。
+  本机开发沙箱**禁止执行任意 exe、禁止 spawn `powershell.exe`/`taskkill`**，因此被起测的应用既拉不起来、
+  守卫内部的进程枚举也必然拿不到结果（正好走 fail-open 分支，会被误读成"守卫没生效"）。
+  脚本已留档，可在普通桌面会话里直接 `node .recon/guard-live-test2.mjs` 复核。
+  **结论**：守卫的**判定逻辑**由 19 条单测覆盖（含 CIM 空结果 → `tasklist` 交叉确认 → 重试的时序），
+  打包产物也已逐字节核对；但「两版本同时运行时会互相拒绝」这一条目前**只有逻辑证明，没有实机证明**。
+
 ## [1.2.3] - 2026-09-15
 
 移除一个实测不可用的功能，并让笔记导出真正接入 Obsidian。**建议桌面版用户升级。**

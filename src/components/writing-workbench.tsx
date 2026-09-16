@@ -178,13 +178,15 @@ export function WritingWorkbench() {
 
   // 引用一变化就重算参考文献（服务端算，保证与导出完全一致）
   useEffect(() => {
-    if (!activeId) {
-      setRefs([])
-      setMissing([])
-      return
-    }
     let cancelled = false
     const t = setTimeout(async () => {
+      // 「没有激活稿件就先清空」也放进定时回调里：effect 体内同步 setState 会触发
+      // 级联渲染（react-hooks/set-state-in-effect），放到异步回调里就没有这个问题。
+      if (!activeId) {
+        setRefs([])
+        setMissing([])
+        return
+      }
       try {
         const res = await fetch(`/api/writing/manuscripts/${activeId}/references`)
         if (!res.ok) return

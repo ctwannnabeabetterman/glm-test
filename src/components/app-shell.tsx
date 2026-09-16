@@ -93,7 +93,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="hidden sm:block">
               <div className="text-sm font-semibold leading-tight">AI Network Lab</div>
-              <div className="text-[10px] text-muted-foreground leading-tight">智能网络科研工作台 · v1.0</div>
+              <div className="text-[10px] text-muted-foreground leading-tight">
+                智能网络科研工作台 · v{process.env.NEXT_PUBLIC_APP_VERSION}
+              </div>
             </div>
           </div>
 

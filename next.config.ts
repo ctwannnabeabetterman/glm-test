@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
+import pkg from "./package.json";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // 把版本号在构建期注入前端。顶栏原先写死「v1.0」，发到 1.2.4 也不变，属于长期不被发现的
+  // 显示错误 —— 版本号只应该有一个来源（package.json），不要在前端再抄一份。
+  env: {
+    NEXT_PUBLIC_APP_VERSION: pkg.version,
+  },
   // 桌面端（Electron）打包用：额外产出自包含 server 到 .next/standalone，
   // 不影响 npm start / CI 的常规构建产物
   output: "standalone",
