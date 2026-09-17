@@ -214,13 +214,74 @@ function isAppDirComplete(appDir, zipBuildId) {
   }
 }
 
-function extractZip(zip, destDir) {
+/** 单次 tar 解压。失败时把 tar 的原始输出包进 Error —— 那是唯一的现场证据 */
+function tarExtractOnce(zip, destDir) {
   return new Promise((resolve, reject) => {
     execFile(resolveTar(), ['-xf', zip, '-C', destDir], { windowsHide: true }, (err) => {
       if (err) return reject(new Error('内置服务解压失败：' + err.message))
       resolve()
     })
   })
+}
+
+/** 解压失败后的重试次数（含首次） */
+const EXTRACT_ATTEMPTS = 3
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * 清空 staging 目录但保留目录本身。
+ * 清理失败只记日志：下一轮可能因此在同一处再失败，但不能拿它盖掉 tar 的原始错误。
+ */
+function resetStagingDir(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true })
+    fs.mkdirSync(dir, { recursive: true })
+  } catch (e) {
+    console.warn('[desktop] 清理解压暂存目录失败：', e && e.message ? e.message : e)
+  }
+}
+
+/**
+ * 解压内置服务包，**带退避重试**。
+ *
+ * 为什么必须重试（2026-09-17 实测）：用户第一次启动 1.3.3 时解压失败，报
+ *   `tar.exe: .next/node_modules/pdfkit-<hash>: Can't create '...app.new\...': Invalid argument`
+ *   `tar.exe: .next/node_modules/@prisma/client-<hash>: Can't create ...: Invalid argument`
+ * 而**把同一条命令原样手动重跑一次就完全成功**（同一份 app.zip、同一个目标路径、
+ * 那两个"失败"的目录也正常建出来了），并且 app.zip 里最长的条目路径只有 177 字符
+ * （远不到 MAX_PATH），tar.exe / 磁盘空间 / 库版本全都正常。
+ * ⇒ **不是包坏了，是当时的环境抖动。** 最可能是杀软（本机是 360 安全卫士，
+ * Defender 实时防护反而是关的）恰好在新装完 125 MB 主程序的窗口期扫描安装目录，
+ * 拦下了两个目录的创建；并发解压（上一个卡住的进程留下 app.new，新实例又去
+ * rmSync + mkdir）也会让某一轮随机几个目录建不出来。
+ *
+ * 代价极不对称：一个"再试一次就好"的抖动，会让用户看到「AI Network Lab 启动失败」
+ * 然后应用直接退出、且**没有任何应用日志**（日志是在解压成功之后的 setupAutoUpdate
+ * 里才初始化的）。所以这里做退避重试。
+ *
+ * 重试前必须把上一轮的半成品清干净 —— tar 失败时已经在 app.new 里留下了部分目录，
+ * 不清掉下一轮会在同一位置继续失败。
+ */
+async function extractZip(zip, destDir) {
+  let lastErr = null
+  for (let attempt = 1; attempt <= EXTRACT_ATTEMPTS; attempt++) {
+    try {
+      await tarExtractOnce(zip, destDir)
+      if (attempt > 1) console.log(`[desktop] 内置服务解压在第 ${attempt} 次尝试成功`)
+      return
+    } catch (e) {
+      lastErr = e
+      console.warn(`[desktop] 内置服务解压失败（第 ${attempt}/${EXTRACT_ATTEMPTS} 次）：`, e.message)
+      if (attempt < EXTRACT_ATTEMPTS) {
+        resetStagingDir(destDir)
+        await delay(1500 * attempt)
+      }
+    }
+  }
+  throw lastErr
 }
 
 /**
