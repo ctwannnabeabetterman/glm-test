@@ -1,7 +1,56 @@
-# 发行说明 v1.3.1
+# 发行说明 v1.3.2
 
 > AI Network Lab —— 智能网络科研工作台
-> 当前包版本：v1.3.1（对应 `package.json`）
+> 当前包版本：v1.3.2（对应 `package.json`）
+
+**这一版只干一件事：让安装包真的出现在 Release 里。**
+
+---
+
+## 一、问题：连续两次「亮着绿灯失败」
+
+v1.3.0 和 v1.3.1 的 Release 里都**只有一个 `.exe.blockmap`** —— 既没有 `.exe` 安装包，
+也没有 `latest.yml`。而发布流水线**每一步都是绿的**，同一个 run 的备份工件有 119 MB，
+说明安装包确实构建出来了，只是没能进 Release。
+
+后果是静默的：点下载什么也拿不到；客户端「检查更新」永远失败（`latest.yml` 是
+electron-updater 判断有没有新版本的**唯一依据**）。
+
+## 二、根因：上传环节会「静默放弃」
+
+查到了源码层面的原因 —— electron-publish 的上传路径有多处**只警告、不报错**的放弃分支：
+
+- 目标 Release 已存在、且发布时间超过 **2 小时**时，`getOrCreateRelease()` 返回 `null`
+  （除非设 `EP_GH_IGNORE_TIME=1`），随后 `doUpload()` 只打一条
+  `log.warn("skipped publishing")` 就返回 —— **进程照样 exit 0**
+- 构建过程中出错时，`app-builder-lib` 会 `cancelTasks()` 把上传任务丢掉，并把结果换成
+  `Promise.resolve(null)`，同样不报错
+- 任务被取消时 `awaitTasks()` 会直接 return，**连 `latest.yml` 都不会生成**
+
+结论很直接：**这条路径不能用来判断「发布到底成没成」**，所以这一版不再依赖它。
+
+## 三、怎么修的
+
+1. **上传改由 `gh` CLI 显式完成。** `electron-builder` 现在只用 `--publish never` 负责构建
+   （`publish` 配置段保留，`latest.yml` / `app-update.yml` 照常生成），上传交给
+   `gh release upload --clobber` —— 失败必然非 0 退出，同一 tag 重跑也不会因为资产已存在而挂掉。
+2. **上传前自检本地产物**：`release/*.exe` 与 `release/latest.yml` 缺任何一个就直接失败。
+3. **上传后按字节数核对**：解析 `latest.yml` 里声明的 `path` / `size`，与 Release 上的实际资产
+   逐一比对名字和字节数。这一步不仅能发现「全都没传」，也能发现「传了一半」。
+4. **备份工件改为 `if-no-files-found: error`**，产物缺失不再只是一条警告。
+5. 新增一个手动触发的 **Release cleanup** 流程，用来清掉那两次残缺记录（只删 Release、保留 tag）。
+
+## 四、怎么装
+
+**装这一版**，安装包是 `AI-Network-Lab-Setup-1.3.2.exe`。
+v1.3.0 / v1.3.1 的 Release 里没有可下载的包，请忽略它们。
+
+---
+
+# 上一版发行说明 v1.3.1
+
+> AI Network Lab —— 智能网络科研工作台
+> 当时包版本：v1.3.1（对应 `package.json`）
 
 **这一版修的是「发了但装不上」。v1.3.0 的 Release 里其实没有安装包。**
 
@@ -37,9 +86,7 @@ ubuntu 上因为没有中文字体而失败；数据库版本戳的单测在 Nod
 
 ## 三、怎么装
 
-**装这一版。** v1.3.0 的 Release 无法下载，可以忽略它。
-
-安装包：请在 Release 页面下载 `AI-Network-Lab-Setup-1.3.1.exe`。
+**已由 v1.3.2 取代。** v1.3.1 的 Release 同样没有安装包（只有一个 `.exe.blockmap`），请装 v1.3.2。
 
 ---
 

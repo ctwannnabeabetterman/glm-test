@@ -3,6 +3,32 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.3.2] - 2026-09-17
+
+**这一版只有一个目的：让安装包真的出现在 Release 里。** v1.3.0 与 v1.3.1 连续两次「job 全绿但 Release 里只有 `.exe.blockmap`」，用户根本下载不到安装包。本版把发布链路的上传环节整个换掉，并加上能拦住这类问题的硬自检。
+
+### 修复
+
+- **弃用 `electron-builder --publish always`，上传改由 `gh` CLI 显式完成**。根因是 electron-publish 的上传路径存在**多处静默放弃**，而它们都不影响退出码（源码 `electron-publish/out/githubPublisher.js`、`app-builder-lib/out/publish/PublishManager.js`）：
+  - `getOrCreateRelease()` 在「已存在的 Release `published_at` 超过 2 小时」（除非设 `EP_GH_IGNORE_TIME=1`）、「Release 类型与 `releaseType` 不匹配」等情况下返回 `null`；随后 `doUpload()` 只打一条 `log.warn("skipped publishing")` 就 **return**，不算失败
+  - 构建报错时 `app-builder-lib/out/index.js` 会 `publishManager.cancelTasks()` 并把结果换成 `Promise.resolve(null)`，上传任务被丢弃且**不报错**
+  - `PublishManager.awaitTasks()` 在 cancellation token 被取消时**直接 return**，连 `latest.yml` 都不会写出来
+  现在的分工是：`npx electron-builder --win --publish never` 只负责构建（`publish` 段保留在配置里，`latest.yml` / `app-update.yml` 照常生成），上传交给 `gh release upload --clobber`（失败必然非 0 退出，且同 tag 重跑幂等）
+- **上传前新增「本地产物自检」**：断言 `release/*.exe` 与 `release/latest.yml` 都存在，缺失即失败。这一步专门拦「没有更新清单的发布」——`latest.yml` 是 electron-updater 判断有无新版本的唯一依据
+- **发布后自检升级为「按字节数核对」**：原先只查 Release 里有没有 `*.exe` 与 `latest.yml`（能发现 v1.3.0 那种全缺），现在还会解析本地 `latest.yml` 里声明的 `path` / `size`，与实际资产的**名字和字节数**逐一比对 —— 这样连「传了一半」的截断上传也拦得住
+- **备份工件改为 `if-no-files-found: error`**：此前是 `warn`，产物缺失时只打一条警告就滑过去了
+- **新增 `release-cleanup.yml`（手动触发）**：用于删掉「发了但没发成」的残缺 Release（只删 Release、保留 tag）。Releases 页面上残缺版本和平常版本长得一样，点进去却没有包可下，删掉比留着解释便宜
+
+### 关于 v1.3.0 与 v1.3.1 两次发布（如实记录）
+
+两次的 Release 都**只有**一个 `.exe.blockmap`。已确认：v1.3.1 的资产上传发生在该次 run 的时间窗内（run 约 03:22Z 起，blockmap 资产时间 `03:25:42Z`），排除了「Release 已存在超 2 小时」这一条；单次运行里只传上 blockmap 的确切触发点**未能 100% 复现**（读 job 日志需要仓库管理员权限，本机只能读到 run 的注解）。因此本次采取的修法是**不再依赖那条路径 + 加上可信自检**，而不是继续猜 electron-publish 的内部状态。
+
+### 验证
+
+- `release.yml` 的发布段改为「构建 → 本地产物自检 → `gh release upload` → 远程资产核对（名字 + 字节数）」，并保留 `concurrency` 锁
+- 通过 `gh` 与 Release 资产页确定性核对：v1.3.0 / v1.3.1 的 Release 资产均为 1 个（`.exe.blockmap`），`*.exe` 与 `latest.yml` 的下载地址均返回 404
+- 实际验收标准：本版 Release 里同时存在 `AI-Network-Lab-Setup-1.3.2.exe`、`latest.yml`、`*.blockmap`，且 exe 字节数与 `latest.yml` 中 `size` 一致
+
 ## [1.3.1] - 2026-09-17
 
 修补 v1.3.0 发布之后才暴露出来的问题。**v1.3.0 的 Release 实际是残缺的（既没有安装包、也没有 `latest.yml`），请直接装这一版。**

@@ -35,7 +35,13 @@ asar: true
 
 # 自动更新发布通道 —— electron-updater 在打包时会据此生成 resources/app-update.yml，
 # 客户端启动后就是按这个地址去 GitHub Releases 找 latest.yml 判断有没有新版本。
-# CI 用 `electron-builder --win --publish always` 把产物传到这里。
+#
+# ⚠️ 这个 publish 段**必须留着**：它决定了 latest.yml 与 app-update.yml 会不会被生成，
+#    与「谁负责上传」是两件事。
+# ⚠️ 但 CI **不要**再用 `electron-builder --win --publish always` 上传（v1.3.0 / v1.3.1
+#    连续两次踩坑后弃用）：electron-publish 会在若干情况下静默不传，只打一条 log.warn，
+#    进程照样 exit 0，于是出现「job 绿灯 + Release 里只有 .exe.blockmap」这种最危险的失败。
+#    现在 CI 用 `--publish never` 只构建，上传交给 gh CLI（见 .github/workflows/release.yml）。
 publish:
   - provider: github
     owner: ctwannnabeabetterman

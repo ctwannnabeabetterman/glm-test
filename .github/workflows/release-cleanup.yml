@@ -1,0 +1,44 @@
+name: Release cleanup
+
+# 删掉「发了但没发成」的残缺 Release（例如 v1.3.0 / v1.3.1：里面只有一个 .exe.blockmap）。
+#
+# 为什么需要它：残缺 Release 在页面上和平常版本长得一样，点进去却没有安装包可下，
+# 而客户端 electron-updater 又是按 Release 资产来判断更新的 —— 留着一个「空壳 latest」
+# 只会让人以为有包可下。删掉它比留着解释便宜。
+#
+# 行为：只删 Release，**保留 tag**（历史版本号不该消失，CHANGELOG 也还引用着它）。
+#
+# 用法：Actions → Release cleanup → Run workflow → 填 tag（逗号分隔，如 v1.3.0,v1.3.1）
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: '要删除 Release 的 tag，逗号分隔（例如 v1.3.0,v1.3.1）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    name: Delete release records (tags kept)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          for t in $(echo '${{ inputs.tags }}' | tr ',' ' '); do
+            t=$(echo "$t" | tr -d '[:space:]')
+            [ -z "$t" ] && continue
+            echo "→ 删除 Release：$t"
+            # --yes 免确认；不加 --cleanup-tag，tag 保留
+            gh release delete "$t" --yes --repo "${{ github.repository }}" \
+              && echo "  已删除" \
+              || echo "  （该 tag 没有 Release，跳过）"
+          done
+          echo "完成。剩余 Release："
+          gh release list --repo "${{ github.repository }}" --limit 10

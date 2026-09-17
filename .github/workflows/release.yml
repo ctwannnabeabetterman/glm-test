@@ -15,13 +15,9 @@ on:
   push:
     tags:
       - 'v*'
-  # 允许手动触发（用当前分支版本号试产，不发布）
+  # 允许手动触发：用当前分支版本号**试产**（只产出工件，不发布）。
+  # 发布一律走 tag —— 手动触发不发布，避免「手动跑出来的包挂到哪个 tag」这种模糊问题。
   workflow_dispatch:
-    inputs:
-      publish:
-        description: '是否发布到 GitHub Release（false 则只产出本地产物）'
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -43,7 +39,7 @@ jobs:
     env:
       # Prisma Client 在模块导入时实例化，构建期只需一个合法的 SQLite 占位 DSN
       DATABASE_URL: file:./ci.db
-      # electron-builder 读取 GH_TOKEN 以发布到 GitHub Release
+      # gh CLI（上传 Release 资产）与下面的自检步骤都从这里取凭据
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -91,54 +87,131 @@ jobs:
       - name: Build desktop bundle (Next standalone + prune + app.zip)
         run: npm run desktop:build
 
-      # ---------- 打包 NSIS 并发布 ----------
-      # --publish always：把 exe / blockmap / latest.yml 上传到 GitHub Release。
-      # latest.yml 是 electron-updater 判定「有没有新版本」的唯一依据。
-      - name: Package & publish Windows installer
+      # ---------- 打包 NSIS：只产出本地产物，不上传 ----------
+      # ⚠️ 为什么不用 `--publish always`（v1.3.0 / v1.3.1 连续两次踩坑后彻底弃用）：
+      #   electron-publish 在多种情况下会**静默不上传**，只打一条 log.warn，进程照样 exit 0：
+      #     · 目标 Release 已存在且 published_at 超过 2 小时（除非 EP_GH_IGNORE_TIME=1）
+      #     · 已存在的 Release 类型与 releaseType 不匹配
+      #     · 构建报错时 publishManager.cancelTasks() → 上传任务被丢弃
+      #   结果是「job 绿灯 + Release 里只有 .exe.blockmap」——安装包和 latest.yml 都没上去，
+      #   用户点下载什么也拿不到，客户端「检查更新」永远失败。发版链路最不能忍的就是亮着绿灯失败。
+      # 现在分工明确：electron-builder 只负责构建（它照样会生成 latest.yml / app-update.yml），
+      # 上传交给 gh CLI —— 失败必然非 0 退出，且 --clobber 天然幂等（同 tag 重跑不会因资产已存在而失败）。
+      - name: Package Windows installer (build only)
+        run: npx electron-builder --win --publish never
+
+      # ---------- 上传前的本地产物自检 ----------
+      # latest.yml 是 electron-updater 判定「有没有新版本」的唯一依据。它缺失的典型原因是
+      # 构建期发生取消（PublishManager.awaitTasks 在 token 被取消时直接 return，不写这个文件），
+      # 所以这里显式断言，避免把「没有更新清单的发布」上传上去。
+      - name: Check local artifacts
         shell: pwsh
         run: |
-          $publish = 'always'
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
-            if ('${{ inputs.publish }}' -eq 'true') { $publish = 'always' } else { $publish = 'never' }
+          $exe = @(Get-ChildItem -Path release/*.exe -ErrorAction SilentlyContinue)
+          $hasYml = Test-Path release/latest.yml
+          if ($exe.Count -eq 0 -or -not $hasYml) {
+            Write-Error "本地产物不完整：release/*.exe = $($exe.Count) 个，latest.yml = $hasYml。electron-builder 没产出可发布的东西。"
+            exit 1
           }
-          Write-Host "publish mode = $publish"
-          npx electron-builder --win --publish $publish
+          $exe | ForEach-Object { Write-Host ("产物：{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB)) }
+          Write-Host "本地产物自检通过 ✓"
 
-      # ---------- 发布后自检：Release 里必须真的有安装包和 latest.yml ----------
-      # 为什么必须有这一步：v1.3.0 的发布 job **全程绿灯**，但 GitHub Release 里
-      # 只有一个 `.exe.blockmap` —— 既没有 `.exe`，也没有 `latest.yml`。
-      # 后果是静默的：用户点下载什么也拿不到；electron-updater 找不到更新清单，
-      # 「检查更新」永远失败。发版链路里最不能忍的就是「亮着绿灯失败」。
-      # 放在上传备份工件**之前**：这样自检失败时，完整的 release/ 仍会作为
-      # windows-installer 工件留下，可以手动补挂到 Release，不必重新构建。
-      - name: Verify release assets (installer + latest.yml)
+      # ---------- 上传到 GitHub Release（发布只在 tag 上执行） ----------
+      - name: Publish assets to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
+          # ⚠️ GitHub 的 pwsh shell 默认 $ErrorActionPreference='stop' 且
+          # $PSNativeCommandUseErrorActionPreference=$true —— 原生命令一旦非 0 就抛异常，
+          # 下面的重试逻辑还没来得及读 $LASTEXITCODE 就挂了。这里显式关掉，改为手动判码。
+          $ErrorActionPreference = 'Continue'
+          if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
+
+          $tag  = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release $tag 不存在，创建…"
+            # --generate-notes 让 Release 带上自动生成的变更列表；gh 默认会把它设为 latest，
+            # 而 electron-updater 的 getLatestTagName() 正是请求 /releases/latest。
+            # --verify-tag：tag 不存在就直接失败，绝不「顺手新建一个同名 tag」
+            gh release create $tag --repo $repo --title "$tag" --generate-notes --verify-tag
+            if ($LASTEXITCODE -ne 0) { Write-Error "创建 Release $tag 失败"; exit 1 }
+          }
+
+          $files = @(Get-ChildItem -Path release/*.exe, release/*.blockmap, release/latest.yml -ErrorAction SilentlyContinue |
+                     ForEach-Object { $_.FullName })
+          Write-Host "待上传 $($files.Count) 个文件："
+          $files | ForEach-Object { Write-Host "  - $_" }
+
+          $uploaded = $false
+          for ($i = 1; $i -le 3; $i++) {
+            gh release upload $tag @files --repo $repo --clobber
+            if ($LASTEXITCODE -eq 0) { $uploaded = $true; break }
+            Write-Host "第 $i 次上传失败（exit=$LASTEXITCODE），8 秒后重试…"
+            Start-Sleep -Seconds 8
+          }
+          if (-not $uploaded) { Write-Error "上传失败：重试 3 次仍未成功"; exit 1 }
+          Write-Host "资产上传完成 ✓"
+
+      # ---------- 发布后自检：Release 里必须真的有安装包、latest.yml，且字节数对得上 ----------
+      # 为什么必须有这一步：v1.3.0 的发布 job **全程绿灯**，但 GitHub Release 里
+      # 只有一个 `.exe.blockmap` —— 既没有 `.exe`，也没有 `latest.yml`。
+      # 后果是静默的：用户点下载什么也拿不到；electron-updater 找不到更新清单，
+      # 「检查更新」永远失败。所以自检不只查「名字在不在」，还要比对 latest.yml 里
+      # 声明的 size 与实际资产字节数 —— 这才拦得住「传了一半」的截断上传。
+      # 放在上传备份工件**之前**：这样自检失败时，完整的 release/ 仍会作为
+      # windows-installer 工件留下，可以手动补挂到该 Release，不必重新构建。
+      - name: Verify release assets (installer + latest.yml + size match)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
+
           $tag  = "${{ github.ref_name }}"
           $repo = "${{ github.repository }}"
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
-            Accept        = "application/vnd.github+json"
+            Accept        = 'application/vnd.github+json'
             'User-Agent'  = 'release-verify'
           }
 
+          # latest.yml 里记录的 path / size，就是客户端接下来会去下载的资产名与字节数
+          $ymlRaw       = Get-Content release/latest.yml -Raw
+          $declaredPath = ([regex]::Match($ymlRaw, '(?m)^path:\s*(.+?)\s*$')).Groups[1].Value
+          $declaredSize = [int64]([regex]::Match($ymlRaw, '(?m)^\s+size:\s*(\d+)')).Groups[1].Value
+          if ([string]::IsNullOrWhiteSpace($declaredPath) -or $declaredSize -le 0) {
+            Write-Error "latest.yml 解析失败：path='$declaredPath' size=$declaredSize"
+            exit 1
+          }
+          Write-Host "latest.yml 声明：path=$declaredPath  size=$declaredSize"
+
           $names = @()
-          for ($i = 1; $i -le 6; $i++) {
+          for ($i = 1; $i -le 5; $i++) {
             $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" -Headers $headers
             $names   = @($release.assets | ForEach-Object { $_.name })
-            $hasExe  = [bool]($names | Where-Object { $_ -like '*.exe' })
-            $hasYml  = $names -contains 'latest.yml'
-            if ($hasExe -and $hasYml) {
+            $exeAsset = $release.assets | Where-Object { $_.name -eq $declaredPath }
+            $hasYml   = $names -contains 'latest.yml'
+            if ($exeAsset -ne $null -and $hasYml -and [int64]$exeAsset.size -eq $declaredSize) {
               Write-Host "发布自检通过 ✓"
               Write-Host "Release $tag 资产：$($names -join ', ')"
               exit 0
             }
-            Write-Host "第 $i 次自检未通过（exe=$hasExe  latest.yml=$hasYml），2 秒后重试…"
-            Start-Sleep -Seconds 2
+            Write-Host ("第 {0} 次自检未通过（exe={1} latest.yml={2} size={3}/{4}），3 秒后重试…" -f `
+              $i, ($exeAsset -ne $null), $hasYml, $(if ($exeAsset) { $exeAsset.size } else { 'n/a' }), $declaredSize)
+            Start-Sleep -Seconds 3
           }
 
-          Write-Error "发布不完整：$tag 的资产只有 [$($names -join ', ')]，缺少 *.exe 或 latest.yml —— 用户下载不到安装包，客户端也检测不到更新。本次完整产物已作为 windows-installer 工件上传，可手动补挂到该 Release。"
+          Write-Error ("发布不完整：$tag 的资产只有 [$($names -join ', ')]，" +
+            "缺少 latest.yml 或 $declaredPath（期望 $declaredSize 字节）。" +
+            "用户下载不到安装包，客户端也检测不到更新。" +
+            "本次完整产物已作为 windows-installer 工件上传，可手动补挂到该 Release。")
           exit 1
 
       - name: Upload artifacts (backup)
@@ -150,5 +223,6 @@ jobs:
             release/*.exe
             release/*.blockmap
             release/latest.yml
-          if-no-files-found: warn
+          # error：产物缺失本身就是「发布不可信」的信号，不要只打一条 warn 就滑过去
+          if-no-files-found: error
           retention-days: 14
