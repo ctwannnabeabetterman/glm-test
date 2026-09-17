@@ -1,7 +1,7 @@
 'use client'
 
-import { useFetch } from '@/lib/hooks'
-import { useState, useMemo } from 'react'
+import { useFetch, useApi } from '@/lib/hooks'
+import { useState, useMemo, useCallback } from 'react'
 import {
   Card,
   CardContent,
@@ -14,6 +14,8 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { GitBranch, Calendar, CheckCircle2, Circle, Clock, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import { ProgressStepper } from '@/components/planner/progress-stepper'
 
 interface Milestone {
   id: string
@@ -27,6 +29,7 @@ interface Milestone {
   category: string
   color: string
   targetVenue: string
+  actualEndDate: string
   createdAt: string
 }
 
@@ -49,8 +52,22 @@ const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>
 }
 
 export function ProgressTimeline() {
-  const { data: milestones, loading } = useFetch<Milestone[]>('/api/milestones')
+  const { data: milestones, loading, refetch } = useFetch<Milestone[]>('/api/milestones')
+  const api = useApi()
   const [filterType, setFilterType] = useState<string>('all')
+
+  // 升级前这里没有任何写入口 —— 进度条读的是种子数据，看着像真的却永远不会动。
+  const handleProgress = useCallback(
+    async (id: string, next: number) => {
+      try {
+        await api.put(`/api/milestones/${id}`, { progress: next })
+        refetch()
+      } catch {
+        toast.error('更新失败')
+      }
+    },
+    [api, refetch],
+  )
 
   // Sort by creation date (oldest first for timeline)
   const sortedMilestones = useMemo(() => {
@@ -222,7 +239,10 @@ export function ProgressTimeline() {
                         {m.startDate && m.endDate && (
                           <span className="flex items-center gap-0.5">
                             <Calendar className="h-2.5 w-2.5" />
-                            {m.type === 'gantt' ? `第${m.startDate}-${m.endDate}周` : `${m.startDate}`}
+                            {m.type === 'gantt'
+                              // 周序号是 0-based，展示口径与甘特图时间轴（第 1-40 周）保持一致
+                              ? `第${Number(m.startDate) + 1}-${Number(m.endDate)}周`
+                              : `${m.startDate}`}
                           </span>
                         )}
                         {m.targetVenue && (
@@ -230,6 +250,12 @@ export function ProgressTimeline() {
                             {m.targetVenue}
                           </Badge>
                         )}
+                        {m.actualEndDate && <span className="text-emerald-600">完成于 {m.actualEndDate}</span>}
+                        <ProgressStepper
+                          className="ml-auto"
+                          progress={m.progress}
+                          onCommit={(next) => handleProgress(m.id, next)}
+                        />
                       </div>
                     </div>
                   </div>

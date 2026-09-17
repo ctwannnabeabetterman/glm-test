@@ -92,17 +92,45 @@ model Milestone {
   type        String   // gantt / writing / submission
   title       String
   description String   @default("")
-  startDate   String   @default("") // YYYY-MM-DD or week number
+  // ⚠️ 同一字段两种语义，靠 type 区分：
+  //   type=gantt  → 周序号字符串（"0".."39"，配合 Setting('project.startDate') 换算真实日期）
+  //   type=writing/submission → ISO 日期（YYYY-MM-DD）
+  // 读取端务必先看 type 再解析，不要直接 new Date()
+  startDate   String   @default("")
   endDate     String   @default("")
   duration    Int      @default(0) // days or weeks depending on type
   progress    Int      @default(0) // 0-100
   category    String   @default("") // survey/baseline/method/simulation/experiment/writing/submission/defense
   color       String   @default("#10b981")
   targetVenue String   @default("") // for submission type
+  // —— 与实验/稿件的联动（来源实体变了，进度可自动跟进）——
+  refType      String  @default("") // '' | experiment | manuscript
+  refId        String  @default("") // 关联实体的 id
+  autoProgress Boolean @default(false) // true 时 /api/planner/sync 才按来源推进，避免覆盖手工进度
+  // —— 复盘：实际完成日（progress 到 100 时自动落，也可手填）——
+  actualEndDate String @default("") // YYYY-MM-DD
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([type])
+  @@index([refType, refId])
+}
+
+// 周计划任务（research_planner.py）—— 按优先级自动分配到本周每日
+// 必须落库：旧实现把任务放在组件 useState 里，刷新即丢。
+model WeeklyTask {
+  id        String   @id @default(cuid())
+  name      String
+  hours     Int      @default(2)
+  priority  Int      @default(3) // 1-5，越大越先排
+  done      Boolean  @default(false)
+  weekStart String   @default("") // 所属周的周一（YYYY-MM-DD）；空串表示未归周
+  order     Int      @default(0) // 同周内稳定排序
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([weekStart])
+  @@index([done])
 }
 
 // ============ 笔记系统（Obsidian-like）============

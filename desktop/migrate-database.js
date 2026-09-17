@@ -16,6 +16,27 @@ const paperColumns = {
 }
 
 /**
+ * 里程碑的新列。
+ *
+ * refType/refId/autoProgress 支撑「实验或稿件推进了 → 里程碑进度跟着走」；
+ * actualEndDate 支撑「计划 vs 实际」的偏差复盘。
+ * 默认值必须与 Prisma schema 一致，否则老库补列后 Prisma Client 读出来的语义会不同。
+ */
+const milestoneColumns = {
+  refType: "refType TEXT DEFAULT ''",
+  refId: "refId TEXT DEFAULT ''",
+  autoProgress: 'autoProgress BOOLEAN DEFAULT false',
+  actualEndDate: "actualEndDate TEXT DEFAULT ''",
+}
+
+/** 需要按表补列的清单。表不存在时跳过（极老的库交给 newTables / Prisma 处理） */
+const tableColumns = {
+  Note: noteColumns,
+  Paper: paperColumns,
+  Milestone: milestoneColumns,
+}
+
+/**
  * 已下线功能的遗留表。
  *
  * 「智能组网实验室」(INET) 依赖外部 OMNeT++/INET 工具链——用户得自行编译数 GB 环境，
@@ -117,6 +138,33 @@ const newTables = {
     );
     CREATE INDEX IF NOT EXISTS "Manuscript_createdAt_idx" ON "Manuscript"("createdAt");
   `,
+  WeeklyTask: `
+    CREATE TABLE IF NOT EXISTS "WeeklyTask" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "hours" INTEGER NOT NULL DEFAULT 2,
+      "priority" INTEGER NOT NULL DEFAULT 3,
+      "done" BOOLEAN NOT NULL DEFAULT false,
+      "weekStart" TEXT NOT NULL DEFAULT '',
+      "order" INTEGER NOT NULL DEFAULT 0,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS "WeeklyTask_weekStart_idx" ON "WeeklyTask"("weekStart");
+    CREATE INDEX IF NOT EXISTS "WeeklyTask_done_idx" ON "WeeklyTask"("done");
+  `,
+}
+
+/**
+ * 老库需要补的**索引**（表结构可能没变，但索引是新增的）。
+ *
+ * 绑定 table 是必须的：在缺表的库上直接 CREATE INDEX 会抛 "no such table"。
+ */
+const newIndexes = {
+  Milestone_refType_refId_idx: {
+    table: 'Milestone',
+    sql: 'CREATE INDEX IF NOT EXISTS "Milestone_refType_refId_idx" ON "Milestone"("refType", "refId")',
+  },
 }
 
 /**
@@ -126,19 +174,35 @@ const newTables = {
 function migrateDatabase(dbPath, options = {}) {
   const db = new DatabaseSync(dbPath)
   try {
-    const columns = db.prepare("PRAGMA table_info('Note')").all().map((c) => c.name)
-    if (!columns.length) throw new Error('Database template is missing the Note table')
-    const missingColumns = Object.keys(noteColumns).filter((name) => !columns.includes(name))
-    const paperInfo = db.prepare("PRAGMA table_info('Paper')").all()
-    const paperColNames = paperInfo.map((c) => c.name)
-    const missingPaperColumns = paperColNames.length
-      ? Object.keys(paperColumns).filter((name) => !paperColNames.includes(name))
-      : []
+    const noteInfo = db.prepare("PRAGMA table_info('Note')").all()
+    if (!noteInfo.length) throw new Error('Database template is missing the Note table')
+
+    // 按表收集缺失列。表不存在（极老的库）就跳过 —— 那种情况交给 newTables 与 Prisma
+    const columnsToAdd = {}
+    let missingColumnCount = 0
+    for (const [table, definition] of Object.entries(tableColumns)) {
+      const info = db.prepare(`PRAGMA table_info('${table}')`).all()
+      if (!info.length) continue
+      const names = info.map((c) => c.name)
+      const missing = Object.keys(definition).filter((name) => !names.includes(name))
+      if (missing.length) {
+        columnsToAdd[table] = missing
+        missingColumnCount += missing.length
+      }
+    }
+
     const objects = new Set(db.prepare('SELECT name FROM sqlite_master').all().map((row) => row.name))
     const hasLegacyTables = legacyTables.some((name) => objects.has(name))
     const missingTables = Object.keys(newTables).filter((name) => !objects.has(name))
+    const missingIndexes = Object.entries(newIndexes)
+      .filter(([name, definition]) => !objects.has(name) && objects.has(definition.table))
+      .map(([name]) => name)
+
     const needsSchemaWork =
-      missingColumns.length || missingPaperColumns.length || hasLegacyTables || missingTables.length
+      missingColumnCount > 0 ||
+      hasLegacyTables ||
+      missingTables.length > 0 ||
+      missingIndexes.length > 0
 
     let result = { changed: false }
     if (needsSchemaWork) {
@@ -147,9 +211,11 @@ function migrateDatabase(dbPath, options = {}) {
       db.prepare('VACUUM INTO ?').run(backupPath)
       db.exec('BEGIN IMMEDIATE')
       try {
-        for (const name of missingColumns) db.exec(`ALTER TABLE Note ADD COLUMN ${noteColumns[name]}`)
-        for (const name of missingPaperColumns) db.exec(`ALTER TABLE Paper ADD COLUMN ${paperColumns[name]}`)
+        for (const [table, names] of Object.entries(columnsToAdd)) {
+          for (const name of names) db.exec(`ALTER TABLE ${table} ADD COLUMN ${tableColumns[table][name]}`)
+        }
         for (const name of missingTables) db.exec(newTables[name])
+        for (const name of missingIndexes) db.exec(newIndexes[name].sql)
         for (const name of legacyTables) db.exec(`DROP TABLE IF EXISTS "${name}"`)
         db.exec('COMMIT')
       } catch (error) {
@@ -172,8 +238,11 @@ module.exports = {
   migrateDatabase,
   noteColumns,
   paperColumns,
+  milestoneColumns,
+  tableColumns,
   legacyTables,
   newTables,
+  newIndexes,
   encodeVersion,
   formatVersion,
   readDatabaseVersion,

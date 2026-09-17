@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { GANTT_TEMPLATE } from '@/lib/methodology-data'
+import { GANTT_TEMPLATE, WEEKLY_PLAN_TEMPLATE } from '@/lib/methodology-data'
+import { startOfWeekIso } from '@/lib/planner/schedule'
 
 // POST /api/seed - seed demo data for first-time use
 export async function POST() {
@@ -170,6 +171,22 @@ SINR_k = (P_k * h_kk) / (Σ_{j≠k} P_j * h_kj + σ²)
         },
       })
       results.notes = 1
+    }
+
+    // 7. Seed 本周计划任务
+    //
+    // 周计划必须落库（旧版是组件内存态，刷新即丢）。首次使用时给一套模板任务，
+    // 否则用户打开「周计划」看到的是空表格 + 7 个「休息」，不知道这里是干什么的。
+    const weekStart = startOfWeekIso(new Date())
+    const weeklyCount = await db.weeklyTask.count({ where: { weekStart } })
+    if (weeklyCount === 0) {
+      let order = 0
+      for (const t of WEEKLY_PLAN_TEMPLATE) {
+        await db.weeklyTask.create({
+          data: { name: t.name, hours: t.hours, priority: t.priority, weekStart, order: order++ },
+        })
+      }
+      results.weeklyTasks = WEEKLY_PLAN_TEMPLATE.length
     }
 
     return NextResponse.json({ success: true, results })

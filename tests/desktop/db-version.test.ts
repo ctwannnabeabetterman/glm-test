@@ -12,12 +12,24 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
 })
 
+/**
+ * 「结构已是最新」的库。
+ *
+ * 必须与当前的 Prisma schema 同步增长 —— 一旦新增了模型/列/索引，这里漏掉就会让
+ * `migrateDatabase` 判定为「需要迁移」，本文件的版本戳用例会集体误报。
+ * 加字段时记得同时改这里和 tests/desktop/migration.test.ts 的「干净库」用例。
+ */
 function makeCleanDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], dbPath: string) {
   const db = new DatabaseSync(dbPath)
   db.exec(`
     CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, links TEXT, category TEXT, structured TEXT, lastReadAt DATETIME);
     CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT);
     CREATE TABLE Manuscript (id TEXT PRIMARY KEY, title TEXT, venue TEXT, targetWords INTEGER, sections TEXT, status TEXT, createdAt DATETIME, updatedAt DATETIME);
+    CREATE TABLE Milestone (id TEXT PRIMARY KEY, type TEXT, title TEXT, startDate TEXT, endDate TEXT, progress INTEGER, refType TEXT DEFAULT '', refId TEXT DEFAULT '', autoProgress BOOLEAN DEFAULT false, actualEndDate TEXT DEFAULT '');
+    CREATE INDEX Milestone_refType_refId_idx ON Milestone(refType, refId);
+    CREATE TABLE WeeklyTask (id TEXT PRIMARY KEY, name TEXT, hours INTEGER DEFAULT 2, priority INTEGER DEFAULT 3, done BOOLEAN DEFAULT false, weekStart TEXT DEFAULT '', "order" INTEGER DEFAULT 0, createdAt DATETIME, updatedAt DATETIME);
+    CREATE INDEX WeeklyTask_weekStart_idx ON WeeklyTask(weekStart);
+    CREATE INDEX WeeklyTask_done_idx ON WeeklyTask(done);
   `)
   db.close()
 }

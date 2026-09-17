@@ -12,6 +12,14 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
 })
 
+function columnNames(db: { prepare: (sql: string) => { all: () => unknown[] } }, table: string): string[] {
+  return (db.prepare(`PRAGMA table_info('${table}')`).all() as { name: string }[]).map((c) => c.name)
+}
+
+function objectNames(db: { prepare: (sql: string) => { all: () => unknown[] } }): string[] {
+  return (db.prepare('SELECT name FROM sqlite_master').all() as { name: string }[]).map((r) => r.name)
+}
+
 function makeLegacyDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], dbPath: string) {
   const db = new DatabaseSync(dbPath)
   db.exec(`
@@ -21,6 +29,10 @@ function makeLegacyDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], 
     INSERT INTO Paper VALUES ('paper-1', 'Existing paper');
     CREATE TABLE Setting (key TEXT PRIMARY KEY, value TEXT);
     INSERT INTO Setting VALUES ('llm', '{"apiKey":"test-only-placeholder"}');
+
+    -- v1.2.4 之前的里程碑表：没有 refType/refId/autoProgress/actualEndDate
+    CREATE TABLE Milestone (id TEXT PRIMARY KEY, type TEXT, title TEXT, startDate TEXT, endDate TEXT, progress INTEGER);
+    INSERT INTO Milestone VALUES ('ms-1', 'gantt', 'Old milestone', '0', '8', 40);
 
     -- 老版本迁移时建出来的 INET 空表（功能已下线，迁移应当清掉）
     CREATE TABLE InetScenario (id TEXT PRIMARY KEY, name TEXT, scenarioType TEXT, updatedAt TEXT);
@@ -56,33 +68,68 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
       )
 
       // 新增列已补齐
-      const noteCols = upgraded.prepare("PRAGMA table_info('Note')").all().map((c) => (c as { name: string }).name)
+      const noteCols = columnNames(upgraded, 'Note')
       expect(noteCols).toContain('structured')
       expect(noteCols).toContain('lastReadAt')
-      const paperCols = upgraded.prepare("PRAGMA table_info('Paper')").all().map((c) => (c as { name: string }).name)
+      const paperCols = columnNames(upgraded, 'Paper')
       expect(paperCols).toContain('zoteroKey')
       expect(paperCols).toContain('pdfPath')
 
+      // 里程碑的联动/复盘列：老行必须保留，且默认值与 Prisma schema 一致
+      const msCols = columnNames(upgraded, 'Milestone')
+      expect(msCols).toEqual(
+        expect.arrayContaining(['refType', 'refId', 'autoProgress', 'actualEndDate']),
+      )
+      expect(
+        upgraded.prepare('SELECT title, progress, refType, refId, autoProgress, actualEndDate FROM Milestone').get(),
+      ).toEqual({
+        title: 'Old milestone',
+        progress: 40,
+        refType: '',
+        refId: '',
+        autoProgress: 0,
+        actualEndDate: '',
+      })
+
       // INET 遗留表必须被清掉（含索引）
-      const objects = upgraded.prepare('SELECT name FROM sqlite_master').all().map((r) => (r as { name: string }).name)
+      const objects = objectNames(upgraded)
       for (const name of ['InetScenario', 'InetRun', 'InetRunArtifact']) {
         expect(objects).not.toContain(name)
       }
       expect(objects.filter((n) => /Inet/i.test(n))).toEqual([])
 
-      // 新增的表必须补齐（写作工作台），索引也要建上
+      // 新增的表必须补齐（写作工作台 + 周计划），索引也要建上
       expect(objects).toContain('Manuscript')
       expect(objects).toContain('Manuscript_createdAt_idx')
-      const msCols = upgraded.prepare("PRAGMA table_info('Manuscript')").all().map((c) => (c as { name: string }).name)
-      expect(msCols).toEqual(
+      expect(objects).toContain('WeeklyTask')
+      expect(objects).toContain('WeeklyTask_weekStart_idx')
+      expect(objects).toContain('WeeklyTask_done_idx')
+      // 新增索引（结构没变但索引新增的情况也要覆盖到）
+      expect(objects).toContain('Milestone_refType_refId_idx')
+
+      const msWorkbenchCols = columnNames(upgraded, 'Manuscript')
+      expect(msWorkbenchCols).toEqual(
         expect.arrayContaining(['id', 'title', 'venue', 'targetWords', 'sections', 'status', 'createdAt', 'updatedAt']),
       )
       // 默认值必须与 Prisma schema 一致，否则新表写入会与 Prisma Client 不一致
-      upgraded.prepare("INSERT INTO Manuscript (id, title, updatedAt) VALUES ('ms-1', 'Draft', '2026-01-01')").run()
+      upgraded.prepare("INSERT INTO Manuscript (id, title, updatedAt) VALUES ('ms-2', 'Draft', '2026-01-01')").run()
       expect(upgraded.prepare('SELECT targetWords, sections, status FROM Manuscript').get()).toEqual({
         targetWords: 0,
         sections: '[]',
         status: 'draft',
+      })
+
+      // 周计划表同样要对齐 schema 默认值（order 是保留字，必须加引号）
+      expect(columnNames(upgraded, 'WeeklyTask')).toEqual(
+        expect.arrayContaining(['id', 'name', 'hours', 'priority', 'done', 'weekStart', 'order', 'createdAt', 'updatedAt']),
+      )
+      upgraded.prepare("INSERT INTO WeeklyTask (id, name, updatedAt) VALUES ('wt-1', 'Read 3 papers', '2026-01-01')").run()
+      expect(upgraded.prepare('SELECT hours, priority, done, weekStart, "order" FROM WeeklyTask').get()).toEqual({
+        hours: 2,
+        priority: 3,
+        done: 0,
+        weekStart: '',
+        order: 0,
       })
     } finally {
       upgraded.close()
@@ -93,6 +140,8 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
     try {
       expect((backup.prepare('SELECT title FROM Note').get() as { title: string }).title).toBe('Existing research')
       expect(backup.prepare("SELECT name FROM sqlite_master WHERE name='InetRun'").get()).toBeTruthy()
+      // 备份是迁移前的快照：那时还没有 refType 列
+      expect(columnNames(backup, 'Milestone')).not.toContain('refType')
     } finally {
       backup.close()
     }
@@ -108,6 +157,11 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
       CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, links TEXT, category TEXT, structured TEXT, lastReadAt DATETIME);
       CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT);
       CREATE TABLE Manuscript (id TEXT PRIMARY KEY, title TEXT, venue TEXT, targetWords INTEGER, sections TEXT, status TEXT, createdAt DATETIME, updatedAt DATETIME);
+      CREATE TABLE Milestone (id TEXT PRIMARY KEY, type TEXT, title TEXT, startDate TEXT, endDate TEXT, progress INTEGER, refType TEXT DEFAULT '', refId TEXT DEFAULT '', autoProgress BOOLEAN DEFAULT false, actualEndDate TEXT DEFAULT '');
+      CREATE INDEX Milestone_refType_refId_idx ON Milestone(refType, refId);
+      CREATE TABLE WeeklyTask (id TEXT PRIMARY KEY, name TEXT, hours INTEGER DEFAULT 2, priority INTEGER DEFAULT 3, done BOOLEAN DEFAULT false, weekStart TEXT DEFAULT '', "order" INTEGER DEFAULT 0, createdAt DATETIME, updatedAt DATETIME);
+      CREATE INDEX WeeklyTask_weekStart_idx ON WeeklyTask(weekStart);
+      CREATE INDEX WeeklyTask_done_idx ON WeeklyTask(done);
     `)
     db.close()
 
@@ -115,5 +169,22 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
     const result = migrateDatabase(dbPath)
     expect(result.changed).toBe(false)
     expect(result.backupPath).toBeUndefined()
+  })
+
+  it('缺表时不硬建索引（避免 "no such table" 直接让启动失败）', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-nomilestone-'))
+    tempDirs.push(dir)
+    const dbPath = path.join(dir, 'custom.db')
+
+    const db = new sqlite!.DatabaseSync(dbPath)
+    // 一个刻意不含 Milestone 的库：补列/建索引都必须被安全跳过
+    db.exec(`
+      CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, links TEXT, category TEXT, structured TEXT, lastReadAt DATETIME);
+      CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT);
+    `)
+    db.close()
+
+    const { migrateDatabase } = require('../../desktop/migrate-database.js')
+    expect(() => migrateDatabase(dbPath)).not.toThrow()
   })
 })

@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { plannedEndIso, type MilestoneLike } from '@/lib/planner/linkage'
+import { loadProjectConfig } from '@/lib/planner/server'
+import { diffDaysIso, toLocalIsoDate } from '@/lib/planner/schedule'
 
 // GET /api/notifications - get all notifications (deadline reminders, goal status, etc.)
 export async function GET() {
@@ -60,7 +63,43 @@ export async function GET() {
       }
     }
 
-    // 3. Check reading goals
+    // 3. Check Gantt milestones —— 计划落后提醒（规划模块的反向联动）
+    //
+    // 甘特图里程碑存的是周序号，"第 18 周"要配项目起始日才能变成真实日期。
+    // 拿不到起始日就整段跳过：宁可少一条提醒，也不要按错误的日期催人。
+    const projectConfig = await loadProjectConfig()
+    if (projectConfig.startDate) {
+      const today = toLocalIsoDate(now)
+      const ganttMilestones = await db.milestone.findMany({ where: { type: 'gantt' } })
+      for (const g of ganttMilestones) {
+        if (g.progress >= 100) continue
+        const plannedEnd = plannedEndIso(g as unknown as MilestoneLike, projectConfig.startDate)
+        if (!plannedEnd) continue
+
+        const daysLeft = diffDaysIso(plannedEnd, today) // >0 = 还没到期
+        if (daysLeft === null) continue
+
+        // 逾期超过 90 天的多半是历史残留，不再天天催
+        if (daysLeft < -90 || daysLeft > 14) continue
+
+        const overdue = daysLeft < 0
+        notifications.push({
+          id: `gantt-${g.id}`,
+          type: 'deadline',
+          priority: overdue ? 'high' : daysLeft <= 7 ? 'medium' : 'low',
+          title: overdue
+            ? `里程碑已逾期: ${g.title}`
+            : `里程碑临近: ${g.title}`,
+          desc: overdue
+            ? `计划 ${plannedEnd} 完成 · 已逾期 ${-daysLeft} 天 · 当前 ${g.progress}%`
+            : `计划 ${plannedEnd} 完成 · 还剩 ${daysLeft} 天 · 当前 ${g.progress}%`,
+          action: '查看研究规划',
+          daysLeft,
+        })
+      }
+    }
+
+    // 4. Check reading goals
     const weekNum = getWeekNumber(now)
     const weekPeriod = `${now.getFullYear()}-W${String(weekNum).padStart(2, '0')}`
     const monthPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -85,7 +124,7 @@ export async function GET() {
       }
     }
 
-    // 4. Check reading streak
+    // 5. Check reading streak
     const papers = await db.paper.findMany()
     let currentStreak = 0
     const today = new Date()
@@ -124,7 +163,7 @@ export async function GET() {
       })
     }
 
-    // 5. Check for unread high-priority papers
+    // 6. Check for unread high-priority papers
     const highPriorityUnread = await db.paper.count({
       where: { priority: 'high', status: 'unread' },
     })
