@@ -3,6 +3,27 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.3.1] - 2026-09-17
+
+修补 v1.3.0 发布之后才暴露出来的问题。**v1.3.0 的 Release 实际是残缺的（既没有安装包、也没有 `latest.yml`），请直接装这一版。**
+
+### 修复
+
+- **安装包文件名去掉空格**。`nsis.artifactName` 原为 `${productName}-Setup-${version}.${ext}`，而 `productName` 是 "AI Network Lab"，所以磁盘上生成的文件名带空格；但传到 GitHub Release 后资产名里的空格被规范化成了连字符（v1.3.0 的 Release 里看到的正是 `AI-Network-Lab-Setup-1.3.0.exe.blockmap`）。**而 electron-updater 是照着 `latest.yml` 里记录的 `path` 去拼下载地址的** —— `latest.yml` 由 electron-builder 生成、记的是带空格的原名，与 GitHub 上的实际资产名对不上，更新会卡在「下载」这一步，且报错很难指向真正原因。现改为 `AI-Network-Lab-Setup-${version}.${ext}`，让**磁盘文件名 / GitHub 资产名 / `latest.yml` 里的 path 三者字面一致**
+- **发布流程新增「发布后资产自检」**：`release.yml` 在 publish 之后会核对 Release 里是否**同时**存在 `*.exe` 与 `latest.yml`（带 6 次重试，容忍资产短暂延迟），缺任何一个就让 job **失败**。自检刻意放在上传备份工件**之前** —— 这样自检失败时完整的 `release/` 仍会作为 `windows-installer` 工件留下，可以手动补挂，不必重新构建
+- **发布加并发锁**：`concurrency: release-<ref>`，避免同一 tag 的两次发布会互相覆盖 Release 资产
+- **CI 三个 job 全挂在一个 PDF 导出单测**：`buildSimplePdf` 找不到中文字体时会**显式抛错**（这是刻意的，绝不静默产出一份只有拉丁字形的「中国字」PDF），而 ubuntu runner 默认不带 CJK 字体 —— 本地是 Windows、有 `msyh.ttf`，所以一直没暴露。`ci.yml` 的 `verify` 与 `e2e` 两个 job 各加一步安装 `fonts-noto-cjk`（该包正好提供代码里写死要找的 `/usr/share/fonts/opentype/noto/` 路径）
+- **`db-version.test.ts` 在 Node 20 崩**：`node:sqlite` 是 Node 22.5 才有的内置模块，Node 20 上 `process.getBuiltinModule('node:sqlite')` 返回 undefined，于是报 `Cannot read properties of undefined (reading 'DatabaseSync')`。同目录的 `migration.test.ts` 早就有 `describe.skipIf(!sqlite)`，这个文件漏了同一句，补上
+
+### 关于 v1.3.0 那次发布（如实记录）
+
+v1.3.0 的发布 job **所有步骤全是绿灯**（`Release #3`，2m59s），但 GitHub Release 里最终只有一个 `.exe.blockmap` —— 既没有安装包、也没有 `latest.yml`。用户点下载什么也拿不到，客户端也检测不到更新。同一个 run 的 `windows-installer` 工件有 **119 MB**，说明安装包确实构建出来了、只是没能进 Release。批量提交此前从未被 push 过（1.2.3 / 1.2.4 都没发过），所以 CI 与发布链路的问题是一次性集中暴露的。
+
+### 验证
+
+- 两个 workflow 的 YAML 均通过 `js-yaml` 解析；`db-version.test.ts` 在本机（有 `node:sqlite`）照常跑满 5 例、未被 `skipIf` 跳过
+- ⚠️ 本机跑单测时磁盘 I/O 被占满（整套从 1.56 s 变成 41.4 s，`rng.test.ts` 从 0.5 s 变成 20.4 s），导致两条走 `VACUUM INTO` 备份的迁移用例 `Test timed out in 30000ms` —— 属**环境问题、非代码回归**（同一份代码几分钟前还是 269/269 全绿）。完整验证以 CI 为准
+
 ## [1.3.0] - 2026-09-17
 
 研究规划模块补完（数据层 / 联动 / 偏差复盘 / AI 助手 / 日历集成）。**建议升级** —— 这一版把全项目唯一「只有界面、没有数据」的模块补成了真正能用的模块，标签页从 5 个增到 8 个。
