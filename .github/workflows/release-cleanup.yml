@@ -17,6 +17,10 @@ on:
         description: '要删除 Release 的 tag，逗号分隔（例如 v1.3.0,v1.3.1）'
         required: true
         type: string
+        # 预填当前确认为「空壳」的版本（只有 GitHub 自动生成的源码包，或只有 .exe.blockmap）
+        # —— 2026-09-17 实测：v1.3.2 之前的每一个 Release 都没有可下载的安装包。
+        # 只删 Release、保留 tag；不想要的从输入框里删掉即可。
+        default: 'v1.0.0,v1.2.0,v1.2.1,v1.2.2,v1.3.0,v1.3.1'
 
 permissions:
   contents: write
