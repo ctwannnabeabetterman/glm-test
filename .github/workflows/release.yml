@@ -163,6 +163,8 @@ jobs:
       # 后果是静默的：用户点下载什么也拿不到；electron-updater 找不到更新清单，
       # 「检查更新」永远失败。所以自检不只查「名字在不在」，还要比对 latest.yml 里
       # 声明的 size 与实际资产字节数 —— 这才拦得住「传了一半」的截断上传。
+      # ⚠️ 2026-09-17 复盘：真因是**同一个 tag 下存在两个 Release**（资产被拆散到两个对象里），
+      #    不是上传失败 —— 见下面循环里对「孪生 Release」的断言。
       # 放在上传备份工件**之前**：这样自检失败时，完整的 release/ 仍会作为
       # windows-installer 工件留下，可以手动补挂到该 Release，不必重新构建。
       - name: Verify release assets (installer + latest.yml + size match)
@@ -199,6 +201,18 @@ jobs:
             $exeAsset = $release.assets | Where-Object { $_.name -eq $declaredPath }
             $hasYml   = $names -contains 'latest.yml'
             if ($exeAsset -ne $null -and $hasYml -and [int64]$exeAsset.size -eq $declaredSize) {
+              # ⚠️ 孪生 Release 断言（v1.3.0 / v1.3.1 的真因就在这）：
+              # 同一个 tag 下存在两个 Release 时，资产会被拆到两个对象里 —— 一个拿到
+              # exe + latest.yml，另一个拿到 blockmap。而 /releases/tags/<tag> 只返回其中一个，
+              # 于是用户看到的 Release 可能「只有 blockmap、没有安装包」，但上传其实是成功的。
+              # 现行流程用 gh 显式创建一次再上传，不会产生孪生；这条是防回归（尤其是
+              # 有人改回 `--publish always` 时 —— 它的 getOrCreateRelease() 存在并发建 release 的竞态）。
+              $allReleases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers $headers
+              $sameTag = @($allReleases | Where-Object { $_.tag_name -eq $tag })
+              if ($sameTag.Count -gt 1) {
+                Write-Error "$tag 存在 $($sameTag.Count) 个 Release：资产被拆散到不同对象，用户看到的会不全。删掉多余的后重跑。"
+                exit 1
+              }
               Write-Host "发布自检通过 ✓"
               Write-Host "Release $tag 资产：$($names -join ', ')"
               exit 0

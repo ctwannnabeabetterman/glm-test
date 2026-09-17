@@ -39,9 +39,14 @@ asar: true
 # ⚠️ 这个 publish 段**必须留着**：它决定了 latest.yml 与 app-update.yml 会不会被生成，
 #    与「谁负责上传」是两件事。
 # ⚠️ 但 CI **不要**再用 `electron-builder --win --publish always` 上传（v1.3.0 / v1.3.1
-#    连续两次踩坑后弃用）：electron-publish 会在若干情况下静默不传，只打一条 log.warn，
-#    进程照样 exit 0，于是出现「job 绿灯 + Release 里只有 .exe.blockmap」这种最危险的失败。
-#    现在 CI 用 `--publish never` 只构建，上传交给 gh CLI（见 .github/workflows/release.yml）。
+#    连续两次踩坑后弃用）。2026-09-17 复盘出的真因是它的 `getOrCreateRelease()` 有竞态：
+#    多个上传任务并发时各自 `createRelease()`，**同一个 tag 下会出现两个 Release**，
+#    资产被拆到两个对象里（一个拿到 exe + latest.yml，另一个只拿到 blockmap）。
+#    而 `/releases/tags/<tag>` 只返回其中一个 ⇒ 用户看到的 Release「只有 blockmap、没有安装包」，
+#    实际上传从来没失败过。此外 electron-publish 还有若干「只 log.warn 就放弃」的静默分支
+#    （目标 Release 发布超过 2 小时、构建出错时 cancelTasks()、token 取消等），同样不影响退出码。
+#    现在 CI 用 `--publish never` 只构建，上传交给 gh CLI（显式创建一次 + 上传，不会产生孪生
+#    Release，且失败必然非 0），见 .github/workflows/release.yml。
 publish:
   - provider: github
     owner: ctwannnabeabetterman
