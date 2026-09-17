@@ -100,3 +100,22 @@ nsis:
   # 磁盘文件名、GitHub 资产名、latest.yml 里的 path 三者必须字面一致，所以去掉空格。
   artifactName: AI-Network-Lab-Setup-${version}.${ext}
   shortcutName: AI Network Lab
+  # ⚠️ 保持 oneClick=false 有一个**代码侧的前置条件**（2026-09-17 排查「点击更新闪退」时确认）：
+  #    app-builder-lib/templates/nsis/installSection.nsh 末尾，assisted 安装器
+  #    「装完自动拉起应用」的条件是 `${if} ${isForceRun} ${andIf} ${Silent}` ——
+  #    也就是说**只有静默安装（/S）才会把应用拉回来**；oneClick 安装器则不受此限制。
+  #    所以 desktop/main.js 里必须 `autoUpdater.quitAndInstall(true, true)`，
+  #    少传这两个参数就会变成「点更新 → 应用消失 → 版本没变」，而日志里一切正常。
+  #    回归守卫见 tests/desktop/updater-contract.test.ts。
+  #
+  # ⚠️ 另一个与安装器有关的环境约束（同一次排查所得，与本配置文件无关但必须记下来）：
+  #    更新时 NSIS 会先把 `$INSTDIR` 整个**改名**到 `$PLUGINSDIR\old-install`
+  #    （uninstaller.nsh 的 `un.atomicRMDir`），失败就 `restoreFiles` + Abort。
+  #    Windows 不允许改名一个「内部还有文件被别的进程打开」的目录 —— 只要有任何程序
+  #    占着安装目录（把它当工作目录的编辑器/知识库工具、同步盘、索引、杀软），
+  #    这一步就会卡住或中止，表现为：安装器窗口一直停着、应用下次启动 FATAL
+  #    "Error loading V8 startup snapshot file"（目录被移动/半还原，快照文件不在原位）。
+  #    实测现场：`%TEMP%\nsXXXX.tmp` 里留着 old-uninstaller.exe，安装器进程长期不退出。
+  #    规避办法很简单：**不要把安装目录当工作目录/项目目录用**，安装前关掉占用它的程序。
+  #    安装器卡死时若你不想等，可直接结束那个 `AI-Network-Lab-Setup-*.exe` 进程
+  #    （它握着安装互斥量，不结束的话之后每次安装都会立刻中止）。

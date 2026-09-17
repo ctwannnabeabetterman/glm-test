@@ -93,7 +93,15 @@ export function SettingsSection() {
       if (info?.updateStatus) setUpdateState(info.updateStatus)
     })
     // 主进程推来的状态（例如启动后后台检查发现新版本）同步到这张卡片
-    const off = onUpdateStatus((p) => setUpdateState(p))
+    const off = onUpdateStatus((p) => {
+      setUpdateState(p)
+      // 一旦进入「正在下载 / 已下载 / 出错 / 版本冲突」，之前那次手动检查的结论就已经过期了。
+      // 不清掉的话，状态行会用 updateResult 覆盖新状态 —— 用户会看到「已下载完成」的按钮
+      // 旁边还写着「点『下载更新』」，前后矛盾，看着就像界面坏了。
+      if (p.state === 'downloading' || p.state === 'downloaded' || p.state === 'error' || p.state === 'conflict') {
+        setUpdateResult(null)
+      }
+    })
     return () => {
       alive = false
       off()
@@ -116,6 +124,7 @@ export function SettingsSection() {
 
   const runDownload = useCallback(async () => {
     setDownloading(true)
+    setUpdateResult(null) // 检查结论已被「开始下载」取代，留着会让状态行自相矛盾
     try {
       const r = await downloadUpdate()
       if (!r.ok) toast.error(r.error || '下载更新失败')
@@ -127,6 +136,7 @@ export function SettingsSection() {
 
   const runInstall = useCallback(async () => {
     setInstalling(true)
+    setUpdateResult(null)
     try {
       const r = await installUpdate()
       if (!r.ok) toast.error(r.error || '安装更新失败')
@@ -610,6 +620,17 @@ export function SettingsSection() {
                     )}
                   </div>
                   <UpdateStatusLine state={updateState} result={updateResult} />
+                  {/* 兜底通道：桌面端 NSIS 安装器要先把旧版本目录整个移开，
+                      只要还有程序占着安装目录（把它当工作目录的编辑器、同步盘、杀软等），
+                      这一步就会卡住或中止。这种情况下应用内更新无解，必须给用户一条能走通的路。 */}
+                  <a
+                    href="https://github.com/ctwannnabeabetterman/glm-test/releases/latest"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+                  >
+                    更新反复失败？到发布页手动下载安装包 <ExternalLink className="h-3 w-3" />
+                  </a>
                 </>
               )}
             </CardContent>

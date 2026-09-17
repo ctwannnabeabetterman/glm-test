@@ -38,6 +38,15 @@ let serverProc = null
 let lastUpdateStatus = { state: 'idle' }
 
 /**
+ * 用户是否主动发起过下载/安装。
+ *
+ * 用途：区分「后台静默检查失败」和「用户点过按钮之后失败」。
+ * 前者只记日志（不能开机就弹错误框），后者必须回传到界面 —— 否则「点了按钮没反应」
+ * 与「按钮坏了」在用户看来毫无区别。
+ */
+let updateActionInFlight = false
+
+/**
  * 把更新状态推给渲染层。
  *
  * 为什么不能只靠系统对话框：用户点一次「稍后」对话框就消失了，之后再没有任何痕迹，
@@ -47,6 +56,52 @@ function sendUpdateStatus(payload) {
   lastUpdateStatus = payload
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('update-status', payload)
+  }
+}
+
+/** 更新日志文件大小上限；超过就只保留尾部，避免长期使用后无限增长 */
+const UPDATE_LOG_MAX_BYTES = 512 * 1024
+
+/**
+ * 更新链路的落盘日志（%APPDATA%\ai-network-lab\logs\update.log）。
+ *
+ * 为什么必须有：打包后的应用没有控制台，而 electron-updater 的输出、以及
+ * 「安装器根本没起来」这类故障，全都发生在应用退出前后 —— 应用侧一行痕迹都不留。
+ * 2026-09-17 本机排查「点击更新闪退」时，唯一的线索是安装目录里一个 178 字节的
+ * debug.log 和 %LOCALAPPDATA%\ai-network-lab-updater 的残留；真正卡住的位置
+ * （NSIS 先跑旧卸载器那一步）只能靠倒推。有了这个文件，下次一眼就能看到
+ * 安装器路径、传了哪些参数、以及应用到底有没有退出。
+ *
+ * 日志写失败绝不允许影响更新本身，所以整段都吞异常。
+ */
+let updateLogPath = null
+function logUpdate(...parts) {
+  const line = `[${new Date().toISOString()}] ${parts.join(' ')}`
+  // 无论如不成功都留一份到 stdout：开发模式（npm run desktop:dev）能直接看到
+  console.log(line)
+  try {
+    if (!updateLogPath) updateLogPath = path.join(app.getPath('userData'), 'logs', 'update.log')
+    fs.mkdirSync(path.dirname(updateLogPath), { recursive: true })
+    try {
+      if (fs.statSync(updateLogPath).size > UPDATE_LOG_MAX_BYTES) {
+        fs.writeFileSync(updateLogPath, fs.readFileSync(updateLogPath, 'utf8').slice(-UPDATE_LOG_MAX_BYTES / 4))
+      }
+    } catch {
+      /* 首次运行时文件还不存在 */
+    }
+    fs.appendFileSync(updateLogPath, line + '\n')
+  } catch {
+    /* 日志是诊断手段，不是功能：写不进去也必须继续跑更新 */
+  }
+}
+
+/** 把 electron-updater 的内部日志也接到同一个文件里 */
+function attachUpdaterLogger(updater) {
+  updater.logger = {
+    info: (m) => logUpdate('[updater:info]', m),
+    warn: (m) => logUpdate('[updater:warn]', m),
+    error: (m) => logUpdate('[updater:error]', m),
+    debug: (m) => logUpdate('[updater:debug]', m),
   }
 }
 
@@ -423,24 +478,65 @@ function createWindow(port) {
   })
 }
 
-/** 先释放 SQLite 句柄再交给安装器，否则安装程序可能覆盖不掉正在被占用的文件 */
+/**
+ * 触发「退出并安装」。
+ *
+ * ⚠️ 两个参数都**不能省**，它们是 electron-builder 的 NSIS 模板定下的硬约束
+ *    （见 app-builder-lib/templates/nsis/installSection.nsh 末尾）：
+ *      · 本项目用的是 assisted 安装器（electron-builder.yml 里 nsis.oneClick=false），
+ *        模板中「装完自动拉起应用」的条件是 `${if} ${isForceRun} ${andIf} ${Silent}`
+ *        —— **只有静默安装才会把应用拉起来**。所以 isSilent 必须是 true；
+ *        否则安装完成后应用不会回来，用户看到的就是「点了更新，应用直接闪退、还得自己开」。
+ *      · isForceRunAfter=true 才会带上 --force-run（上面那个条件的一半）。
+ *    合起来等价于命令行 `--updated /S --force-run`。
+ *
+ * ⚠️ 这里刻意**不**提前 kill 内部服务、也不提前置 app.isQuitting：
+ *    quitAndInstall 是「立即返回、随后才真正拉起安装器」的，而 install() 可能失败
+ *    （更新缓存被清、安装器被安全软件拦下、spawn 报 EACCES 等）。一旦失败应用并不会退出，
+ *    而内部服务已经被我们杀掉 ⇒ 界面所有接口全部失败，看起来就是「点完更新，整个界面显示异常」。
+ *    交给正常退出流程（before-quit）去收服务即可：app.quit() 紧随 install() 之后，
+ *    释放 resources/app 句柄的时机依然早于安装器动手。
+ *
+ * 另外加一道守护：quitAndInstall 只在 install() 成功时才会真的退出。几秒后我们还活着，
+ * 就说明安装压根没起来 —— 明确告诉用户，而不是让他对着一个「点了没反应」的界面猜。
+ */
 function applyUpdateAndRestart() {
-  if (!autoUpdater) return
-  app.isQuitting = true
-  if (serverProc) {
+  if (!autoUpdater) return { ok: false, error: '更新组件不可用' }
+  if (!app.isPackaged) return { ok: false, error: '开发模式不安装更新' }
+  updateActionInFlight = true
+  logUpdate(`quitAndInstall(isSilent=true, isForceRunAfter=true)，当前版本 ${app.getVersion()}`)
+  setImmediate(() => {
     try {
-      serverProc.kill()
-    } catch {
-      /* 进程可能已自行退出 */
+      autoUpdater.quitAndInstall(true, true)
+    } catch (e) {
+      const info = classifyUpdateError(e)
+      updateActionInFlight = false
+      logUpdate(`quitAndInstall 抛错：${info.reason} — ${info.message}`)
+      sendUpdateStatus({ state: 'error', reason: info.reason, message: info.message, current: app.getVersion() })
+      dialog.showErrorBox('安装更新失败', info.message)
+      return
     }
-  }
-  setImmediate(() => autoUpdater.quitAndInstall())
+    setTimeout(() => {
+      // app.isQuitting 只在 before-quit 里置位 ⇒ 到这里还活着就说明退出流程根本没开始
+      if (app.isQuitting) return
+      updateActionInFlight = false
+      const message =
+        '更新安装没有启动（应用没有退出）。安装包已经下载好，可以稍后在「设置 → 软件更新」里重试；' +
+        '若反复失败，请到发布页手动下载安装包。'
+      logUpdate('quitAndInstall 之后应用仍在运行 ⇒ 安装未启动（install() 返回 false 或安装器 spawn 失败）')
+      sendUpdateStatus({ state: 'error', reason: 'install-not-started', message, current: app.getVersion() })
+      dialog.showErrorBox('安装更新没有启动', message)
+    }, 5000)
+  })
+  return { ok: true }
 }
 
 /** 开始下载更新（系统对话框与界面按钮共用同一条路径，行为一致） */
 function startUpdateDownload() {
   if (!autoUpdater) return { ok: false, error: '更新组件不可用' }
   if (!app.isPackaged) return { ok: false, error: '开发模式不下载更新' }
+  updateActionInFlight = true
+  logUpdate('开始下载更新，当前版本', app.getVersion())
   sendUpdateStatus({
     state: 'downloading',
     current: app.getVersion(),
@@ -449,6 +545,8 @@ function startUpdateDownload() {
   })
   autoUpdater.downloadUpdate().catch((e) => {
     const info = classifyUpdateError(e)
+    updateActionInFlight = false
+    logUpdate(`下载失败：${info.reason} — ${info.message}`)
     sendUpdateStatus({ state: 'error', reason: info.reason, message: info.message, current: app.getVersion() })
     dialog.showErrorBox('下载更新失败', info.message)
   })
@@ -472,8 +570,14 @@ function setupAutoUpdate() {
   // 先问再下：避免在用户不知情时占用带宽；退出时自动安装已下载的更新
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
+  attachUpdaterLogger(autoUpdater)
+  logUpdate(
+    `自动更新就绪：版本 ${app.getVersion()}，electron ${process.versions.electron}，` +
+      `缓存目录 ${path.join(app.getPath('userData'), '..', 'ai-network-lab-updater')}`,
+  )
 
   autoUpdater.on('update-available', async (info) => {
+    logUpdate(`发现新版本 ${info.version}（当前 ${app.getVersion()}）`)
     // 先推给界面做常驻提示，再弹对话框 —— 用户点「稍后」也不会漏掉这次提醒
     sendUpdateStatus({
       state: 'available',
@@ -498,7 +602,8 @@ function setupAutoUpdate() {
   })
 
   autoUpdater.on('update-not-available', (info) => {
-    console.log(`[update] 已是最新版本 ${app.getVersion()}`)
+    logUpdate(`已是最新版本 ${app.getVersion()}`)
+    updateActionInFlight = false
     sendUpdateStatus({
       state: 'latest',
       current: app.getVersion(),
@@ -521,6 +626,9 @@ function setupAutoUpdate() {
   })
 
   autoUpdater.on('update-downloaded', async (info) => {
+    // 把安装包的真实落盘路径与版本记下来：这是「下载成功但装不上」时唯一能对着查的东西
+    logUpdate(`更新下载完成 ${info.version}，安装包：${info.downloadedFile || '(未知路径)'}`)
+    updateActionInFlight = false
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setTitle(`AI Network Lab ${app.getVersion()}`)
     }
@@ -538,7 +646,10 @@ function setupAutoUpdate() {
         cancelId: 1,
         title: '更新已下载',
         message: `新版本 ${info.version} 已下载完成`,
-        detail: '选择「立即重启并安装」会关闭应用并完成更新；也可以稍后退出时自动安装。',
+        detail:
+          '选择「立即重启并安装」会关闭应用并完成更新；也可以稍后退出时自动安装。\n\n' +
+          '提示：安装前请关闭可能正在占用安装目录的程序（例如把该目录当作工作目录的编辑器或同步工具），' +
+          '否则安装器可能卡在「清理旧版本」这一步。',
       })
       if (response === 0) applyUpdateAndRestart()
     } catch (e) {
@@ -546,19 +657,23 @@ function setupAutoUpdate() {
     }
   })
 
-  // 网络/权限类错误一律吞掉：更新是增强能力，不能影响正常使用。
-  // 这里只记日志、不打扰用户 —— 手动检查的报错由 IPC 直接回传给界面，
-  // 启动时的静默检查失败更不该弹窗（否则每次开机都要被念一遍）。
+  // 启动时的静默检查失败一律只记日志、不打扰用户（否则每次开机都要被念一遍）。
+  // 但**用户主动点过下载/安装之后**的失败必须回传到界面 —— 安装阶段失败尤其隐蔽：
+  // 它发生在应用即将退出的窗口期，用户那边只看到「点了没反应」，日志里才有真相。
   autoUpdater.on('error', (e) => {
     const info = classifyUpdateError(e)
-    console.warn(`[update] 更新检查出错（已忽略）：${info.reason} — ${info.message}`)
+    logUpdate(`更新出错：${info.reason} — ${info.message}`)
+    if (updateActionInFlight) {
+      updateActionInFlight = false
+      sendUpdateStatus({ state: 'error', reason: info.reason, message: info.message, current: app.getVersion() })
+    }
   })
 
   // 延后 6 秒再查，避免与启动阶段的解压/建库抢磁盘 IO
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((e) => {
       const info = classifyUpdateError(e)
-      console.warn(`[update] 启动静默检查未成功：${info.reason} — ${info.message}`)
+      logUpdate(`启动静默检查未成功：${info.reason} — ${info.message}`)
     })
   }, 6000)
 }
@@ -717,15 +832,21 @@ ipcMain.handle('check-for-updates', async (event) => {
     return { ok: false, reason: 'dev', error: '开发模式不检查更新', current: app.getVersion() }
   }
   try {
+    updateActionInFlight = true
+    logUpdate('手动检查更新…')
     const result = await autoUpdater.checkForUpdates()
     const latest = result && result.updateInfo ? result.updateInfo.version : null
     const hasUpdate = Boolean(latest && latest !== app.getVersion())
+    logUpdate(`手动检查结果：当前 ${app.getVersion()}，更新源 ${latest}，hasUpdate=${hasUpdate}`)
+    updateActionInFlight = false
     if (!hasUpdate) {
       sendUpdateStatus({ state: 'latest', current: app.getVersion(), version: latest, message: '已是最新版本' })
     }
     return { ok: true, current: app.getVersion(), latest, hasUpdate }
   } catch (e) {
     const info = classifyUpdateError(e)
+    updateActionInFlight = false
+    logUpdate(`手动检查失败：${info.reason} — ${info.message}`)
     sendUpdateStatus({ state: 'error', reason: info.reason, message: info.message, current: app.getVersion() })
     return { ok: false, reason: info.reason, error: info.message, current: app.getVersion() }
   }
@@ -742,9 +863,7 @@ ipcMain.handle('download-update', async (event) => {
 ipcMain.handle('install-update', async (event) => {
   const bad = guardSender(event)
   if (bad) return { ok: false, error: bad }
-  if (!autoUpdater) return { ok: false, error: '更新组件不可用' }
-  applyUpdateAndRestart()
-  return { ok: true }
+  return applyUpdateAndRestart()
 })
 
 /**

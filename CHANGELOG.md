@@ -3,6 +3,37 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.3.3] - 2026-09-17
+
+**这一版修「点了更新就闪退、版本还是旧的」。** 下载从来就没问题（1.3.2 的安装包完整躺在更新缓存里，字节数与 Release 资产一致）；问题全在**安装那一步**：应用退出了，安装器却没装成。
+
+### 修复
+
+- **`quitAndInstall()` 少了两个参数，导致安装器装完不会把应用拉回来。** electron-builder 的 NSIS 模板里（`templates/nsis/installSection.nsh` 末尾），`oneClick: false`（本项目如此）的安装器执行「装完自动启动应用」的条件是 `${if} ${isForceRun} ${andIf} ${Silent}` —— **只有静默安装才拉得起来**。原先调的是无参 `quitAndInstall()`（等价 `isSilent=false`），用户看到的正是「点一下更新 → 应用消失 → 手动打开还是旧版本」。现改为 `quitAndInstall(true, true)`，等价命令行 `--updated /S --force-run`
+- **「点完更新，界面显示异常」的真因：在确认安装会启动之前就把内部服务杀了。** `applyUpdateAndRestart()` 原先先 `serverProc.kill()` 并置 `app.isQuitting`，再调 `quitAndInstall`。但 `quitAndInstall` 是「立即返回、随后才去拉起安装器」，而 `install()` 可能失败（更新缓存被清、安装器被安全软件拦下、spawn 报 EACCES 等）—— 失败时应用并不会退出，而此时内部 Next 服务已经被杀掉，界面上所有接口一起失败，看起来就是整个界面坏掉。现在把服务交给正常退出流程（`before-quit`）去收：`app.quit()` 紧随 `install()` 之后，释放 `resources/app` 句柄的时机依然早于安装器动手
+- **新增「安装没启动」守护**：`quitAndInstall` 只在 `install()` 成功时才会真的退出应用。现在 5 秒后复查，应用还活着就明确回传 `install-not-started` 并弹框说明原因与下一步，而不是让用户对着一个「点了没反应的窗口」猜
+- **更新链路第一次有了落盘日志**：新增 `%APPDATA%\ai-network-lab\logs\update.log`（electron-updater 的内部日志也接进同一文件），记录版本、检查结果、**安装包真实落盘路径**、`quitAndInstall` 收到的参数。打包后的应用没有控制台，本次排查时应用侧一行痕迹都没有，只能靠安装目录里一个 178 字节的 `debug.log` 和更新缓存残留倒推
+- **下载 / 安装阶段的失败现在会回传到界面**（此前 `error` 事件只写日志）。后台静默检查失败仍然不打扰用户 —— 开机就弹错误框是不可接受的 —— 但用户主动点过按钮之后的失败必须让他看见
+- **状态行不再自相矛盾**：手动检查的结论此前会永久压住之后推来的状态，于是「已下载完成、按钮已是『立即重启并安装』」的卡片里还写着「点『下载更新』」。现在一旦进入下载 / 已下载 / 出错 / 版本冲突，就清掉那份过期的检查结论
+- **更新卡片底部加了手动兜底入口**：直达发布页。桌面端安装器要先清理旧版本目录，只要还有程序占着安装目录，这一步就会卡住 —— 这种情况应用内更新无解，必须留一条能走通的路
+
+### 排查记录：这次到底卡在哪
+
+本机装的是 **v1.2.4**（一个从未发布过的本地构建）。四条现场证据：
+
+1. `%LOCALAPPDATA%\ai-network-lab-updater\pending\` 里躺着 `AI-Network-Lab-Setup-1.3.2.exe`，**125,009,264 字节，与 Release 上的资产逐字节一致**，`update-info.json` 里的 `sha512` 也在 ⇒ **下载是成功的**，问题不在下载
+2. 安装目录里出现一个 `debug.log`，只有两行 `FATAL:gin\v8_initializer.cc:675] Error loading V8 startup snapshot file` ⇒ 有一个 Electron 进程从安装目录启动后**直接 FATAL 退出**（这就是「闪退」本体）：那一刻目录处于不一致状态，`snapshot_blob.bin` 不在原位
+3. **安装器进程始终没有退出**（`AI-Network-Lab-Setup-1.3.2.exe`，窗口标题「AI Network Lab 安装」，CPU 只消耗了 1.6 秒，无子进程），`%TEMP%\nsXXXX.tmp` 里留着 `old-uninstaller.exe` ⇒ 卡在 NSIS **「先跑旧卸载器清空旧目录」**这一步
+4. 机制在模板里写得很明白（`templates/nsis/uninstaller.nsh`）：更新时旧卸载器要把 `$INSTDIR` 整个**改名**到 `$PLUGINSDIR\old-install`（`un.atomicRMDir`），失败则 `restoreFiles` 再 `Abort`。而 **Windows 不允许改名一个「内部还有文件被别的进程打开」的目录** —— 只要有任何程序占着安装目录（把它当工作目录的编辑器 / 知识库工具、同步盘、索引服务、杀软），这一步就会被挡下，留下一个半还原的目录，应用下次启动便 FATAL 在 V8 快照上
+
+⇒ 结论是**代码缺陷（上面前三条）+ 环境约束（安装目录被占用）**。后者无法在应用侧修复，只能在 UI 与配置注释里给出可执行指引：不要把安装目录当工作目录用；安装器卡住时可以直接结束那个 `AI-Network-Lab-Setup-*.exe` 进程 —— 它握着安装互斥量，不结束的话之后每次安装都会立刻被中止（本次排查就是这么处理的）
+
+### 验证
+
+- 新增 `tests/desktop/updater-contract.test.ts`（8 例）：用 `vm` 把 `desktop/main.js` 载入受控上下文后直接断言 IPC handler —— `quitAndInstall` 必须收到 `(true, true)`、安装前不得杀内部服务、开发模式不得安装、失败要回传 `install-not-started`、日志要落盘、`electron-builder.yml` 的 `publish` 段必须保留。这些约束**不会**让类型检查或任何既有用例变红，只能靠契约断言守住
+- 全量单测 277/277 通过（原 269 + 新增 8），`tsc --noEmit` 无错
+- 本机核实：终止卡死的安装器后，安装目录 1.2.4 各文件（`AI Network Lab.exe` / `snapshot_blob.bin` / `v8_context_snapshot.bin` / `resources\app\server.js`）完好，应用仍可用；1.3.2 安装包仍留在 `pending/` 缓存中，重试无需重新下载
+
 ## [1.3.2] - 2026-09-17
 
 **这一版只有一个目的：让安装包真的出现在 Release 里。** v1.3.0 与 v1.3.1 连续两次「job 全绿但 Release 里只有 `.exe.blockmap`」，用户根本下载不到安装包。本版把发布链路的上传环节整个换掉，并加上能拦住这类问题的硬自检。
