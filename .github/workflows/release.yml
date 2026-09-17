@@ -60,6 +60,27 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # ---------- CJK 字体：单测里有「PDF 必须内嵌中文字体」的断言 ----------
+      # ⚠️ 本 job 跑在 **windows-latest**（NSIS 只能在 Windows 上打包），字体来自镜像自带的 msyh.ttf。
+      # 别照抄 ci.yml 的 `apt-get install fonts-noto-cjk` —— 那在 Windows runner 上会直接失败。
+      # 这里保留一个显式断言，把「代码要找的那个文件」钉出来：镜像/字体包将来再变时，
+      # 失败信息会直接点名路径，而不是给一个看不懂的 PDF 断言失败。
+      # 注：候选列表必须与 src/lib/library/pdf.ts 的 candidates 保持一致。
+      - name: Verify CJK font available (PDF export embeds a real Chinese font)
+        shell: pwsh
+        run: |
+          $candidates = @(
+            (Join-Path $env:WINDIR 'Fonts\msyh.ttf'),
+            (Join-Path $env:WINDIR 'Fonts\msyh.ttc'),
+            'C:\Windows\Fonts\simhei.ttf'
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            Write-Error "找不到可用的中文字体，src/lib/library/pdf.ts 的候选列表需要同步更新。已探测：$($candidates -join ', ')"
+            exit 1
+          }
+          Write-Host "CJK font OK: $found"
+
       # ---------- 版本校验：tag 必须与 package.json 一致 ----------
       # 这一步存在的意义：本项目历史上出现过「tag 指向落后 14 个提交的旧提交」、
       # 「package.json 版本号从没 bump」的问题。若不一致，直接失败，避免又发一个名实不符的版本。

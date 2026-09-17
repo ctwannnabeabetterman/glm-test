@@ -36,7 +36,14 @@ jobs:
       # ubuntu runner 默认不带 CJK 字体，而 src/lib/library/pdf.ts 正是去
       # /usr/share/fonts/opentype/noto/ 找它；装上 `fonts-noto-cjk` 就有这个文件。
       - name: Install CJK font (PDF export embeds a real Chinese font)
-        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+        run: |
+          sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+          # 断言代码里写死要找的那个文件真的在（候选列表见 src/lib/library/pdf.ts）。
+          # 字体包布局一变，这里会直接点名路径失败 —— 2026-09-17 就是字体风味从 TrueType
+          # 变成 CFF 后 PDF 断言红了，但报错完全指不到原因，白烧了一轮排查。
+          test -f /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc \
+            || { echo "::error::CJK 字体不在预期路径，src/lib/library/pdf.ts 的候选列表需要同步更新"; exit 1; }
+          fc-list | grep -i "noto sans cjk" | head -3 || true
 
       - name: Typecheck
         run: npm run typecheck
@@ -71,7 +78,14 @@ jobs:
 
       # 同 verify job：中文字体缺失会让 PDF 导出的单测显式失败
       - name: Install CJK font (PDF export embeds a real Chinese font)
-        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+        run: |
+          sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+          # 断言代码里写死要找的那个文件真的在（候选列表见 src/lib/library/pdf.ts）。
+          # 字体包布局一变，这里会直接点名路径失败 —— 2026-09-17 就是字体风味从 TrueType
+          # 变成 CFF 后 PDF 断言红了，但报错完全指不到原因，白烧了一轮排查。
+          test -f /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc \
+            || { echo "::error::CJK 字体不在预期路径，src/lib/library/pdf.ts 的候选列表需要同步更新"; exit 1; }
+          fc-list | grep -i "noto sans cjk" | head -3 || true
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
