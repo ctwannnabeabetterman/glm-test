@@ -68,7 +68,7 @@ LLM_MODEL=glm-4-flash                                # 免费模型，够用
 ```bash
 npm run build          # 产出 .next/standalone
 npm run desktop:start  # 补齐静态资源与数据库模板后启动桌面窗口（开发验证）
-npm run desktop:dist   # 产出 Windows 安装包 release/AI Network Lab-Setup-*.exe
+npm run desktop:dist   # 产出 Windows 安装包 release/AI-Network-Lab-Setup-*.exe
 ```
 
 要点：
