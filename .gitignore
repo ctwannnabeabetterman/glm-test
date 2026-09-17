@@ -10,6 +10,9 @@ node_modules/
 # 带中文注释会导致脚本体静默不执行、打包报 "No JSON content found in output"。
 .pshims/
 
+# 本机 AI 工作区数据（项目记忆/技能；随工作目录走，不入库）
+.workbuddy/
+
 # next.js
 .next/
 out/
