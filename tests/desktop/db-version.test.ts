@@ -34,7 +34,13 @@ function makeCleanDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], d
   db.close()
 }
 
-describe('desktop database version stamp', () => {
+/**
+ * `node:sqlite` 是 Node 22.5 才有的内置模块（桌面端的 migrate-database.js 也依赖它）。
+ * 在更老的 Node 上 `process.getBuiltinModule('node:sqlite')` 返回 undefined，
+ * 直接跑会以 `Cannot read properties of undefined (reading 'DatabaseSync')` 崩掉 ——
+ * 那是「环境不支持」而不是「功能坏了」。与 `migration.test.ts` 保持一致，整组跳过。
+ */
+describe.skipIf(!sqlite)('desktop database version stamp', () => {
   it('semver 与 user_version 整数互转', () => {
     const { encodeVersion, formatVersion } = require('../../desktop/migrate-database.js')
     expect(encodeVersion('1.2.4')).toBe(10204)

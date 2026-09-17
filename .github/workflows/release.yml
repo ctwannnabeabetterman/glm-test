@@ -26,6 +26,12 @@ on:
 permissions:
   contents: write
 
+# 同一个 tag 的发布不允许重叠执行。两次 publish 并发跑会互相覆盖 Release 资产，
+# 表现是「Release 里只剩一部分文件」但仍然报成功（v1.3.0 实测踩过）。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build & Publish (Windows NSIS)
@@ -97,6 +103,43 @@ jobs:
           }
           Write-Host "publish mode = $publish"
           npx electron-builder --win --publish $publish
+
+      # ---------- 发布后自检：Release 里必须真的有安装包和 latest.yml ----------
+      # 为什么必须有这一步：v1.3.0 的发布 job **全程绿灯**，但 GitHub Release 里
+      # 只有一个 `.exe.blockmap` —— 既没有 `.exe`，也没有 `latest.yml`。
+      # 后果是静默的：用户点下载什么也拿不到；electron-updater 找不到更新清单，
+      # 「检查更新」永远失败。发版链路里最不能忍的就是「亮着绿灯失败」。
+      # 放在上传备份工件**之前**：这样自检失败时，完整的 release/ 仍会作为
+      # windows-installer 工件留下，可以手动补挂到 Release，不必重新构建。
+      - name: Verify release assets (installer + latest.yml)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag  = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept        = "application/vnd.github+json"
+            'User-Agent'  = 'release-verify'
+          }
+
+          $names = @()
+          for ($i = 1; $i -le 6; $i++) {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" -Headers $headers
+            $names   = @($release.assets | ForEach-Object { $_.name })
+            $hasExe  = [bool]($names | Where-Object { $_ -like '*.exe' })
+            $hasYml  = $names -contains 'latest.yml'
+            if ($hasExe -and $hasYml) {
+              Write-Host "发布自检通过 ✓"
+              Write-Host "Release $tag 资产：$($names -join ', ')"
+              exit 0
+            }
+            Write-Host "第 $i 次自检未通过（exe=$hasExe  latest.yml=$hasYml），2 秒后重试…"
+            Start-Sleep -Seconds 2
+          }
+
+          Write-Error "发布不完整：$tag 的资产只有 [$($names -join ', ')]，缺少 *.exe 或 latest.yml —— 用户下载不到安装包，客户端也检测不到更新。本次完整产物已作为 windows-installer 工件上传，可手动补挂到该 Release。"
+          exit 1
 
       - name: Upload artifacts (backup)
         if: always()

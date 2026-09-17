@@ -31,6 +31,13 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # PDF 导出（笔记 / 论文）要嵌入真正的中文字体，缺字体时 `buildSimplePdf` 会**显式抛错**
+      # —— 这是刻意的，绝不静默产出一份只有拉丁字形的「中国字」PDF。
+      # ubuntu runner 默认不带 CJK 字体，而 src/lib/library/pdf.ts 正是去
+      # /usr/share/fonts/opentype/noto/ 找它；装上 `fonts-noto-cjk` 就有这个文件。
+      - name: Install CJK font (PDF export embeds a real Chinese font)
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -61,6 +68,10 @@ jobs:
 
       - name: Generate Prisma client
         run: npx prisma generate
+
+      # 同 verify job：中文字体缺失会让 PDF 导出的单测显式失败
+      - name: Install CJK font (PDF export embeds a real Chinese font)
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
