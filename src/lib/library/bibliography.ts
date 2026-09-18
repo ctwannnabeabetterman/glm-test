@@ -10,7 +10,10 @@ export interface BibliographyRecord {
   year: number
   doi: string
   tags: string
+  /** 用户自己的附注（RIS-N1 / BibTeX note）—— 不要拿摘要来填这里 */
   notes: string
+  /** 摘要正文（RIS-AB / BibTeX abstract / Zotero abstractNote）—— AI 摘要的原料 */
+  abstract: string
   url: string
   zoteroKey: string
 }
@@ -23,6 +26,7 @@ const EMPTY: BibliographyRecord = {
   doi: '',
   tags: '',
   notes: '',
+  abstract: '',
   url: '',
   zoteroKey: '',
 }
@@ -117,8 +121,11 @@ export function parseRis(text: string): BibliographyRecord[] {
         tags.push(value)
         break
       case 'N1':
-      case 'AB':
+        // N1 是「研究笔记/附注」，AB 才是摘要 —— 两者别混
         cur.notes = cur.notes ? `${cur.notes}\n${value}` : value
+        break
+      case 'AB':
+        cur.abstract = cur.abstract ? `${cur.abstract}\n${value}` : value
         break
       case 'UR':
       case 'L1':
@@ -263,7 +270,8 @@ export function parseBibtex(text: string): BibliographyRecord[] {
     rec.year = yearFrom(field('year'))
     rec.doi = field('doi')
     rec.tags = field('keywords').replace(/;/g, ',')
-    rec.notes = field('abstract') || field('note')
+    rec.notes = field('note')
+    rec.abstract = field('abstract')
     rec.url = field('url')
     const keyMatch = chunk.match(/@\w+\s*\{([^,]+),/)
     if (keyMatch) rec.zoteroKey = clean(keyMatch[1])

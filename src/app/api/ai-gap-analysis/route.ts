@@ -1,4 +1,7 @@
 import { chatComplete } from '@/lib/llm'
+import { llmFailureResponse } from '@/lib/llm/http'
+import { NO_FABRICATION_GUARD } from '@/lib/llm/prompts'
+import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
@@ -7,7 +10,7 @@ import { db } from '@/lib/db'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { topicId, type } = body // type: 'gaps' | 'opportunities' | 'literature'
+    const { type } = body // type: 'gaps' | 'opportunities' | 'literature'
 
     // Gather context data
     const papers = await db.paper.findMany({ take: 20, orderBy: [{ year: 'desc' }] })
@@ -56,7 +59,7 @@ ${JSON.stringify(noteContext, null, 2)}
 
     switch (type) {
       case 'gaps':
-        systemPrompt = '你是一位通信领域的资深研究员，擅长发现研究空白（Research Gap）。请用中文回答，结构化输出。'
+        systemPrompt = '你是一位通信领域的资深研究员，擅长发现研究空白（Research Gap）。请用中文回答，结构化输出。' + NO_FABRICATION_GUARD
         userPrompt = `基于以下科研数据，分析当前研究方向中可能存在的研究空白（Research Gaps）。
 
 ${context}
@@ -75,7 +78,7 @@ ${context}
 ...`
         break
       case 'opportunities':
-        systemPrompt = '你是一位通信领域的科研顾问，擅长识别研究机会和创新点。请用中文回答，结构化输出。'
+        systemPrompt = '你是一位通信领域的科研顾问，擅长识别研究机会和创新点。请用中文回答，结构化输出。' + NO_FABRICATION_GUARD
         userPrompt = `基于以下科研数据，分析可能的研究机会和创新点。
 
 ${context}
@@ -95,7 +98,7 @@ ${context}
 ...`
         break
       case 'literature':
-        systemPrompt = '你是一位通信领域的文献综述专家，擅长梳理文献脉络。请用中文回答，结构化输出。'
+        systemPrompt = '你是一位通信领域的文献综述专家，擅长梳理文献脉络。请用中文回答，结构化输出。' + NO_FABRICATION_GUARD
         userPrompt = `基于以下科研数据，生成文献综述框架。
 
 ${context}
@@ -129,14 +132,21 @@ ${context}
         return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
     }
 
-    // Use z-ai-web-dev-sdk
-    const content = await chatComplete(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      { timeoutMs: 180_000 }
-    )
+    // 格式合同统一拼在这里，而不是散落到上面 3 个 case 里（漏一个就是一个面板格式失控）
+    systemPrompt += `\n\n${OUTPUT_FORMAT_CONTRACT}\n${HEADING_LEVEL_RULE}`
+
+    let content: string
+    try {
+      content = await chatComplete(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        { timeoutMs: 180_000 }
+      )
+    } catch (e) {
+      return llmFailureResponse(e, 'AI 分析失败')
+    }
 
     return NextResponse.json({ success: true, content, type })
   } catch (e) {

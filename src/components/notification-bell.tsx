@@ -41,7 +41,7 @@ const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
 }
 
 export function NotificationBell() {
-  const { data, loading } = useFetch<NotificationData>('/api/notifications')
+  const { data, loading, error, refetch } = useFetch<NotificationData>('/api/notifications')
   const [open, setOpen] = useState(false)
   const setSection = useAppStore((s) => s.setSection)
 
@@ -93,6 +93,23 @@ export function NotificationBell() {
           <div className="max-h-[400px] overflow-y-auto">
             {loading ? (
               <div className="p-6 text-center text-xs text-muted-foreground">加载中...</div>
+            ) : error ? (
+              // 拉取失败时**不能**显示「一切就绪」—— 那会把「接口坏了」伪装成
+              // 「确实没有待办」，用户会以为自己没有逾期提醒。宁可显式报错。
+              <div className="p-6 text-center text-xs text-muted-foreground">
+                <AlertCircle className="h-8 w-8 mx-auto mb-2 text-amber-500" />
+                <div className="text-amber-600 font-medium">通知加载失败</div>
+                <div className="mt-1">可能是数据库结构未迁移，请重试或查看日志</div>
+                <div className="mt-0.5 text-[10px] opacity-70">{error}</div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 h-6 text-[10px]"
+                  onClick={() => void refetch()}
+                >
+                  重试
+                </Button>
+              </div>
             ) : notifications.length === 0 ? (
               <div className="p-6 text-center text-xs text-muted-foreground">
                 <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-500" />

@@ -29,6 +29,11 @@ model Paper {
   doi         String   @default("")
   zoteroKey   String   @default("") // Zotero item key，用于增量同步去重
   pdfPath     String   @default("") // 本机入库 PDF 相对路径（library/pdfs/...）
+  // 摘要正文 —— 这是 AI 摘要功能的**原料**。
+  // 为什么必须单独一列而不是塞进 notes：notes 是「用户自己的阅读笔记」，
+  // 两者语义不同（导出/展示/覆盖策略都不一样），混在一起会被下一次同步冲掉。
+  // 来源：Zotero abstractNote / RIS-AB / BibTeX abstract / 手动粘贴 / PDF 抽取。
+  abstract    String   @default("")
   tags        String   @default("") // comma-separated
   category    String   @default("") // survey/method/application/baseline
   notes       String   @default("") // markdown 笔记

@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Sparkles, Copy, Loader2, FileText, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toastAiError } from '@/lib/ai-error'
+import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
 
 export function AIAbstractGenerator() {
@@ -41,7 +43,7 @@ export function AIAbstractGenerator() {
         setResult(data.content)
         toast.success('摘要已生成')
       } else {
-        toast.error(data.error || '生成失败')
+        toastAiError(data, '生成失败')
       }
     } catch (e) {
       toast.error('AI 生成失败: ' + (e as Error).message)
@@ -163,9 +165,7 @@ export function AIAbstractGenerator() {
                 <Copy className="h-2.5 w-2.5" /> 复制
               </button>
             </div>
-            <pre className="text-xs leading-relaxed whitespace-pre-wrap font-sans">
-              {result}
-            </pre>
+            <AiMarkdown content={result} size="default" />
           </div>
         )}
 

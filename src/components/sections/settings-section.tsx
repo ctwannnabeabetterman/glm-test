@@ -618,6 +618,18 @@ export function SettingsSection() {
                         立即重启并安装
                       </Button>
                     )}
+                    {/* 停滞是「下载卡住」里最常见的一种，必须给一条当场能走的路：
+                        主进程已判过停滞，这里再点一次就是重新发起下载，不用退出重进。 */}
+                    {updateState?.state === 'error' && updateState.reason === 'stalled' && (
+                      <Button size="sm" variant="outline" onClick={() => void runDownload()} disabled={downloading}>
+                        {downloading ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="mr-1.5 h-4 w-4" />
+                        )}
+                        重试下载
+                      </Button>
+                    )}
                   </div>
                   <UpdateStatusLine state={updateState} result={updateResult} />
                   {/* 兜底通道：桌面端 NSIS 安装器要先把旧版本目录整个移开，
@@ -650,6 +662,14 @@ interface UpdateLine {
 }
 
 /** 把主进程给的 reason 翻译成「下一步该干什么」 */
+/** 把字节/秒格式化成短字符串；未知或 0 返回空串 */
+function formatUpdateSpeed(bytesPerSecond?: number): string {
+  const v = Number(bytesPerSecond) || 0
+  if (v <= 0) return ''
+  if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB/s`
+  return `${Math.max(1, Math.round(v / 1024))} KB/s`
+}
+
 function hintForReason(reason?: string): string | undefined {
   switch (reason) {
     case 'no-release':
@@ -658,6 +678,8 @@ function hintForReason(reason?: string): string | undefined {
       return '更新源缺少 latest.yml，说明上一次发布流程没有跑完。'
     case 'network':
       return '请检查网络或代理设置后重试。'
+    case 'stalled':
+      return '下载连续 45 秒没有收到任何数据，已判定卡住（多半是网络无法稳定访问 GitHub）。可点「重试下载」；若反复卡住，请用下面的发布页手动下载。'
     case 'dev':
       return '开发模式不检查更新，请用打包后的客户端。'
     case 'no-updater':
@@ -682,8 +704,21 @@ function describeUpdateState(state: UpdateStatusPayload | null): UpdateLine | nu
       }
     case 'latest':
       return { tone: 'ok', title: `已是最新版本${state.current ? `（${state.current}）` : ''}` }
-    case 'downloading':
-      return { tone: 'pending', title: `正在下载更新 ${state.percent ?? 0}%` }
+    case 'downloading': {
+      // 显示速度与已下载量：否则用户只能盯着一个长时间不动的百分比，
+      // 分不清「在慢慢下」还是「已经卡死」——这正是「下载无法完成」的观感来源。
+      const speed = formatUpdateSpeed(state.speed)
+      const pct = state.percent ?? 0
+      const total = Number(state.total) || 0
+      const transferred = Number(state.transferred) || 0
+      const sizeHint =
+        total > 0 ? `${(transferred / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB` : ''
+      return {
+        tone: 'pending',
+        title: `正在下载更新 ${pct}%${speed ? `（${speed}）` : ''}`,
+        hint: sizeHint ? `${sizeHint} · 完成后会提示重启安装。` : '完成后会提示重启安装。',
+      }
+    }
     case 'downloaded':
       return {
         tone: 'ok',

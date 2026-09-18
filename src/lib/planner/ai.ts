@@ -8,6 +8,7 @@
  */
 
 import type { LlmMessage } from '@/lib/llm'
+import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { totalWeeklyHours, type ProjectConfig } from './config'
 import { DEVIATION_STATE_LABELS, type Deviation, type MilestoneLike, plannedEndIso, plannedStartIso } from './linkage'
 import { normalizeTaskInput, toLocalIsoDate, type WeeklyTaskInput } from './schedule'
@@ -111,6 +112,15 @@ const SYSTEM_BASE =
   '你是通信与智能网络方向研究生的科研进度规划助手。你只能依据用户提供的项目数据作答，' +
   '不得编造未提供的里程碑、论文或数据。所有输出必须是中文。'
 
+/**
+ * 只有 plan（纯文本）模式需要。
+ *
+ * weekly / breakdown 两种模式要求「只输出 JSON、不要 Markdown」—— 给它们再塞一份
+ * Markdown 格式合同会直接自相矛盾，模型很可能就开始吐 ```json 代码块。
+ * 所以格式合同必须按模式分开，见 tests/lib/planner-ai.test.ts 的断言。
+ */
+const SYSTEM_FORMAT_SUFFIX = `\n\n${OUTPUT_FORMAT_CONTRACT}\n${HEADING_LEVEL_RULE}`
+
 /** weekly / breakdown 两种模式要求「机器可读」的输出，共用同一份格式约定 */
 const JSON_FORMAT_RULE =
   '只输出一个 JSON 对象，不要输出任何解释文字、不要用 Markdown 代码块。格式：\n' +
@@ -123,7 +133,7 @@ export function buildAssistMessages(mode: AssistMode, ctx: AssistContext): LlmMe
   if (mode === 'weekly') {
     const capacity = totalWeeklyHours(ctx.projectConfig)
     return [
-      { role: 'system', content: `${SYSTEM_BASE}你尤其擅长把模糊的研究目标拆成「一周内可执行、可判定完成」的任务清单。` },
+      { role: 'system', content: `${SYSTEM_BASE}${SYSTEM_FORMAT_SUFFIX}你尤其擅长把模糊的研究目标拆成「一周内可执行、可判定完成」的任务清单。` },
       {
         role: 'user',
         content:
@@ -171,7 +181,7 @@ export function buildAssistMessages(mode: AssistMode, ctx: AssistContext): LlmMe
   }
 
   return [
-    { role: 'system', content: `${SYSTEM_BASE}你尤其擅长做**进度评审**：从计划与实际的偏差里找出真正的风险，而不是罗列套话。` },
+    { role: 'system', content: `${SYSTEM_BASE}${SYSTEM_FORMAT_SUFFIX}你尤其擅长做**进度评审**：从计划与实际的偏差里找出真正的风险，而不是罗列套话。` },
     {
       role: 'user',
       content:

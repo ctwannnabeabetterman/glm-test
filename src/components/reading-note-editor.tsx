@@ -25,6 +25,7 @@ import {
   Lightbulb,
   AlertTriangle,
   Sparkles,
+  Trash2,
 } from 'lucide-react'
 
 interface ReadingNoteNote {
@@ -59,10 +60,18 @@ const STRUCT_FIELDS: {
 interface ReadingNoteEditorProps {
   note: ReadingNoteNote
   onUpdate: (n: ReadingNoteNote) => void
+  /** 删除当前笔记。由父组件负责二次确认与刷新列表。 */
+  onDelete?: () => void
 }
 
-/** 文献阅读思考模板：把一篇论文的阅读思考，按结构化字段逐项填写 */
-export function ReadingNoteEditor({ note, onUpdate }: ReadingNoteEditorProps) {
+/**
+ * 文献阅读思考模板：把一篇论文的阅读思考，按结构化字段逐项填写。
+ *
+ * ⚠️ 内部 state 只在挂载时按 `note` 初始化（受控编辑草稿），**切换笔记必须换 key 让它重建**，
+ * 否则会出现「点了切不动」以及「拿 A 篇的草稿保存进 B 篇」的串写事故。
+ * 调用方请写 `<ReadingNoteEditor key={note.id} … />`。
+ */
+export function ReadingNoteEditor({ note, onUpdate, onDelete }: ReadingNoteEditorProps) {
   const api = useApi()
   const structured = note.structured ?? {}
   const [author, setAuthor] = useState(structured.author || '')
@@ -149,6 +158,17 @@ export function ReadingNoteEditor({ note, onUpdate }: ReadingNoteEditorProps) {
             <Button size="sm" className="h-7 text-xs" onClick={() => save()} disabled={saving}>
               <Save className="h-3 w-3 mr-1" /> 保存
             </Button>
+            {onDelete && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-destructive hover:text-destructive"
+                onClick={onDelete}
+                title="删除这篇笔记"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
         </div>
 

@@ -57,7 +57,14 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
   // .workbuddy/ 同理：它是本机 AI 工作区数据（项目记忆 + 审计解包产物），也随工作目录走、
   // 不入库；里面的 asar_out/ 是从 app.asar 里解出来的**副本**，lint 它毫无意义，
   // 却会因为 `#!` 不在首行 / require 写法报一堆假错，把 `npm run lint` 整个弄红。
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "release/**", "resources/**", "next-env.d.ts", "examples/**", "skills", ".recon/**", ".pshims/**", ".workbuddy/**"]
+  //
+  // ⚠️ "AI Network Lab/**" 是同一类问题的更严重版本：它是**装机后的程序本体目录**
+  // （NSIS 用 productName 当目录名，正好落在仓库根下），内含 exe/dll/asar +
+  // 一整份打包好的 .next 与 node_modules。2026-09-18 实测：不忽略它时
+  // `npm run lint` 报 **7365 problems（771 errors）**，而 src/ tests/ desktop/ 里
+  // **一条都没有** —— 于是本机 lint 这道关等于彻底失效，源码里真出错也会被淹掉。
+  // （CI 上不存在这个目录，所以只有本机受影响；但本机正是我们唯一跑 lint 的地方。）
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "release/**", "resources/**", "AI Network Lab/**", "next-env.d.ts", "examples/**", "skills", ".recon/**", ".pshims/**", ".workbuddy/**"]
 }];
 
 export default eslintConfig;

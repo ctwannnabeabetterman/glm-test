@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { chatComplete, LlmNotConfiguredError, type LlmMessage } from '@/lib/llm'
+import { chatComplete, type LlmMessage } from '@/lib/llm'
+import { llmFailureResponse } from '@/lib/llm/http'
 import {
   ASSIST_MODES,
   buildAssistMessages,
@@ -68,13 +69,10 @@ export async function POST(request: NextRequest) {
     try {
       content = await chatComplete(messages, { temperature: 0.5, maxTokens: 4000, timeoutMs: 180_000 })
     } catch (e) {
-      if (e instanceof LlmNotConfiguredError) {
-        // 401 会更像「鉴权失败」，但这里根本不是鉴权问题，而是功能前置条件没满足 ⇒ 400 + 可判定的 code
-        return NextResponse.json({ error: e.message, code: 'LLM_NOT_CONFIGURED' }, { status: 400 })
-      }
-      const message = (e as Error).message
+      // 统一失败契约见 @/lib/llm/http：未配 Key ⇒ 400 LLM_NOT_CONFIGURED（不是鉴权失败，
+      // 是功能前置条件缺失，前端据此弹「去设置」）；其余 ⇒ 502 LLM_CALL_FAILED。
       console.error('planner assist llm error', e)
-      return NextResponse.json({ error: `AI 规划失败：${message}`, code: 'LLM_CALL_FAILED' }, { status: 502 })
+      return llmFailureResponse(e, 'AI 规划失败')
     }
 
     // risk 模式是纯分析，直接返回文本

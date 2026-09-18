@@ -73,7 +73,10 @@ export function mapZoteroItem(item: ZoteroItem): BibliographyRecord | null {
     year: yearFromDate(d.date),
     doi: (d.DOI || '').trim(),
     tags: (d.tags || []).map((t) => t.tag || '').filter(Boolean).join(', '),
-    notes: d.abstractNote || '',
+    // abstractNote 走 abstract 列（AI 摘要的原料），不要塞进 notes ——
+    // notes 是用户自己的阅读笔记，被同步覆盖掉是不可接受的。
+    abstract: (d.abstractNote || '').trim(),
+    notes: '',
     url: d.url || '',
     zoteroKey: d.key || item.key || '',
   }

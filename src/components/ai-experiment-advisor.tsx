@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Sparkles, FlaskConical, Layers, Scissors, CheckSquare, Copy, Loader2, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toastAiError } from '@/lib/ai-error'
+import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
 
 type AdvisorType = 'design' | 'baselines' | 'ablation' | 'checklist'
@@ -51,7 +53,7 @@ export function AIExperimentAdvisor() {
         setResults((prev) => ({ ...prev, [type]: data.content }))
         toast.success(`${ADVISOR_TYPES.find((t) => t.type === type)?.label}已生成`)
       } else {
-        toast.error(data.error || '生成失败')
+        toastAiError(data, '生成失败')
       }
     } catch (e) {
       toast.error('AI 生成失败: ' + (e as Error).message)
@@ -165,9 +167,9 @@ export function AIExperimentAdvisor() {
                       AI 正在生成{t.label}...
                     </div>
                   ) : result ? (
-                    <pre className="text-xs leading-relaxed whitespace-pre-wrap font-mono max-h-[500px] overflow-y-auto">
-                      {result}
-                    </pre>
+                    <div className="max-h-[500px] overflow-y-auto">
+                      <AiMarkdown content={result} size="default" />
+                    </div>
                   ) : null}
                 </div>
               )

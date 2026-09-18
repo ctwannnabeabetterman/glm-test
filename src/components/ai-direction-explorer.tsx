@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Textarea } from '@/components/ui/textarea'
 import { Sparkles, Search, Loader2, Copy } from 'lucide-react'
 import { toast } from 'sonner'
+import { toastAiError } from '@/lib/ai-error'
+import { AiMarkdown } from '@/components/ai-markdown'
 
 export function AIDirectionExplorer() {
   const [candidate, setCandidate] = useState('')
@@ -25,7 +27,10 @@ export function AIDirectionExplorer() {
         body: JSON.stringify({ candidate }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '分析失败')
+      if (!res.ok) {
+        toastAiError(data, '分析失败')
+        return
+      }
       setResult(data.content)
       toast.success('方向探索完成')
     } catch (e) {
@@ -67,7 +72,9 @@ export function AIDirectionExplorer() {
                 <Copy className="h-3 w-3" />复制
               </button>
             </div>
-            <div className="max-h-[520px] overflow-auto whitespace-pre-wrap text-xs leading-relaxed">{result}</div>
+            <div className="max-h-[520px] overflow-auto">
+              <AiMarkdown content={result} size="default" />
+            </div>
           </div>
         )}
       </CardContent>

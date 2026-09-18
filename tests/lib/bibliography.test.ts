@@ -153,4 +153,61 @@ describe('zotero mapper', () => {
     expect(rec?.year).toBe(2022)
     expect(rec?.zoteroKey).toBe('ABC123')
   })
+
+  it('Zotero 的 abstractNote 落到 abstract 列，不污染用户自己的 notes', () => {
+    const rec = mapZoteroItem({
+      key: 'ABS1',
+      data: {
+        itemType: 'journalArticle',
+        title: 'With abstract',
+        abstractNote: 'This paper proposes a routing scheme.',
+      },
+    })
+    expect(rec?.abstract).toBe('This paper proposes a routing scheme.')
+    // 关键：摘要不能跑到 notes 里 —— notes 是用户手写的阅读笔记，
+    // 被同步覆盖或混入摘要都属于数据污染（2026-09-18 修复前就是这个行为）
+    expect(rec?.notes).toBe('')
+  })
+})
+
+describe('bibliography parser —— 摘要与笔记必须分开', () => {
+  it('RIS 的 AB 进 abstract，N1 进 notes', () => {
+    const ris = [
+      'TY  - JOUR',
+      'TI  - Routing with DRL',
+      'AB  - We propose a novel routing algorithm based on DQN.',
+      'N1  - 这方法能不能用在 RIS 上？',
+      'ER  - ',
+    ].join('\n')
+    const [rec] = parseRis(ris)
+    expect(rec.abstract).toBe('We propose a novel routing algorithm based on DQN.')
+    expect(rec.notes).toBe('这方法能不能用在 RIS 上？')
+    // 修复前 AB 会被塞进 notes，导致摘要和用户笔记糊在一起
+    expect(rec.notes).not.toContain('novel routing algorithm')
+  })
+
+  it('RIS 只有 AB 时 notes 保持为空', () => {
+    const ris = ['TY  - JOUR', 'TI  - T', 'AB  - Only abstract here.', 'ER  - '].join('\n')
+    const [rec] = parseRis(ris)
+    expect(rec.abstract).toBe('Only abstract here.')
+    expect(rec.notes).toBe('')
+  })
+
+  it('BibTeX 的 abstract 进 abstract，note 进 notes', () => {
+    const bib = `@article{k1,
+  title = {Routing with DRL},
+  abstract = {We propose a DQN-based scheme.},
+  note = {读的时候注意 baseline 选择},
+}`
+    const [rec] = parseBibtex(bib)
+    expect(rec.abstract).toBe('We propose a DQN-based scheme.')
+    expect(rec.notes).toBe('读的时候注意 baseline 选择')
+  })
+
+  it('BibTeX 只有 abstract 时 notes 保持为空（不再回退到 abstract）', () => {
+    const bib = `@article{k2, title={T}, abstract={Only abstract body.}}`
+    const [rec] = parseBibtex(bib)
+    expect(rec.abstract).toBe('Only abstract body.')
+    expect(rec.notes).toBe('')
+  })
 })

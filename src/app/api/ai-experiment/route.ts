@@ -1,4 +1,7 @@
 import { chatComplete } from '@/lib/llm'
+import { llmFailureResponse } from '@/lib/llm/http'
+import { NO_FABRICATION_GUARD } from '@/lib/llm/prompts'
+import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
@@ -34,7 +37,7 @@ ${JSON.stringify(expContext, null, 2)}
 
     switch (type) {
       case 'design':
-        systemPrompt = '你是一位通信 AI 实验设计专家，擅长设计完整的实验方案。请用中文回答，结构化输出。'
+        systemPrompt = '你是一位通信 AI 实验设计专家，擅长设计完整的实验方案。请用中文回答，结构化输出。' + NO_FABRICATION_GUARD
         userPrompt = `基于以下信息，设计一个完整的实验方案。
 
 ${context}
@@ -81,7 +84,7 @@ ${context}
 - 计算复杂度: ...`
         break
       case 'baselines':
-        systemPrompt = '你是一位通信领域的基线方法专家。请用中文回答，结构化输出。'
+        systemPrompt = '你是一位通信领域的基线方法专家。请用中文回答，结构化输出。' + NO_FABRICATION_GUARD
         userPrompt = `基于以下信息，推荐 3-5 个应该对比的基线方法。
 
 ${context}
@@ -102,7 +105,7 @@ ${context}
 ...`
         break
       case 'ablation':
-        systemPrompt = '你是一位消融实验设计专家。请用中文回答，结构化输出。'
+        systemPrompt = '你是一位消融实验设计专家。请用中文回答，结构化输出。' + NO_FABRICATION_GUARD
         userPrompt = `基于以下信息，设计消融实验方案。
 
 ${context}
@@ -173,13 +176,21 @@ ${context}
         return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
     }
 
-    const content = await chatComplete(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      { timeoutMs: 180_000 }
-    )
+    // 格式合同统一拼在这里，而不是散落到上面 4 个 case 里（漏一个就是一个面板格式失控）
+    systemPrompt += `\n\n${OUTPUT_FORMAT_CONTRACT}\n${HEADING_LEVEL_RULE}`
+
+    let content: string
+    try {
+      content = await chatComplete(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        { timeoutMs: 180_000 }
+      )
+    } catch (e) {
+      return llmFailureResponse(e, 'AI 实验设计失败')
+    }
 
     return NextResponse.json({ success: true, content, type })
   } catch (e) {

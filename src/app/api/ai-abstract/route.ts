@@ -1,4 +1,7 @@
 import { chatComplete } from '@/lib/llm'
+import { llmFailureResponse } from '@/lib/llm/http'
+import { NO_FABRICATION_GUARD } from '@/lib/llm/prompts'
+import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/ai-abstract - AI-powered abstract generation
@@ -32,7 +35,12 @@ export async function POST(request: NextRequest) {
 - 每句话不超过25个词
 - 总词数 150-200
 - 不使用第一人称复数以外的代词
-- 包含具体数字（如果提供了贡献信息）`
+- 包含具体数字（如果提供了贡献信息）
+
+${NO_FABRICATION_GUARD}
+
+${OUTPUT_FORMAT_CONTRACT}
+${HEADING_LEVEL_RULE}`
 
     const userPrompt = `请为以下论文生成一个 4 句话的英文摘要：
 
@@ -46,13 +54,18 @@ ${context}
 **中文翻译:**
 [中文翻译]`
 
-    const content = await chatComplete(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      { timeoutMs: 180_000 }
-    )
+    let content: string
+    try {
+      content = await chatComplete(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        { timeoutMs: 180_000 }
+      )
+    } catch (e) {
+      return llmFailureResponse(e, 'AI 摘要生成失败')
+    }
 
     return NextResponse.json({ success: true, content })
   } catch (e) {

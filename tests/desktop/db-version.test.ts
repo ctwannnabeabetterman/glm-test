@@ -23,7 +23,7 @@ function makeCleanDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], d
   const db = new DatabaseSync(dbPath)
   db.exec(`
     CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, links TEXT, category TEXT, structured TEXT, lastReadAt DATETIME);
-    CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT);
+    CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT, abstract TEXT DEFAULT '');
     CREATE TABLE Manuscript (id TEXT PRIMARY KEY, title TEXT, venue TEXT, targetWords INTEGER, sections TEXT, status TEXT, createdAt DATETIME, updatedAt DATETIME);
     CREATE TABLE Milestone (id TEXT PRIMARY KEY, type TEXT, title TEXT, startDate TEXT, endDate TEXT, progress INTEGER, refType TEXT DEFAULT '', refId TEXT DEFAULT '', autoProgress BOOLEAN DEFAULT false, actualEndDate TEXT DEFAULT '');
     CREATE INDEX Milestone_refType_refId_idx ON Milestone(refType, refId);

@@ -13,6 +13,9 @@ const paperColumns = {
   doi: "doi TEXT DEFAULT ''",
   zoteroKey: "zoteroKey TEXT DEFAULT ''",
   pdfPath: "pdfPath TEXT DEFAULT ''",
+  // 摘要原料列（2026-09-18）。与 Prisma schema 的 Paper.abstract 必须一致：
+  // 老库靠这里补列，否则 AI 摘要永远拿不到正文之外的东西。
+  abstract: "abstract TEXT DEFAULT ''",
 }
 
 /**

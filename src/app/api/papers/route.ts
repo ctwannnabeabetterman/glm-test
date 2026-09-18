@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
         status: body.status || 'unread',
         codeUrl: body.codeUrl || '',
         pdfUrl: body.pdfUrl || '',
+        abstract: body.abstract || '',
         tags: body.tags || '',
         category: body.category || '',
         notes: body.notes || '',

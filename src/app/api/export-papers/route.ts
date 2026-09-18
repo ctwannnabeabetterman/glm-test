@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
     if (format === 'csv') {
       const { buildPapersCsv } = await import('@/lib/library/paper-notes')
-      const headers = ['Title', 'Authors', 'Venue', 'Year', 'DOI', 'Status', 'Priority', 'Category', 'Tags', 'Citations', 'Relevance', 'Novelty', 'CodeURL', 'ZoteroKey', 'HasPDF', 'DateAdded', 'DateRead']
+      const headers = ['Title', 'Authors', 'Venue', 'Year', 'DOI', 'Status', 'Priority', 'Category', 'Tags', 'Citations', 'Relevance', 'Novelty', 'CodeURL', 'ZoteroKey', 'HasPDF', 'DateAdded', 'DateRead', 'Abstract']
       const rows = papers.map((p) => ({
         Title: p.title,
         Authors: p.authors,
@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
         HasPDF: p.pdfPath ? 'yes' : 'no',
         DateAdded: p.dateAdded.toISOString().slice(0, 10),
         DateRead: p.dateRead ? p.dateRead.toISOString().slice(0, 10) : '',
+        Abstract: p.abstract || '',
       }))
       const csv = buildPapersCsv(rows, headers)
       return new NextResponse(csv, {

@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/select'
 import { Sparkles, Copy, Loader2, FileText, Globe, Languages } from 'lucide-react'
 import { toast } from 'sonner'
+import { toastAiError } from '@/lib/ai-error'
+import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
 
 export function AIReviewGenerator() {
@@ -42,7 +44,7 @@ export function AIReviewGenerator() {
         setResult(data.content)
         toast.success('文献综述已生成')
       } else {
-        toast.error(data.error || '生成失败')
+        toastAiError(data, '生成失败')
       }
     } catch (e) {
       toast.error('AI 生成失败: ' + (e as Error).message)
@@ -164,9 +166,9 @@ export function AIReviewGenerator() {
                 </button>
               </div>
             </div>
-            <pre className="text-xs leading-relaxed whitespace-pre-wrap font-sans max-h-[500px] overflow-y-auto">
-              {result}
-            </pre>
+            <div className="max-h-[500px] overflow-y-auto">
+              <AiMarkdown content={result} size="default" />
+            </div>
           </div>
         )}
 

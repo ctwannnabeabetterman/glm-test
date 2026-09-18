@@ -47,6 +47,62 @@ let lastUpdateStatus = { state: 'idle' }
 let updateActionInFlight = false
 
 /**
+ * 下载停滞看门狗 —— 「点了下载却永远下不完」的真正解药。
+ *
+ * 为什么必须有：electron-updater 底层走 Electron 的 net 模块，**没有任何超时**。
+ * 网络一旦不吐数据（国内直连 GitHub Releases 很常见），`downloadUpdate()` 返回的 Promise
+ * 就一直挂着：既不 resolve 也不 reject，`download-progress` 也不再触发。
+ * 用户看到的就是「进度停在 37% 再也不动，也不报错」—— 也就是「下载无法完成」。
+ * 唯一的办法是我们自己判定「下载期间多久没收到任何进度」，然后给出可操作的状态。
+ *
+ * 判定口径：下载中每收到一次 `download-progress` 就重新计时；超过 DOWNLOAD_STALL_MS 没有任何
+ * 进度 ⇒ 认定卡住，推一个 reason='stalled' 的错误态（界面据此显示「重试下载」+ 手动下载入口）。
+ */
+const DOWNLOAD_STALL_MS = 45_000
+let downloadStallTimer = null
+let downloadLastPercent = 0
+
+function clearDownloadStallWatch() {
+  if (downloadStallTimer) {
+    clearTimeout(downloadStallTimer)
+    downloadStallTimer = null
+  }
+}
+
+function armDownloadStallWatch() {
+  clearDownloadStallWatch()
+  downloadStallTimer = setTimeout(() => {
+    downloadStallTimer = null
+    // 只有「用户主动发起的下载」才打扰用户；后台检查阶段的异常留给 error 事件记日志
+    if (!updateActionInFlight) return
+    const sec = Math.round(DOWNLOAD_STALL_MS / 1000)
+    logUpdate(`下载停滞：${sec} 秒内没有收到任何进度（停在 ${downloadLastPercent}%），判定为卡住`)
+    updateActionInFlight = false
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setTitle(`AI Network Lab ${app.getVersion()}`)
+    }
+    sendUpdateStatus({
+      state: 'error',
+      reason: 'stalled',
+      current: app.getVersion(),
+      percent: downloadLastPercent,
+      message:
+        `下载卡住了：${sec} 秒没有收到任何数据（停在 ${downloadLastPercent}%）。` +
+        '通常是网络无法稳定访问 GitHub 所致。可以点「重试下载」；' +
+        '若反复卡住，请用下面的「发布页手动下载」。',
+    })
+  }, DOWNLOAD_STALL_MS)
+}
+
+/** 把字节/秒格式化成人看的字符串（0 或未知时返回空串） */
+function formatSpeed(bytesPerSecond) {
+  const v = Number(bytesPerSecond) || 0
+  if (v <= 0) return ''
+  if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB/s`
+  return `${Math.max(1, Math.round(v / 1024))} KB/s`
+}
+
+/**
  * 把更新状态推给渲染层。
  *
  * 为什么不能只靠系统对话框：用户点一次「稍后」对话框就消失了，之后再没有任何痕迹，
@@ -597,6 +653,9 @@ function startUpdateDownload() {
   if (!autoUpdater) return { ok: false, error: '更新组件不可用' }
   if (!app.isPackaged) return { ok: false, error: '开发模式不下载更新' }
   updateActionInFlight = true
+  downloadLastPercent = 0
+  // 立刻开始计时：连第一个 download-progress 都收不到（DNS 卡死 / 连不上）同样会被判成停滞
+  armDownloadStallWatch()
   logUpdate('开始下载更新，当前版本', app.getVersion())
   sendUpdateStatus({
     state: 'downloading',
@@ -605,7 +664,14 @@ function startUpdateDownload() {
     message: '正在下载更新…',
   })
   autoUpdater.downloadUpdate().catch((e) => {
+    clearDownloadStallWatch()
     const info = classifyUpdateError(e)
+    // 看门狗可能已经先一步判定「停滞」并推过状态了。这时 Promise 才 reject 属于同一个故障，
+    // 再弹一次错误框只会让用户以为坏了两次。
+    if (lastUpdateStatus && lastUpdateStatus.state === 'error' && lastUpdateStatus.reason === 'stalled') {
+      logUpdate(`下载失败（已按停滞处理过，不重复提示）：${info.reason} — ${info.message}`)
+      return
+    }
     updateActionInFlight = false
     logUpdate(`下载失败：${info.reason} — ${info.message}`)
     sendUpdateStatus({ state: 'error', reason: info.reason, message: info.message, current: app.getVersion() })
@@ -632,9 +698,19 @@ function setupAutoUpdate() {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
   attachUpdaterLogger(autoUpdater)
+  // ⚠️ 这里以前打印的是 userData/../ai-network-lab-updater（= %APPDATA% 下），但 electron-updater
+  //    真正用的基目录是 `app.getPath('cache')`（Windows = %LOCALAPPDATA%），名字才是 `${app.name}-updater`。
+  //    按旧日志去找「下载到底落没落盘」会白跑一趟，反而怀疑「下载根本没写文件」。
+  //    改成「列候选 + 报哪个真实存在」，宁可啰嗦也不给错地址。
+  const updaterCacheCandidates = [
+    path.join(app.getPath('cache'), `${app.name}-updater`),
+    path.join(app.getPath('cache'), 'ai-network-lab-updater'),
+    path.join(app.getPath('userData'), '..', `${app.name}-updater`),
+  ].map((p) => path.resolve(p))
+  const updaterCacheDir = updaterCacheCandidates.find((p) => fs.existsSync(p))
   logUpdate(
     `自动更新就绪：版本 ${app.getVersion()}，electron ${process.versions.electron}，` +
-      `缓存目录 ${path.join(app.getPath('userData'), '..', 'ai-network-lab-updater')}`,
+      `缓存目录 ${updaterCacheDir || `尚未创建（候选：${updaterCacheCandidates.join(' | ')}）`}`,
   )
 
   autoUpdater.on('update-available', async (info) => {
@@ -675,18 +751,27 @@ function setupAutoUpdate() {
 
   autoUpdater.on('download-progress', (p) => {
     const percent = Math.round(p.percent || 0)
+    downloadLastPercent = percent
+    // 收到任何进度就说明连接还活着 —— 重新计时（这就是看门狗的「喂狗」动作）
+    armDownloadStallWatch()
+    const speed = formatSpeed(p.bytesPerSecond)
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.setTitle(`AI Network Lab ${app.getVersion()} — 正在下载更新 ${percent}%`)
+      mainWindow.setTitle(`AI Network Lab ${app.getVersion()} — 正在下载更新 ${percent}%${speed ? `（${speed}）` : ''}`)
     }
     sendUpdateStatus({
       state: 'downloading',
       current: app.getVersion(),
       percent,
-      message: `正在下载更新 ${percent}%`,
+      speed: Number(p.bytesPerSecond) || 0,
+      transferred: Number(p.transferred) || 0,
+      total: Number(p.total) || 0,
+      message: `正在下载更新 ${percent}%${speed ? `（${speed}）` : ''}`,
     })
   })
 
   autoUpdater.on('update-downloaded', async (info) => {
+    // 下载已经落地，看门狗必须立刻停：否则停在 100% 后 45 秒会误报「卡住」
+    clearDownloadStallWatch()
     // 把安装包的真实落盘路径与版本记下来：这是「下载成功但装不上」时唯一能对着查的东西
     logUpdate(`更新下载完成 ${info.version}，安装包：${info.downloadedFile || '(未知路径)'}`)
     updateActionInFlight = false
@@ -722,6 +807,7 @@ function setupAutoUpdate() {
   // 但**用户主动点过下载/安装之后**的失败必须回传到界面 —— 安装阶段失败尤其隐蔽：
   // 它发生在应用即将退出的窗口期，用户那边只看到「点了没反应」，日志里才有真相。
   autoUpdater.on('error', (e) => {
+    clearDownloadStallWatch()
     const info = classifyUpdateError(e)
     logUpdate(`更新出错：${info.reason} — ${info.message}`)
     if (updateActionInFlight) {

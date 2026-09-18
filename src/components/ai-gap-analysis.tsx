@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Sparkles, Lightbulb, Search, FileText, Copy, Loader2, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toastAiError } from '@/lib/ai-error'
+import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
 
 type AnalysisType = 'gaps' | 'opportunities' | 'literature'
@@ -41,7 +43,7 @@ export function AIGapAnalysis() {
         setResults((prev) => ({ ...prev, [type]: data.content }))
         toast.success(`${ANALYSIS_TYPES.find((t) => t.type === type)?.label}已生成`)
       } else {
-        toast.error(data.error || '生成失败')
+        toastAiError(data, '生成失败')
       }
     } catch (e) {
       toast.error('AI 生成失败: ' + (e as Error).message)
@@ -139,9 +141,7 @@ export function AIGapAnalysis() {
                       AI 正在分析科研数据，请稍候...
                     </div>
                   ) : result ? (
-                    <div className="text-xs leading-relaxed whitespace-pre-wrap font-mono">
-                      {result}
-                    </div>
+                    <AiMarkdown content={result} size="default" />
                   ) : null}
                 </div>
               )

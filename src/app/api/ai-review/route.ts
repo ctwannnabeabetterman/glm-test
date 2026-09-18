@@ -1,4 +1,7 @@
 import { chatComplete } from '@/lib/llm'
+import { llmFailureResponse } from '@/lib/llm/http'
+import { NO_FABRICATION_GUARD, NO_FABRICATION_GUARD_EN } from '@/lib/llm/prompts'
+import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
@@ -48,8 +51,11 @@ export async function POST(request: NextRequest) {
     }
 
     const systemPrompt = lang === 'zh'
-      ? `你是一位通信领域的文献综述专家，擅长撰写结构化的综述章节。请用中文撰写，使用学术风格。`
-      : `You are an expert literature review writer in the telecommunications field. Write in academic English.`
+      ? `你是一位通信领域的文献综述专家，擅长撰写结构化的综述章节。请用中文撰写，使用学术风格。` + NO_FABRICATION_GUARD
+      : `You are an expert literature review writer in the telecommunications field. Write in academic English. ` + NO_FABRICATION_GUARD_EN
+
+    // 格式合同统一拼在末尾（中英两条提示词分支都覆盖到）
+    const systemPromptWithFormat = `${systemPrompt}\n\n${OUTPUT_FORMAT_CONTRACT}\n${HEADING_LEVEL_RULE}`
 
     const userPrompt = lang === 'zh'
       ? `请为以下研究课题撰写一段文献综述（约 800-1000 字）：
@@ -117,13 +123,18 @@ Requirements:
 - Compare on metrics: accuracy, complexity, applicability
 - Gaps should be specific`
 
-    const content = await chatComplete(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      { timeoutMs: 180_000 }
-    )
+    let content: string
+    try {
+      content = await chatComplete(
+        [
+          { role: 'system', content: systemPromptWithFormat },
+          { role: 'user', content: userPrompt },
+        ],
+        { timeoutMs: 180_000 }
+      )
+    } catch (e) {
+      return llmFailureResponse(e, 'AI 综述生成失败')
+    }
 
     return NextResponse.json({ success: true, content, language: lang, focus })
   } catch (e) {

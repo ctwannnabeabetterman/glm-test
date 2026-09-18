@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge'
 import { useApi, useFetch } from '@/lib/hooks'
 import { useAppStore } from '@/lib/store'
 import { toast } from 'sonner'
+import { AiMarkdown } from '@/components/ai-markdown'
 import { resolveWeekStart } from '@/lib/planner/schedule'
 import { ASSIST_MODE_LABELS, type AssistMode } from '@/lib/planner/ai'
 import { Sparkles, AlertTriangle, RefreshCw, Wand2, Plus, Check } from 'lucide-react'
@@ -273,9 +274,9 @@ export function AiPlannerAssistant() {
                 ))}
               </div>
             ) : (
-              <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded border border-border bg-muted/40 p-2 text-[11px] leading-relaxed">
-                {result.content}
-              </pre>
+              <div className="max-h-[420px] overflow-auto rounded border border-border bg-muted/40 p-2">
+                <AiMarkdown content={result.content} size="compact" />
+              </div>
             )}
 
             {weekly?.tasks?.length ? (

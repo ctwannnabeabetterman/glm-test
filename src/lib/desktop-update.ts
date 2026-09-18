@@ -24,7 +24,17 @@ export interface UpdateStatusPayload {
   version?: string
   /** 下载进度 0-100 */
   percent?: number
-  /** 失败分类：no-release / no-channel / network / unknown / dev / no-updater / untrusted */
+  /** 实时下载速度（字节/秒），仅 downloading 时有意义 */
+  speed?: number
+  /** 已下载字节数 */
+  transferred?: number
+  /** 安装包总字节数 */
+  total?: number
+  /**
+   * 失败分类：
+   * no-release / no-channel / network / unknown / dev / no-updater / untrusted
+   * / stalled（45 秒无任何进度，判定网络卡死，可重试）
+   */
   reason?: string
   /** 面向用户的一句话说明 */
   message?: string

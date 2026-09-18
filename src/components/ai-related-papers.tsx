@@ -8,13 +8,25 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Sparkles, Compass, BookOpen, Cpu, Copy, Loader2, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toastAiError } from '@/lib/ai-error'
+import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
 
 type RecommendType = 'directions' | 'papers' | 'methods'
 
+interface RetrievedPaper {
+  title: string
+  authors: string
+  year: number
+  venue: string
+  doi: string
+  citations: number
+  url: string
+}
+
 const RECOMMEND_TYPES: Array<{ type: RecommendType; label: string; desc: string; icon: React.ComponentType<{ className?: string }>; color: string }> = [
   { type: 'directions', label: '研究方向', desc: '推荐 5 个相关方向', icon: Compass, color: 'emerald' },
-  { type: 'papers', label: '相关论文', desc: '推荐 5 篇应读论文', icon: BookOpen, color: 'amber' },
+  { type: 'papers', label: '相关论文', desc: '真实检索 + AI 排序', icon: BookOpen, color: 'amber' },
   { type: 'methods', label: 'AI 方法', desc: '推荐 5 种技术方法', icon: Cpu, color: 'purple' },
 ]
 
@@ -28,6 +40,8 @@ export function AIRelatedPapers() {
   const [topic, setTopic] = useState('')
   const [loading, setLoading] = useState<RecommendType | null>(null)
   const [results, setResults] = useState<Record<string, string>>({})
+  const [sources, setSources] = useState<Record<string, string>>({})
+  const [retrieved, setRetrieved] = useState<Record<string, RetrievedPaper[]>>({})
   const [showPanel, setShowPanel] = useState(false)
 
   const generate = async (type: RecommendType) => {
@@ -46,9 +60,11 @@ export function AIRelatedPapers() {
       const data = await res.json()
       if (data.success) {
         setResults((prev) => ({ ...prev, [type]: data.content }))
+        if (data.source) setSources((prev) => ({ ...prev, [type]: data.source }))
+        if (Array.isArray(data.retrieved)) setRetrieved((prev) => ({ ...prev, [type]: data.retrieved }))
         toast.success(`${RECOMMEND_TYPES.find((t) => t.type === type)?.label}已生成`)
       } else {
-        toast.error(data.error || '生成失败')
+        toastAiError(data, '生成失败')
       }
     } catch (e) {
       toast.error('AI 生成失败: ' + (e as Error).message)
@@ -152,12 +168,49 @@ export function AIRelatedPapers() {
                   {loading === t.type ? (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      AI 正在分析并生成推荐...
+                      {t.type === 'papers' ? '正在检索文献数据库…' : 'AI 正在分析并生成推荐...'}
                     </div>
                   ) : result ? (
-                    <div className="text-xs leading-relaxed whitespace-pre-wrap font-mono">
-                      {result}
-                    </div>
+                    <>
+                      <AiMarkdown content={result} size="default" />
+
+                      {/* 论文推荐：如实标注来源，并把真实检索结果列出来供逐条核实 */}
+                      {t.type === 'papers' && (
+                        <div className="mt-2 border-t border-amber-500/20 pt-2">
+                          {sources[t.type] === 'crossref' ? (
+                            <>
+                              <div className="flex items-center gap-1 text-[10px] text-emerald-600">
+                                <CheckCircle2 className="h-3 w-3" />
+                                已通过 Crossref 真实检索 —— 下列 DOI 可直接点击核实
+                              </div>
+                              <div className="mt-1.5 space-y-1">
+                                {(retrieved[t.type] || []).map((p, i) => (
+                                  <div key={p.doi} className="text-[10px] leading-snug text-muted-foreground">
+                                    <span className="font-medium">[{i + 1}]</span> {p.title}
+                                    {p.year ? ` (${p.year})` : ''}
+                                    {p.venue ? ` · ${p.venue}` : ''}
+                                    {' · '}
+                                    <a
+                                      href={p.url || `https://doi.org/${p.doi}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-blue-600 hover:underline"
+                                    >
+                                      {p.doi}
+                                    </a>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-[10px] text-amber-600">
+                              本次未能连接 Crossref（网络不可达或超时），结果基于模型知识 ——
+                              标题、作者、年份请务必自行核实后再引用。
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   ) : null}
                 </div>
               )

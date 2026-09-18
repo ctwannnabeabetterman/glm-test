@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Sparkles, FileText, Lightbulb, HelpCircle, Network, Copy, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toastAiError } from '@/lib/ai-error'
+import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
 
 interface Paper {
@@ -15,6 +17,7 @@ interface Paper {
   year: number
   tags: string
   notes: string
+  abstract?: string
 }
 
 type SummaryType = 'summary' | 'keypoints' | 'questions' | 'relation'
@@ -37,6 +40,10 @@ export function AISummary({ paper }: { paper: Paper }) {
   const [loading, setLoading] = useState<SummaryType | null>(null)
   const [results, setResults] = useState<Record<string, string>>({})
   const [showPanel, setShowPanel] = useState(false)
+  // 记住每一类结果这次是基于摘要原文还是仅凭元数据 —— 决定要不要提示"补摘要"
+  const [basedOn, setBasedOn] = useState<Record<string, 'abstract' | 'metadata'>>({})
+
+  const hasAbstract = Boolean(paper.abstract?.trim())
 
   const generate = async (type: SummaryType) => {
     setLoading(type)
@@ -50,9 +57,10 @@ export function AISummary({ paper }: { paper: Paper }) {
       const data = await res.json()
       if (data.success) {
         setResults((prev) => ({ ...prev, [type]: data.content }))
+        if (data.basedOn) setBasedOn((prev) => ({ ...prev, [type]: data.basedOn }))
         toast.success(`${SUMMARY_TYPES.find((t) => t.type === type)?.label}已生成`)
       } else {
-        toast.error(data.error || '生成失败')
+        toastAiError(data, '生成失败')
       }
     } catch (e) {
       toast.error('AI 生成失败: ' + (e as Error).message)
@@ -80,6 +88,20 @@ export function AISummary({ paper }: { paper: Paper }) {
           <Sparkles className="h-2.5 w-2.5 mr-0.5" />
           AI
         </Badge>
+      </div>
+
+      {/* 原料状态提示：有没有摘要，直接决定生成的可靠性 */}
+      <div
+        className={cn(
+          'mb-3 rounded-md border px-2 py-1.5 text-[10px] leading-relaxed',
+          hasAbstract
+            ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400'
+            : 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400'
+        )}
+      >
+        {hasAbstract
+          ? '✓ 已入库摘要原文 —— AI 将基于摘要作答'
+          : '⚠ 这篇论文还没有摘要原文，AI 只能凭标题/作者/标签推测，结果会标注「推测」。建议在文献库补上摘要，或先在 Zotero 同步一次。'}
       </div>
 
       {/* 4 action buttons */}
@@ -143,7 +165,14 @@ export function AISummary({ paper }: { paper: Paper }) {
                     AI 正在分析论文...
                   </div>
                 ) : result ? (
-                  <div className="text-[11px] leading-relaxed whitespace-pre-wrap">{result}</div>
+                  <>
+                    <AiMarkdown content={result} size="compact" />
+                    {basedOn[t.type] === 'metadata' && (
+                      <div className="mt-1.5 border-t border-amber-500/20 pt-1 text-[9px] text-amber-600">
+                        本次结果基于元数据推测（无摘要原文）—— 方法名与结论请以原文为准
+                      </div>
+                    )}
+                  </>
                 ) : null}
               </div>
             )

@@ -262,7 +262,12 @@ export function NotesSection() {
         {/* Note detail */}
         <div className="lg:col-span-2">
           {selected ? (
-            <NoteDetail note={selected} onUpdate={(u) => { setSelected(u); refetch() }} onDelete={() => handleDelete(selected)} />
+            <NoteDetail
+              key={selected.id}
+              note={selected}
+              onUpdate={(u) => { setSelected(u); refetch() }}
+              onDelete={() => handleDelete(selected)}
+            />
           ) : (
             <Card className="border-dashed h-full">
               <CardContent className="py-16 text-center text-sm text-muted-foreground">
@@ -319,8 +324,10 @@ function NoteDetail({ note, onUpdate, onDelete }: {
   if (note.category === 'literature') {
     return (
       <ReadingNoteEditor
+        key={note.id}
         note={note}
         onUpdate={(updated) => onUpdate(updated as Note)}
+        onDelete={onDelete}
       />
     )
   }

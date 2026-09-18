@@ -41,6 +41,12 @@ blob-report/
 # electron 打包产物
 release/
 
+# 装机后的程序本体目录（NSIS 用 productName 当目录名，正好落在仓库根下）：
+# 里面只有 exe/dll/asar 和一份打包好的 .next + node_modules，**不是源码**。
+# 不入库（否则 `git add .` 会把 ~150MB 的程序文件提交进去），
+# 同时在 eslint.config.mjs 的 ignores 里排除，否则 npm run lint 会被它刷成一片红。
+/AI Network Lab/
+
 # 桌面端构建产物（standalone 压缩包 + 数据库模板，由 desktop:prepare 生成）
 resources/
 
