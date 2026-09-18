@@ -1,4 +1,89 @@
-# 发行说明 v1.3.3
+# 发行说明 v1.3.4
+
+> AI Network Lab —— 智能网络科研工作台
+> 当前包版本：v1.3.4（对应 `package.json`）
+
+**这一版修「装了 1.3.3 之后应用根本打不开」。**
+
+---
+
+## 一、问题：安装包本身是坏的，对**所有**用户都是
+
+1.3.3 装完之后，双击图标会依次看到两个不同的报错：
+
+```
+① AI Network Lab 启动失败
+   内置服务解压失败：... tar.exe -xf ...app.zip ...
+   .next/node_modules/pdfkit-<hash>: Can't create ...: Invalid argument
+   .next/node_modules/@prisma/client-<hash>: Can't create ...: Invalid argument
+
+② AI Network Lab 启动失败
+   内部服务启动超时，请稍后重试（或检查内部服务日志）
+```
+
+这两条看着无关，其实**同一个根因**。
+
+## 二、根因：打包产物里带着指向「构建机」的符号链接
+
+Next 的构建流程（`outputFileTracing`）会在 `.next/standalone/.next/node_modules/` 下，
+为几个被外部化的依赖创建**指向构建机项目根 `node_modules` 的绝对符号链接**。
+1.3.3 的包里实测是这两条：
+
+```
+.next/node_modules/pdfkit-<hash>          -> //?/D:/a/glm-test/glm-test/node_modules/pdfkit
+.next/node_modules/@prisma/client-<hash>  -> //?/D:/a/glm-test/glm-test/node_modules/@prisma/client
+```
+
+`D:/a/<org>/<repo>` 是 GitHub Actions 的 Windows 构建机上的固定工作目录 ——
+**所以这个缺陷只在 CI 打包时产生，开发机上完全看不出来。**
+
+而打包用的 `bsdtar` 会把符号链接**原样**存进 zip。到了你的机器上，`D:/a/glm-test/...`
+当然不存在，解压时建不出这个链接，于是**退化成 0 字节的空文件**。接下来就是多米诺：
+
+```
+require('@prisma/client-<hash>') 拿到一个空模块
+  → TypeError: r.PrismaClient is not a constructor
+  → GET /api/settings/llm 返回裸 500（这条路由没有 try/catch）
+  → 壳层探针只认 statusCode < 500，永远等不到成功
+  → 90 秒后弹出「内部服务启动超时」，应用退出
+```
+
+第 ① 条 `Invalid argument` 就是「建不出这个链接」的报错；1.3.3 里加的退避重试让解压那一步
+侥幸过去了，应用随即换第 ② 条症状继续死。
+
+## 三、为什么之前的检查没抓住它
+
+**它能骗过字节级校验。** 把 `app.zip` 解到干净目录再逐文件比 SHA-256，会得到「完全一致」——
+因为两边同样是 **0 字节的空文件**，哈希当然一样。同理 `resources\app\` 里的文件也「都在」。
+
+唯一能暴露它的办法是**真的把内部服务跑起来，探一次 `/api/settings/llm` 要求返回 200**。
+
+## 四、修复
+
+- **打包前把符号链接落成真实副本**（`dereferenceSymlinks()`）。断链不能一删了之
+  （删掉就变成 `Cannot find module`），改为收集后直接**拒绝出包**。
+- **对最终 zip 再加一道硬断言**：产物里符号链接条目必须为 0，否则打包失败。
+  宁可这一版发不出去，也不再发一个所有人都装不起来的包。
+
+## 五、如果你已经装了 1.3.3：不用重装也能救回来
+
+1. 关掉 AI Network Lab 的所有进程；
+2. 打开 `<安装目录>\resources\app\.next\node_modules\`，把里面那两个 **0 字节的文件**删掉；
+3. 从**同一棵目录树**里把 `node_modules\pdfkit` 与 `node_modules\@prisma\client`
+   整目录复制进去（后者 41 个文件 / 14.55 MB，**必须包含 `runtime\query_engine-windows.dll.node`**）；
+4. 重新打开应用即可。
+
+> 注意别让应用重新解压，否则会被坏 zip 覆盖回 0 字节。
+
+## 六、验证
+
+- 新增 `tests/desktop/prepare-standalone.test.ts`（8 例），含 1.3.3 真实 `tar -tvf` 输出的回归指纹
+- 全量单测 22 个文件全通过，`tsc --noEmit` 零错误
+- 本机实起服务验收：5 个进程、窗口标题 `AI Network Lab 1.3.3`、`/` 与 5 个 API 全部 200
+
+---
+
+# 上一版发行说明 v1.3.3
 
 > AI Network Lab —— 智能网络科研工作台
 > 当前包版本：v1.3.3（对应 `package.json`）

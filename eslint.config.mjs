@@ -54,7 +54,10 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
 }, {
   // .recon/ 是本机审计/冒烟脚本的暂存目录（已在 .gitignore 里，不进仓库、不进 CI）：
   // 里面的东西是一次性的排查工具，用 CommonJS / require 属于正常写法，不该被 lint 拦。
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "release/**", "resources/**", "next-env.d.ts", "examples/**", "skills", ".recon/**", ".pshims/**"]
+  // .workbuddy/ 同理：它是本机 AI 工作区数据（项目记忆 + 审计解包产物），也随工作目录走、
+  // 不入库；里面的 asar_out/ 是从 app.asar 里解出来的**副本**，lint 它毫无意义，
+  // 却会因为 `#!` 不在首行 / require 写法报一堆假错，把 `npm run lint` 整个弄红。
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "release/**", "resources/**", "next-env.d.ts", "examples/**", "skills", ".recon/**", ".pshims/**", ".workbuddy/**"]
 }];
 
 export default eslintConfig;

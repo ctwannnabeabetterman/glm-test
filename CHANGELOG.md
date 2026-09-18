@@ -3,6 +3,43 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.3.4] - 2026-09-18
+
+**这一版修的是「装了 1.3.3 之后应用根本打不开」。** 这不是个别环境问题 —— 1.3.3 的安装包对**所有**用户都是坏的，而且它骗过了当时所有的检查。
+
+### 修复
+
+- **打包产物里带着指向构建机路径的符号链接**（真因）。Next 的 `outputFileTracing` 会在 `.next/standalone/.next/node_modules/` 下，为被外部化的依赖创建**指向构建机项目根 `node_modules` 的绝对符号链接**。1.3.3 的包里实测是这两条：
+  ```
+  .next/node_modules/pdfkit-<hash>          -> //?/D:/a/glm-test/glm-test/node_modules/pdfkit
+  .next/node_modules/@prisma/client-<hash>  -> //?/D:/a/glm-test/glm-test/node_modules/@prisma/client
+  ```
+  （`D:/a/<org>/<repo>` 是 GitHub Actions windows runner 的固定工作目录 —— 所以这个缺陷只在 CI 打包时产生，本地开发机上看不出来。）而 **bsdtar 会把符号链接原样存进 zip**。用户机器上 `D:/a/glm-test/...` 并不存在，解压时建不出链接，于是**退化成 0 字节的空文件**：
+  ```
+  require('@prisma/client-<hash>') 拿到空模块
+    → TypeError: r.PrismaClient is not a constructor
+    → GET /api/settings/llm 返回裸 500（这条路由没有 try/catch）
+    → 壳层探针 waitForServer() 只认 statusCode < 500，永远等不到成功
+    → 90 秒后弹出「内部服务启动超时」，应用退出
+  ```
+  这也解释了 1.3.3 首次启动时那个看起来完全不同的报错 —— `tar.exe: .next/node_modules/pdfkit-<hash>: Can't create ...: Invalid argument`。**两条报错同一个根因**：`Invalid argument` 正是「建不出这个链接」的报错。1.3.3 加的退避重试只是让解压那一步侥幸过去了，应用随即换下一个症状继续死。
+- **`prepare-standalone.js`：打包前把符号链接落成真实副本。** 新增 `dereferenceSymlinks()`，在 `pruneStandalone()` 之后遍历 standalone，把所有符号链接替换成从真实目标复制来的普通目录；**断链不能一删了之**（删掉就变成 `Cannot find module`），单独收集后由新增的 `assertNoBrokenLinks()` 以 `exit 1` 拒绝出包
+- **`prepare-standalone.js`：对最终 zip 加硬断言。** `packStandalone()` 打包完成后用新增的 `listZip()` + `findSymlinkEntries()` 再验一遍**最终产物**里符号链接条目必须为 0，否则打印命中的条目并拒绝出包。宁可打包失败，也不再发一个所有用户都装不起来的包
+
+### 为什么之前的检查都没发现
+
+**这个故障能骗过字节级比对。** 把 `app.zip` 解到干净目录再逐文件比 SHA-256 会得到「完全一致」—— 因为两边同样是 **0 字节的空文件**，哈希当然相同。同理，`resources/app/` 里的文件也「都在」。唯一能暴露它的办法是**真的把内部服务跑起来，探一次 `/api/settings/llm` 要求 200**。
+
+### 如果你已经装了 1.3.3（不用重装即可恢复）
+
+把 `<安装目录>\resources\app\.next\node_modules\` 下那两个 0 字节文件删掉，从**同一棵目录树**里的 `node_modules\pdfkit` 与 `node_modules\@prisma\client` 整目录复制过去（后者 41 个文件 / 14.55 MB，**必须包含 `runtime\query_engine-windows.dll.node`**）。注意别触发重新解压，否则会被坏 zip 覆盖回 0 字节。
+
+### 验证
+
+- 新增 `tests/desktop/prepare-standalone.test.ts`（8 例）：用 1.3.3 真实 `tar -tvf` 输出的那两行做**回归指纹**；junction 夹具下验证链接落成真实副本、且**真实 `node_modules` 不被连坐破坏**（`fs.rmSync(链接, {recursive:true})` 是否跟随链接已实测排除）；断链被拦下且保留原样；对真实 `resources/app.zip` 端到端跑通 `listZip`
+- 全量单测 22 个文件全通过，`tsc --noEmit` 零错误
+- 本机起真服务验收：剥掉宿主注入的 `ELECTRON_RUN_AS_NODE` 后启动客户端，5 个进程、窗口标题 `AI Network Lab 1.3.3`、内部服务就绪，`/`、`/api/settings/llm`、`/api/papers`、`/api/notes`、`/api/topics`、`/api/experiments` 全部 200
+
 ## [1.3.3] - 2026-09-17
 
 **这一版修「点了更新就闪退、版本还是旧的」。** 下载从来就没问题（1.3.2 的安装包完整躺在更新缓存里，字节数与 Release 资产一致）；问题全在**安装那一步**：应用退出了，安装器却没装成。
