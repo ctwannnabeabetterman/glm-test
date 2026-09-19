@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useApi } from '@/lib/hooks'
 import { toast } from 'sonner'
 import { NotesExport } from '@/components/notes-export'
+import { TopicLinker, TopicBadges } from '@/components/topic-linker'
 import { downloadFromApi } from '@/lib/download'
 import {
   BookOpen,
@@ -35,6 +36,8 @@ interface ReadingNoteNote {
   tags: string
   category: string
   structured?: Record<string, string>
+  /** 所属课题（JSON 字符串数组）—— 决定 AI 研究分析会不会用到这条笔记 */
+  topicIds?: string
   lastReadAt?: string | null
   updatedAt: string
 }
@@ -140,6 +143,17 @@ export function ReadingNoteEditor({ note, onUpdate, onDelete }: ReadingNoteEdito
           </div>
         </div>
 
+        {/* 所属课题：勾选即保存，与「保存」按钮无关（挂关系是轻动作，不该走一趟完整保存） */}
+        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+          <TopicLinker
+            topicIds={note.topicIds || '[]'}
+            onSave={async (json) => {
+              await api.put(`/api/notes/${note.id}`, { topicIds: json })
+              onUpdate({ ...note, topicIds: json })
+            }}
+          />
+        </div>
+
         {/* 最近阅读时间 + 操作 */}
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="text-[10px] py-0 flex items-center gap-1">
@@ -147,6 +161,7 @@ export function ReadingNoteEditor({ note, onUpdate, onDelete }: ReadingNoteEdito
             最近阅读：
             {note.lastReadAt ? new Date(note.lastReadAt).toLocaleDateString('zh-CN') : '未记录'}
           </Badge>
+          <TopicBadges topicIds={note.topicIds || '[]'} />
           <div className="ml-auto flex gap-1.5">
             <NotesExport note={note} compact />
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={exportExcel}>

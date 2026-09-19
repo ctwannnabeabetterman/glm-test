@@ -102,6 +102,8 @@ const ROUTES: RouteCase[] = [
   {
     name: '/api/ai-gap-analysis',
     load: () => import('@/app/api/ai-gap-analysis/route'),
+    // 注意：这条路由现在要求「有材料」才调 LLM（无材料返回 400 NO_CONTEXT），
+    // 所以 good 用例必须靠 beforeEach 里喂进一篇论文来满足前置条件。
     good: { type: 'gaps' },
     bad: { type: 'nope' }, // 未支持的 type
   },
@@ -149,6 +151,12 @@ beforeEach(() => {
   }
   // 让需要「论文存在」的路由（ai-summary）能走到 LLM 调用那一步
   dbMock.get('paper').findUnique.mockResolvedValue(PAPER)
+  // ai-gap-analysis 现在要求「本范围内有材料」才调 LLM（2026-09-18 加了课题域后），
+  // 所以这里默认喂一篇论文，好让它的四条失败契约能走到模型那一步。
+  // 无材料时必须 400 NO_CONTEXT —— 那条由 topic-routes-contract.test.ts 单独钉住。
+  dbMock.get('paper').findMany.mockResolvedValue([PAPER])
+  dbMock.get('topic').findMany.mockResolvedValue([])
+  dbMock.get('note').findMany.mockResolvedValue([])
 })
 
 describe.each(ROUTES)('$name：AI 失败契约', ({ load, good, bad }) => {
@@ -313,6 +321,8 @@ describe('AI 提示词：防编造约束必须在位', () => {
     ['ai-gap-analysis', /NO_FABRICATION_GUARD/, '会输出「相关论文」'],
     ['ai-related-papers', /NO_FABRICATION_GUARD/, '会输出论文标题/作者/年份/期刊'],
     ['ai-review', /NO_FABRICATION_GUARD/, '会写文献综述并引用'],
+    // ai-topic-score 给 14 个细项打分，分数直接影响「这个课题该不该做」的判断
+    ['ai-topic-score', /NO_FABRICATION_GUARD/, '打分必须按课题事实，不能凭印象填数'],
     // ai-direction 用的是自带措辞（比通用版更具体），这里按原文匹配
     ['ai-direction', /不能假装查阅未提供的论文/, '选题导师必须基于本地库作答'],
   ]
@@ -393,5 +403,63 @@ describe('AI 面板：统一使用 AiMarkdown 渲染', () => {
   it('planner 的 AI 助手也用 AiMarkdown 渲染 risk 结果', () => {
     const src = readFileSync(path.resolve('src/components/planner/ai-assistant.tsx'), 'utf8')
     expect(src).toMatch(/<AiMarkdown\b/)
+  })
+})
+
+/**
+ * 「课题域」这件事必须贯穿前后端。
+ *
+ * 2026-09-18 用户反馈「AI 研究分析…容易在课题多了以后互相干扰」，
+ * 修法是「前端选课题 → 请求体带 topicId → 服务端按课题筛」。
+ * 三处缺任何一处，用户看到的都还是「全库混杂分析」，而且**不会有任何报错** ——
+ * 所以这里逐处钉住，改坏了至少测试会红。
+ */
+describe('AI 研究分析：课题域贯穿前后端', () => {
+  it('面板有课题选择控件，并把 topicId 放进请求体', () => {
+    const src = readFileSync(path.resolve('src/components/ai-gap-analysis.tsx'), 'utf8')
+    expect(src).toMatch(/SelectTrigger/)
+    expect(src).toMatch(/topicId/)
+    expect(src).toMatch(/JSON.stringify\(\{\s*type,\s*topicId/)
+  })
+
+  it('面板默认选中一个具体课题（而不是默认全库），并保留「全库综合分析」退路', () => {
+    const src = readFileSync(path.resolve('src/components/ai-gap-analysis.tsx'), 'utf8')
+    expect(src).toMatch(/ALL_TOPICS/)
+    expect(src).toMatch(/全库综合分析/)
+    // 默认选中第一个课题：list[0]
+    expect(src).toMatch(/topicList\[0\]\.id/)
+  })
+
+  it('结果按「课题 + 类型」分开缓存（切课题后不能显示成新课题的结论）', () => {
+    const src = readFileSync(path.resolve('src/components/ai-gap-analysis.tsx'), 'utf8')
+    expect(src).toMatch(/`\$\{topicId\}:\$\{type\}`/)
+  })
+
+  it('服务端按课题域筛论文与笔记', () => {
+    const src = readFileSync(path.resolve('src/app/api/ai-gap-analysis/route.ts'), 'utf8')
+    expect(src).toMatch(/scopeByTopic/)
+  })
+
+  it('Paper 与 Note 都有 topicIds 字段，且桌面迁移会为老库补列', () => {
+    const schema = readFileSync(path.resolve('prisma/schema.prisma'), 'utf8')
+    const paperBlock = schema.slice(schema.indexOf('model Paper'), schema.indexOf('model Topic'))
+    const noteBlock = schema.slice(schema.indexOf('model Note'), schema.indexOf('model SearchLog'))
+    expect(paperBlock).toMatch(/topicIds\s+String\s+@default\("\[\]"\)/)
+    expect(noteBlock).toMatch(/topicIds\s+String\s+@default\("\[\]"\)/)
+
+    const migrate = readFileSync(path.resolve('desktop/migrate-database.js'), 'utf8')
+    expect(migrate).toMatch(/topicIds:\s*"topicIds TEXT DEFAULT '\[\]'"/)
+  })
+
+  it('论文与笔记界面都能挂课题（否则用户没法把数据归到课题上）', () => {
+    const linker = readFileSync(path.resolve('src/components/topic-linker.tsx'), 'utf8')
+    expect(linker).toMatch(/export function TopicLinker/)
+    for (const file of [
+      'src/components/sections/papers-section.tsx',
+      'src/components/sections/notes-section.tsx',
+      'src/components/reading-note-editor.tsx',
+    ]) {
+      expect(readFileSync(path.resolve(file), 'utf8')).toMatch(/TopicLinker/)
+    }
   })
 })

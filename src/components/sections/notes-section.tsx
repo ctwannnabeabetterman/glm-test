@@ -49,6 +49,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { TopicLinker, TopicBadges } from '@/components/topic-linker'
 
 interface Note {
   id: string
@@ -58,6 +59,8 @@ interface Note {
   links: string
   category: string
   structured?: Record<string, string>
+  /** 所属课题（JSON 字符串数组）—— 决定 AI 研究分析会不会用到这条笔记 */
+  topicIds?: string
   lastReadAt?: string | null
   createdAt: string
   updatedAt: string
@@ -346,6 +349,7 @@ function NoteDetail({ note, onUpdate, onDelete }: {
               <Badge variant="secondary" className={cn('text-[10px]', CATEGORY_LABELS[note.category]?.color)}>
                 {CATEGORY_LABELS[note.category]?.label}
               </Badge>
+              <TopicBadges topicIds={note.topicIds || '[]'} />
               <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5" />
                 更新于 {new Date(note.updatedAt).toLocaleString('zh-CN')}
@@ -401,6 +405,16 @@ function NoteDetail({ note, onUpdate, onDelete }: {
                 ))}
               </div>
             )}
+            {/* 所属课题：勾选即保存（重进详情页才会看到最新值，这里不做整页 refetch） */}
+            <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+              <TopicLinker
+                topicIds={note.topicIds || '[]'}
+                onSave={async (json) => {
+                  await api.put(`/api/notes/${note.id}`, { topicIds: json })
+                  onUpdate({ ...note, topicIds: json })
+                }}
+              />
+            </div>
             <div
               className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed"
               dangerouslySetInnerHTML={{ __html: rendered }}

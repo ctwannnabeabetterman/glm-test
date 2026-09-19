@@ -23,7 +23,7 @@ import path from 'node:path'
  * 这两条都无法用类型或行为在 CI 里自然覆盖（需要真 Electron），所以这里用 vm
  * 把 main.js 载入受控上下文，直接对 IPC handler 断言。
  */
-function harness(options: { isPackaged?: boolean } = {}) {
+function harness(options: { isPackaged?: boolean; confirmInstall?: boolean } = {}) {
   const handlers: Record<string, (...args: any[]) => Promise<any>> = {}
   const appendedLines: string[] = []
   const killSpy = vi.fn()
@@ -69,7 +69,25 @@ function harness(options: { isPackaged?: boolean } = {}) {
         handlers[channel] = fn
       },
     },
-    dialog: { showSaveDialog: vi.fn(), showErrorBox: vi.fn(), showMessageBox: vi.fn() },
+    dialog: {
+      showSaveDialog: vi.fn(),
+      showErrorBox: vi.fn(),
+      // 默认返回「确认」（response 0 = 第一个按钮）。
+      // 2026-09-18 起 install-update 会先弹一个「即将安装」确认框，
+      // 不返回 0 就会走成「用户取消」，把原有契约测试全带偏。
+      //
+      // 显式标注参数类型：electron 的 dialog 类型签名在 vm 模拟里推不出来，
+      // 不标的话 `mock.calls[0][1]` 会被推断成 `never`（元组长度为 0），
+      // 后继断言全报 TS2493 —— 这是纯粹的类型噪音，不是逻辑问题。
+      showMessageBox: vi.fn(
+        async (
+          _win: unknown,
+          _opts: { detail?: string; message?: string; buttons?: string[] },
+        ): Promise<{ response: number }> => ({
+          response: options.confirmInstall === false ? 1 : 0,
+        }),
+      ),
+    },
   }
 
   const context = vm.createContext({
@@ -130,7 +148,17 @@ function harness(options: { isPackaged?: boolean } = {}) {
     call: (channel: string) => {
       const fn = handlers[channel]
       if (!fn) throw new Error(`${channel} handler 未注册`)
-      return fn(event)
+      // 断言里要用到 canceled / reason / latest 这类可选字段，所以这里放宽成
+      // 「带常见可选字段的结果对象」，而不是精确到每个 handler 的联合类型。
+      return fn(event) as Promise<{
+        ok: boolean
+        error?: string
+        canceled?: boolean
+        reason?: string
+        current?: string
+        latest?: string | null
+        hasUpdate?: boolean
+      }>
     },
   }
 }
@@ -170,6 +198,49 @@ describe('自动更新：退出安装的调用契约', () => {
     expect(err).toBeTruthy()
     expect(err.state).toBe('error')
     expect(h.appendedLines.join('\n')).toContain('安装未启动')
+  })
+})
+
+/**
+ * 「安装没有进度条」的补偿契约（2026-09-18 用户实测反馈）。
+ *
+ * 背景：用户走通首次自更新后反馈「不知道怎么下的，需要重启安装，然后安装没有进度条之类的」。
+ * 查证结论是「安装阶段不可能有进度条」——quitAndInstall(true, true) 会以 `/S`
+ * （NSIS 静默开关）调起安装器，静默安装本身不绘制任何界面；而且应用在 quitAndInstall
+ * 之后立刻退出，渲染层连一次 setState 的机会都没有。
+ *
+ * `/S` 又不能去掉：assisted 安装器里「装完自动拉起应用」的条件是
+ * `${isForceRun} AND ${Silent}`，去掉就变成「点更新 → 应用消失 → 不回来自动」。
+ *
+ * 所以唯一的补偿点是在**退出之前**把预期讲清楚。这一组测试锁住这条：
+ * 确认框必须先出现、文案必须承认「没有进度条」、用户取消时绝不能安装。
+ */
+describe('自动更新：安装前的预期说明（补偿「安装没有进度条」）', () => {
+  it('安装前必须先弹确认框，把「会怎样」讲在退出之前', async () => {
+    const h = harness()
+    await h.call('install-update')
+    expect(h.dialog.showMessageBox).toHaveBeenCalled()
+    const arg = h.dialog.showMessageBox.mock.calls[0]![1]!
+    // 静默安装没有进度条是事实，必须提前说明，否则用户会把「窗口消失」当成崩溃
+    expect(arg.detail).toContain('静默安装')
+    expect(arg.detail).toContain('不会显示进度条')
+    // 还要给出恢复预期，避免用户以为要自己手动开
+    expect(arg.detail).toContain('重新打开')
+  })
+
+  it('用户在确认框选了「稍后」⇒ 不调用 quitAndInstall，应用继续运行', async () => {
+    const h = harness({ confirmInstall: false })
+    const r = await h.call('install-update')
+    expect(r.ok).toBe(true)
+    expect(r.canceled).toBe(true)
+    expect(h.autoUpdater.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('确认框里带上安装包的本机路径（回答「不知道怎么下的」）', async () => {
+    const h = harness()
+    await h.call('install-update')
+    const arg = h.dialog.showMessageBox.mock.calls[0]![1]!
+    expect(arg.detail).toContain('安装包位置')
   })
 })
 

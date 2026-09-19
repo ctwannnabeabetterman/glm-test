@@ -62,6 +62,18 @@ const DOWNLOAD_STALL_MS = 45_000
 let downloadStallTimer = null
 let downloadLastPercent = 0
 
+/**
+ * 最近一次成功下载的安装包绝对路径。
+ *
+ * 用途：用户那句「不知道怎么下的」—— 他既不窗口标题、也没进设置页，
+ * 就完全不知道安装包去了哪里。把它记下来，既能在安装确认框里显示，
+ * 也能随状态推给界面做「安装包位置」提示，用户想手动重装时能直接找到。
+ */
+let lastDownloadedFile = ''
+
+/** 已落盘的最后一个「10% 档位」进度；避免每一帧都写日志把文件刷爆 */
+let downloadLoggedBucket = -1
+
 function clearDownloadStallWatch() {
   if (downloadStallTimer) {
     clearTimeout(downloadStallTimer)
@@ -596,7 +608,21 @@ function createWindow(port) {
 }
 
 /**
- * 触发「退出并安装」。
+ * 「静默安装」的观感问题 —— 为什么安装阶段**没有进度条**，以及我们怎么补偿。
+ *
+ * 根因（不是 bug，是 NSIS 模板的硬约束）：
+ *   quitAndInstall(true, true) 实际以 `--updated /S --force-run` 调起安装包，
+ *   其中 `/S` 是 NSIS 的**静默安装**开关 ⇒ 安装器全程不绘制任何界面，
+ *   自然也就没有任何进度条。而 /S 又**不能去掉**（见下），所以「安装时有进度条」
+ *   在架构上就做不到。
+ *
+ * 更关键的一点：quitAndInstall 会立刻退出应用，等安装器开始干活时本进程已经没了
+ *   ⇒ 渲染层连一次 setState 的机会都没有。所以任何「安装中」的 UI 都是幻觉，
+ *   我们唯一能做的，是把**反馈前移**：在退出之前用确认框把「将要发生什么」讲清楚。
+ *
+ * 这也是用户反馈「不知道怎么下的 / 需要重启安装 / 安装没有进度条」的直接答案：
+ *   他看到的只有「点了按钮 → 窗口消失 → 几十秒后窗口自己回来」，
+ *   中间没有任何解释，所以只能猜。
  *
  * ⚠️ 两个参数都**不能省**，它们是 electron-builder 的 NSIS 模板定下的硬约束
  *    （见 app-builder-lib/templates/nsis/installSection.nsh 末尾）：
@@ -617,9 +643,38 @@ function createWindow(port) {
  * 另外加一道守护：quitAndInstall 只在 install() 成功时才会真的退出。几秒后我们还活着，
  * 就说明安装压根没起来 —— 明确告诉用户，而不是让他对着一个「点了没反应」的界面猜。
  */
-function applyUpdateAndRestart() {
+async function applyUpdateAndRestart() {
   if (!autoUpdater) return { ok: false, error: '更新组件不可用' }
   if (!app.isPackaged) return { ok: false, error: '开发模式不安装更新' }
+
+  // ── 退出前把「接下来会发生什么」说清楚 ──────────────────────────────────
+  // 这一步是「安装没有进度条」这个反馈的唯一可行解法：安装阶段给不了进度，
+  // 所以把预期讲在前面，用户就不会把「窗口消失」误读成崩溃、也不会以为卡死了。
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        buttons: ['现在重启并安装', '稍后'],
+        defaultId: 0,
+        cancelId: 1,
+        title: '准备安装更新',
+        message: `即将安装新版本并重启应用`,
+        detail:
+          '接下来会发生的事：\n' +
+          '1. 应用窗口会立即关闭；\n' +
+          '2. 安装程序在后台自动完成（静默安装，**不会显示进度条**，这是正常的）；\n' +
+          '3. 大约 10–60 秒后应用会自己重新打开，版本即为新版。\n\n' +
+          '安装期间请不要手动结束安装程序。如果一分钟后应用没有回来，\n' +
+          '可以手动打开「AI Network Lab」图标；版本还是旧的就去发布页手动下载。\n\n' +
+          `安装包位置：\n${lastDownloadedFile || '(未知，见更新日志)'}`,
+      })
+      if (response !== 0) return { ok: true, canceled: true }
+    } catch (e) {
+      // 对话框弹不出来（极端情况）不应该阻止安装，继续往下走
+      console.warn('[update] 安装确认框失败：', e && e.message ? e.message : e)
+    }
+  }
+
   updateActionInFlight = true
   logUpdate(`quitAndInstall(isSilent=true, isForceRunAfter=true)，当前版本 ${app.getVersion()}`)
   setImmediate(() => {
@@ -654,6 +709,7 @@ function startUpdateDownload() {
   if (!app.isPackaged) return { ok: false, error: '开发模式不下载更新' }
   updateActionInFlight = true
   downloadLastPercent = 0
+  downloadLoggedBucket = -1
   // 立刻开始计时：连第一个 download-progress 都收不到（DNS 卡死 / 连不上）同样会被判成停滞
   armDownloadStallWatch()
   logUpdate('开始下载更新，当前版本', app.getVersion())
@@ -755,6 +811,14 @@ function setupAutoUpdate() {
     // 收到任何进度就说明连接还活着 —— 重新计时（这就是看门狗的「喂狗」动作）
     armDownloadStallWatch()
     const speed = formatSpeed(p.bytesPerSecond)
+    // 按 10% 一档落盘：进度以前只走 IPC 给界面，日志里一行都不留。
+    // 结果就是「下载花了三分半、日志上只有开始和结束两行」，事后完全无法判断
+    // 到底是「一直在慢慢下」还是「中途卡了很久又恢复」——排查时全凭猜。
+    const bucket = Math.floor(percent / 10) * 10
+    if (bucket > downloadLoggedBucket) {
+      downloadLoggedBucket = bucket
+      logUpdate(`下载进度 ${percent}%${speed ? `（${speed}）` : ''}`)
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setTitle(`AI Network Lab ${app.getVersion()} — 正在下载更新 ${percent}%${speed ? `（${speed}）` : ''}`)
     }
@@ -772,7 +836,9 @@ function setupAutoUpdate() {
   autoUpdater.on('update-downloaded', async (info) => {
     // 下载已经落地，看门狗必须立刻停：否则停在 100% 后 45 秒会误报「卡住」
     clearDownloadStallWatch()
-    // 把安装包的真实落盘路径与版本记下来：这是「下载成功但装不上」时唯一能对着查的东西
+    // 把安装包的真实落盘路径与版本记下来：这是「下载成功但装不上」时唯一能对着查的东西，
+    // 也是回答用户「不知道怎么下的」的直接素材（安装包到底在哪）
+    lastDownloadedFile = info.downloadedFile || ''
     logUpdate(`更新下载完成 ${info.version}，安装包：${info.downloadedFile || '(未知路径)'}`)
     updateActionInFlight = false
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -782,6 +848,7 @@ function setupAutoUpdate() {
       state: 'downloaded',
       current: app.getVersion(),
       version: info.version,
+      file: lastDownloadedFile,
       message: `新版本 ${info.version} 已下载完成，重启后生效`,
     })
     try {
@@ -794,6 +861,8 @@ function setupAutoUpdate() {
         message: `新版本 ${info.version} 已下载完成`,
         detail:
           '选择「立即重启并安装」会关闭应用并完成更新；也可以稍后退出时自动安装。\n\n' +
+          '安装包已经下载到本机（可在「设置 → 软件更新」里看到确切路径），\n' +
+          '所以不需要再联网下载一次。\n\n' +
           '提示：安装前请关闭可能正在占用安装目录的程序（例如把该目录当作工作目录的编辑器或同步工具），' +
           '否则安装器可能卡在「清理旧版本」这一步。',
       })

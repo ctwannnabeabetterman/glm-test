@@ -34,6 +34,13 @@ model Paper {
   // 两者语义不同（导出/展示/覆盖策略都不一样），混在一起会被下一次同步冲掉。
   // 来源：Zotero abstractNote / RIS-AB / BibTeX abstract / 手动粘贴 / PDF 抽取。
   abstract    String   @default("")
+  // 所属课题（JSON 字符串数组，元素是 Topic.id）。
+  // 为什么需要它：`/api/ai-gap-analysis` 此前是「拿全库最新 20 篇」去分析，
+  // 课题一多，不同课题的论文互相稀释、结论互相干扰，且按年份取会把某个课题
+  // 相关的老论文直接挤掉。有了这一列，分析才能「只基于本课题的文献」。
+  // 用 JSON 数组而不是关联表：单机 SQLite + 个人使用，一条论文挂多个课题足够，
+  // 省掉一张 join 表与 Prisma 的关系配置；筛选在应用层做（数据量在千条级）。
+  topicIds    String   @default("[]")
   tags        String   @default("") // comma-separated
   category    String   @default("") // survey/method/application/baseline
   notes       String   @default("") // markdown 笔记
@@ -147,6 +154,10 @@ model Note {
   tags       String    @default("") // comma-separated
   links      String    @default("[]") // JSON: linked note ids
   category   String    @default("literature") // literature/project/knowledge/template/daily
+  // 所属课题（JSON 字符串数组，元素是 Topic.id）—— 与 Paper.topicIds 同义。
+  // 笔记同样会喂给 AI 研究分析，不区分课题时「最近 10 条」里混着不相干的思考，
+  // 模型容易顺着噪声跑偏（用户原话：「课题多了以后互相干扰」）。
+  topicIds   String    @default("[]")
   // 文献阅读思考模板（category=literature 时使用）：JSON 存储结构字段
   //   { author, journal, terms, refs, method, object, framework, innovation, limitation, inspiration }
   structured String   @default("{}")

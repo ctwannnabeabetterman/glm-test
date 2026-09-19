@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
         links: body.links || '[]',
         category: body.category || 'literature',
         structured: body.structured ? JSON.stringify(body.structured) : '{}',
+        // 所属课题：JSON 数组字符串。缺省为空数组 = 不参与任何课题的 AI 分析。
+        topicIds: body.topicIds || '[]',
         lastReadAt: body.lastReadAt ? new Date(body.lastReadAt) : undefined,
       },
     })

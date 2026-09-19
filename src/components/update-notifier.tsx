@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { AlertTriangle, Download, Loader2, Rocket, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { clampPercent, describeDownloadDetail } from '@/lib/update-progress'
 import {
   downloadUpdate,
   installUpdate,
@@ -17,8 +18,22 @@ import {
  *
  * 为什么除了系统对话框还要有它：
  * 主进程的对话框只在「发现新版本」那一刻弹一次，用户点「稍后」之后就再没有痕迹 ——
- * 等于提醒过了、但用户没记住。这里做一条常驻横幅挂在顶部，只要没处理就一直可见；
+ * 等于提醒过了、但用户没记住。这里做一条常驻横幅挂在右下角，只要没处理就一直可见；
  * 有新版时再补一个 toast 保证第一眼能看到。
+ *
+ * ⚠️ 2026-09-18 用户实测反馈（首次走通自更新后）：「不知道怎么下的，需要重启安装，
+ *    然后安装没有进度条之类的」。逐条对应到这里的改动：
+ *
+ *  1.「不知道怎么下的」—— 下载进度以前只显示一个百分比数字，用户无从判断
+ *     「在下 / 卡住 / 下完了」，也不知道文件落在哪。现在下载中显示真正的进度条
+ *     + 已下载/总量 + 速度；下载完成显示安装包的本机路径。
+ *  2.「需要重启安装」—— 这是 electron-updater 的固有行为（安装必须替换正在运行
+ *     的程序文件），改不掉。能做的是把「为什么」和「会花多久」提前讲清楚，
+ *     所以这里把文案从「重启后生效」改成明确的动作说明。
+ *  3.「安装没有进度条」—— 根因是 NSIS 的 /S 静默安装（见 desktop/main.js 的
+ *     applyUpdateAndRestart 注释），**架构上给不了安装进度**。所以补偿点在
+ *     退出之前：主进程会先弹一个确认框讲清「窗口会消失 10–60 秒、没有进度条是正常的」。
+ *     本卡片负责在点按钮之前就把这句话说出来，别让用户点完才发现窗口没了。
  */
 export function UpdateNotifier() {
   const [status, setStatus] = useState<UpdateStatusPayload | null>(null)
@@ -33,7 +48,11 @@ export function UpdateNotifier() {
         setDismissed(false)
         toast.info(payload.message || '发现新版本', { duration: 8000 })
       }
-      if (payload.state === 'downloaded') setDismissed(false)
+      // 下载完成是个「需要用户动手」的节点，必须重新出现（哪怕之前点过忽略）
+      if (payload.state === 'downloaded') {
+        setDismissed(false)
+        toast.success(payload.message || '更新已下载完成', { duration: 10000 })
+      }
       // 多版本冲突：必须让用户第一眼看到，所以重置忽略态并补一个 toast
       if (payload.state === 'conflict') {
         setDismissed(false)
@@ -65,6 +84,10 @@ export function UpdateNotifier() {
     if (!r.ok) toast.error(r.error || '安装更新失败')
     setBusy(false)
   }
+
+  // 下载进度派生量：百分比 + 传输量/速度/剩余时间（数据来自主进程 download-progress 事件）
+  const pct = clampPercent(status.percent)
+  const detail = describeDownloadDetail(status)
 
   return (
     // 固定在右下角而不是顶部横幅：应用顶栏本身是 sticky top-0，两条都钉在顶部会互相压。
@@ -105,20 +128,42 @@ export function UpdateNotifier() {
               <span className="font-medium">发现新版本 {status.version}</span>
               <span className="text-muted-foreground">
                 {' '}
-                · 当前 {status.current}，下载完成后退出时自动安装
+                · 当前 {status.current}，可以现在就下载，也可以退出时自动安装
               </span>
             </>
           )}
           {status.state === 'downloading' && (
             <>
-              <span className="font-medium">正在下载更新 {status.percent ?? 0}%</span>
-              <span className="text-muted-foreground"> · 可以继续使用，不影响写作</span>
+              <span className="font-medium">正在下载更新 {pct}%</span>
+              {detail && <span className="text-muted-foreground"> · {detail}</span>}
+              {/* 真正的进度条：以前只有一个数字，用户无法判断「在下」还是「卡住」。
+                  进度数据（percent）主进程一直在推，只是没有可视化。 */}
+              <span className="mt-1.5 block h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <span
+                  className="block h-full rounded-full bg-primary transition-[width] duration-300"
+                  style={{ width: `${pct}%` }}
+                />
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                下载期间可以继续使用，不影响写作。
+              </span>
             </>
           )}
           {status.state === 'downloaded' && (
             <>
               <span className="font-medium">新版本 {status.version} 已就绪</span>
-              <span className="text-muted-foreground"> · 重启后生效</span>
+              <span className="text-muted-foreground">
+                {' '}
+                · 点「立即重启并安装」生效（应用会自动重开）
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                安装时会静默进行、不显示进度条：窗口先关闭，约 10–60 秒后自己回来，属正常现象。
+              </span>
+              {status.file && (
+                <span className="mt-1 block truncate text-xs text-muted-foreground" title={status.file}>
+                  安装包已存于：{status.file}
+                </span>
+              )}
             </>
           )}
         </span>
@@ -136,7 +181,7 @@ export function UpdateNotifier() {
           </Button>
         )}
         {status.state === 'downloading' && (
-          <span className="tabular-nums text-muted-foreground">{status.percent ?? 0}%</span>
+          <span className="tabular-nums shrink-0 font-medium text-primary">{pct}%</span>
         )}
 
         <Button

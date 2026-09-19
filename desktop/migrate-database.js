@@ -7,6 +7,9 @@ const noteColumns = {
   category: "category TEXT DEFAULT 'literature'",
   structured: "structured TEXT DEFAULT '{}'",
   lastReadAt: 'lastReadAt DATETIME',
+  // 所属课题（JSON 数组）。与 Prisma schema 的 Note.topicIds 必须一致 ——
+  // AI 研究分析要按课题筛笔记，缺这一列老库就会 P2022 报错。
+  topicIds: "topicIds TEXT DEFAULT '[]'",
 }
 
 const paperColumns = {
@@ -16,6 +19,8 @@ const paperColumns = {
   // 摘要原料列（2026-09-18）。与 Prisma schema 的 Paper.abstract 必须一致：
   // 老库靠这里补列，否则 AI 摘要永远拿不到正文之外的东西。
   abstract: "abstract TEXT DEFAULT ''",
+  // 所属课题（JSON 数组）。同上，AI 研究分析按课题筛论文的依赖。
+  topicIds: "topicIds TEXT DEFAULT '[]'",
 }
 
 /**

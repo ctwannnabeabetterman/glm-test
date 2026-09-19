@@ -32,6 +32,7 @@ import {
   type UpdateCheckResult,
   type UpdateStatusPayload,
 } from '@/lib/desktop-update'
+import { clampPercent, describeDownloadDetail, formatUpdateSpeed } from '@/lib/update-progress'
 
 interface Preset {
   id: string
@@ -659,17 +660,11 @@ interface UpdateLine {
   tone: UpdateTone
   title: string
   hint?: string
+  /** 0–100；仅 downloading 时有值，用于渲染进度条 */
+  progress?: number
 }
 
 /** 把主进程给的 reason 翻译成「下一步该干什么」 */
-/** 把字节/秒格式化成短字符串；未知或 0 返回空串 */
-function formatUpdateSpeed(bytesPerSecond?: number): string {
-  const v = Number(bytesPerSecond) || 0
-  if (v <= 0) return ''
-  if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB/s`
-  return `${Math.max(1, Math.round(v / 1024))} KB/s`
-}
-
 function hintForReason(reason?: string): string | undefined {
   switch (reason) {
     case 'no-release':
@@ -700,7 +695,7 @@ function describeUpdateState(state: UpdateStatusPayload | null): UpdateLine | nu
       return {
         tone: 'ok',
         title: `发现新版本 ${state.version}`,
-        hint: `当前 ${state.current}，点「下载更新」，下载完成后退出时会自动安装。`,
+        hint: `当前 ${state.current}。点「下载更新」开始下载（约 140 MB，视网络 1–5 分钟）；下载完成后需要重启应用才能装上新版。`,
       }
     case 'latest':
       return { tone: 'ok', title: `已是最新版本${state.current ? `（${state.current}）` : ''}` }
@@ -708,22 +703,26 @@ function describeUpdateState(state: UpdateStatusPayload | null): UpdateLine | nu
       // 显示速度与已下载量：否则用户只能盯着一个长时间不动的百分比，
       // 分不清「在慢慢下」还是「已经卡死」——这正是「下载无法完成」的观感来源。
       const speed = formatUpdateSpeed(state.speed)
-      const pct = state.percent ?? 0
-      const total = Number(state.total) || 0
-      const transferred = Number(state.transferred) || 0
-      const sizeHint =
-        total > 0 ? `${(transferred / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB` : ''
+      const pct = clampPercent(state.percent)
+      const detail = describeDownloadDetail(state)
       return {
         tone: 'pending',
         title: `正在下载更新 ${pct}%${speed ? `（${speed}）` : ''}`,
-        hint: sizeHint ? `${sizeHint} · 完成后会提示重启安装。` : '完成后会提示重启安装。',
+        hint: detail
+          ? `${detail}。下载期间可以继续使用；完成后会提示重启安装。`
+          : '下载期间可以继续使用；完成后会提示重启安装。',
+        // 进度条：主进程一直在推 percent，之前只渲染成文字，用户看不出「在动」
+        progress: pct,
       }
     }
     case 'downloaded':
       return {
         tone: 'ok',
         title: `新版本 ${state.version} 已下载完成`,
-        hint: '点「立即重启并安装」生效，也可以等退出时自动安装。',
+        hint:
+          '点「立即重启并安装」生效。安装时会静默进行、**不显示进度条**：' +
+          '窗口先关闭，约 10–60 秒后应用自己回来，属于正常现象。' +
+          (state.file ? `安装包存放于 ${state.file}` : ''),
       }
     case 'error':
       return { tone: 'error', title: state.message || '检查更新失败', hint: hintForReason(state.reason) }
@@ -782,9 +781,19 @@ function UpdateStatusLine({
             line.tone === 'error' ? 'text-destructive' : line.tone === 'pending' ? 'animate-spin text-muted-foreground' : 'text-primary',
           )}
         />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-medium">{line.title}</p>
           {line.hint && <p className="mt-0.5 text-muted-foreground">{line.hint}</p>}
+          {/* 下载进度条：主进程一直有推 percent，之前只把它渲染成文字，
+              用户盯着一个数字分不清「在慢慢下」还是「卡住了」。 */}
+          {typeof line.progress === 'number' && (
+            <span className="mt-1.5 block h-1.5 w-full overflow-hidden rounded-full bg-border">
+              <span
+                className="block h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{ width: `${Math.max(0, Math.min(100, line.progress))}%` }}
+              />
+            </span>
+          )}
         </div>
       </div>
     </div>

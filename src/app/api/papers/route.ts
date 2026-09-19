@@ -43,6 +43,8 @@ export async function POST(request: NextRequest) {
         codeUrl: body.codeUrl || '',
         pdfUrl: body.pdfUrl || '',
         abstract: body.abstract || '',
+        // 所属课题：JSON 数组字符串。缺省为空数组 = 不参与任何课题的 AI 分析。
+        topicIds: body.topicIds || '[]',
         tags: body.tags || '',
         category: body.category || '',
         notes: body.notes || '',

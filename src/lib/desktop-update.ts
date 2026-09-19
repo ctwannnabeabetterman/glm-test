@@ -31,6 +31,14 @@ export interface UpdateStatusPayload {
   /** 安装包总字节数 */
   total?: number
   /**
+   * 已下载安装包在本机的绝对路径（仅 state === 'downloaded' 时有值）。
+   *
+   * 为什么要有：用户反馈「不知道怎么下的」—— 下载过程中的进度只存在于窗口标题
+   * 和「设置 → 软件更新」卡片里，而下载完成后的原生对话框只说了「已下载」，
+   * 没说文件在哪。把路径随状态推上来，界面就能直接告诉他安装包落在哪。
+   */
+  file?: string
+  /**
    * 失败分类：
    * no-release / no-channel / network / unknown / dev / no-updater / untrusted
    * / stalled（45 秒无任何进度，判定网络卡死，可重试）

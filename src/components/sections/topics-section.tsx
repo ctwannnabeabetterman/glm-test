@@ -36,6 +36,15 @@ import { TOPIC_CRITERIA, TOPIC_DIRECTIONS } from '@/lib/methodology-data'
 import { AIGapAnalysis } from '@/components/ai-gap-analysis'
 import { AIDirectionExplorer } from '@/components/ai-direction-explorer'
 import {
+  ALL_SUB_ITEMS,
+  computeTotalScore,
+  emptyScoreMap,
+  isSubjective,
+  SUBJECTIVE_ITEMS,
+  type ScoreMap,
+} from '@/lib/methodology/topic-ai'
+import { toastAiError } from '@/lib/ai-error'
+import {
   Target,
   Plus,
   Trash2,
@@ -45,6 +54,8 @@ import {
   Sparkles,
   CheckCircle2,
   AlertCircle,
+  Loader2,
+  Info,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -56,12 +67,21 @@ interface Topic {
   description: string
   scores: string // JSON
   totalScore: number
+  /** 已挂到本课题的论文/笔记数（GET /api/topics?withCounts=1 才有） */
+  paperCount?: number
+  noteCount?: number
 }
 
-type ScoreMap = Record<string, Record<string, number>>
+/** AI 打分结果里跟着分数一起回来的「依据量」，用来告诉用户这次结论有多实 */
+interface ScoreEvidence {
+  paperCount: number
+  noteCount: number
+  unlinkedPapers: number
+  unlinkedNotes: number
+}
 
 export function TopicsSection() {
-  const { data: topics, refetch, loading } = useFetch<Topic[]>('/api/topics')
+  const { data: topics, refetch, loading } = useFetch<Topic[]>('/api/topics?withCounts=1')
   const api = useApi()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
@@ -77,19 +97,16 @@ export function TopicsSection() {
       return
     }
     try {
-      const emptyScores: ScoreMap = {}
-      Object.entries(TOPIC_CRITERIA).forEach(([crit, info]) => {
-        emptyScores[crit] = {}
-        Object.keys(info.subItems).forEach((sub) => {
-          emptyScores[crit][sub] = 5
-        })
-      })
+      // 先给一份全 5 分的占位表：这样课题一旦创建，卡片上就有完整的 4 维进度条
+      // （而不是 0 分瘫痪状态）。真正的分数由用户在卡片上点「AI 打分」得到 ——
+      // 之前这里硬编码 5 分且没有 AI 参与，用户看到一片 5 只能自己逐项调。
+      const emptyScores = emptyScoreMap(5)
       await api.post('/api/topics', {
         ...newTopic,
         scores: JSON.stringify(emptyScores),
-        totalScore: 5,
+        totalScore: computeTotalScore(emptyScores),
       })
-      toast.success('课题已添加')
+      toast.success('课题已添加，可点「AI 打分」自动评分')
       setAddOpen(false)
       setNewTopic({ name: '', direction: '物理层', description: '' })
       refetch()
@@ -112,16 +129,7 @@ export function TopicsSection() {
   const handleScoreChange = async (topic: Topic, criterion: string, subItem: string, value: number) => {
     const scores: ScoreMap = JSON.parse(topic.scores)
     scores[criterion][subItem] = value
-    // Recompute total
-    let total = 0
-    Object.entries(TOPIC_CRITERIA).forEach(([crit, info]) => {
-      let critScore = 0
-      Object.entries(info.subItems).forEach(([sub, weight]) => {
-        critScore += (scores[crit]?.[sub] ?? 0) * weight
-      })
-      total += critScore * info.weight
-    })
-    const rounded = Math.round(total * 100) / 100
+    const rounded = computeTotalScore(scores)
     try {
       await api.put(`/api/topics/${topic.id}`, {
         scores: JSON.stringify(scores),
@@ -130,6 +138,32 @@ export function TopicsSection() {
       refetch()
     } catch {
       toast.error('更新失败')
+    }
+  }
+
+  /** AI 打分：拿回完整分数表整块写回。用户随后改任何一项，都会覆盖 AI 的值。 */
+  const handleAiScore = async (topic: Topic) => {
+    const res = await fetch('/api/ai-topic-score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topicId: topic.id }),
+    })
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      toastAiError(data, 'AI 打分失败')
+      return null
+    }
+    await api.put(`/api/topics/${topic.id}`, {
+      scores: JSON.stringify(data.scores),
+      totalScore: data.totalScore,
+    })
+    refetch()
+    return data as {
+      totalScore: number
+      scored: number
+      missing: string[]
+      rationale: string
+      evidence: ScoreEvidence
     }
   }
 
@@ -224,6 +258,7 @@ export function TopicsSection() {
               isEditing={editingId === topic.id}
               onToggleEdit={() => setEditingId(editingId === topic.id ? null : topic.id)}
               onScoreChange={handleScoreChange}
+              onAiScore={() => handleAiScore(topic)}
               onDelete={() => handleDelete(topic.id)}
             />
           ))}
@@ -266,15 +301,30 @@ export function TopicsSection() {
   )
 }
 
-function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onDelete }: {
+function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiScore, onDelete }: {
   topic: Topic
   rank: number
   isEditing: boolean
   onToggleEdit: () => void
   onScoreChange: (t: Topic, c: string, s: string, v: number) => void
+  onAiScore: () => Promise<{
+    totalScore: number
+    scored: number
+    missing: string[]
+    rationale: string
+    evidence: ScoreEvidence
+  } | null>
   onDelete: () => void
 }) {
   const scores: ScoreMap = useMemo(() => JSON.parse(topic.scores), [topic.scores])
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiMeta, setAiMeta] = useState<{
+    totalScore: number
+    scored: number
+    missing: string[]
+    rationale: string
+    evidence: ScoreEvidence
+  } | null>(null)
 
   const getScore = (c: string, s: string) => scores[c]?.[s] ?? 0
 
@@ -285,6 +335,28 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onDele
       total += (scores[c]?.[sub] ?? 0) * w
     })
     return total
+  }
+
+  const runAiScore = async () => {
+    setAiLoading(true)
+    try {
+      const meta = await onAiScore()
+      if (meta) {
+        setAiMeta(meta)
+        toast.success(`AI 打分完成：${meta.totalScore.toFixed(2)} / 10，请复核 4 个主观项`)
+      }
+    } catch (e) {
+      toast.error('AI 打分失败：' + (e as Error).message)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  // 用户改动任何一项后，AI 的说明就过期了 —— 分数已经不是它给的那份，
+  // 继续挂着「AI 依据 X 篇论文打的」会误导判断。
+  const handleManualChange = (c: string, s: string, v: number) => {
+    if (aiMeta) setAiMeta(null)
+    onScoreChange(topic, c, s, v)
   }
 
   const rankBadge = rank === 1 ? 'bg-amber-500 text-white' : rank === 2 ? 'bg-slate-400 text-white' : rank === 3 ? 'bg-orange-700 text-white' : 'bg-muted text-muted-foreground'
@@ -305,6 +377,25 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onDele
                   <Star className="h-2.5 w-2.5 mr-0.5 fill-current" />
                   {topic.totalScore.toFixed(2)} / 10
                 </Badge>
+                {/* 料的多少直接决定 AI 分析与 AI 打分的可信度，所以在列表上就亮出来 */}
+                {typeof topic.paperCount === 'number' && (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'text-[10px] font-normal',
+                      topic.paperCount === 0 && topic.noteCount === 0
+                        ? 'border-amber-500/40 text-amber-600'
+                        : 'text-muted-foreground'
+                    )}
+                    title={
+                      topic.paperCount === 0 && topic.noteCount === 0
+                        ? '这个课题还没有关联文献：AI 分析与 AI 打分都只能凭课题名称推测。到文献库给论文挂上本课题即可。'
+                        : '已关联的论文与笔记数（AI 分析与 AI 打分只使用这些材料）'
+                    }
+                  >
+                    {topic.paperCount} 篇 · {topic.noteCount} 笔记
+                  </Badge>
+                )}
               </div>
               {topic.description && (
                 <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{topic.description}</p>
@@ -312,8 +403,18 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onDele
             </div>
           </div>
           <div className="flex gap-1 shrink-0">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 text-xs bg-primary/10 text-primary hover:bg-primary/20"
+              onClick={runAiScore}
+              disabled={aiLoading}
+            >
+              {aiLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}
+              {aiLoading ? '打分中' : 'AI 打分'}
+            </Button>
             <Button size="sm" variant={isEditing ? 'default' : 'outline'} className="h-7 text-xs" onClick={onToggleEdit}>
-              {isEditing ? '完成' : '打分'}
+              {isEditing ? '完成' : '手改'}
             </Button>
             <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={onDelete}>
               <Trash2 className="h-3.5 w-3.5" />
@@ -323,6 +424,27 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onDele
       </CardHeader>
       <CardContent className={cn('pt-0', !isEditing && 'hidden')}>
         <div className="space-y-3">
+          {aiMeta && (
+            <div className="rounded-md border border-primary/25 bg-primary/5 p-3 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
+                <Sparkles className="h-3.5 w-3.5" />
+                AI 打分依据
+              </div>
+              <div className="text-[11px] text-muted-foreground leading-relaxed">
+                本次依据 {aiMeta.evidence.paperCount} 篇论文、{aiMeta.evidence.noteCount} 条笔记
+                {aiMeta.evidence.unlinkedPapers > 0 && `（另有 ${aiMeta.evidence.unlinkedPapers} 篇论文未归到本课题，未参与打分）`}
+                。已填 {aiMeta.scored}/14 项
+                {aiMeta.missing.length > 0 && `，${aiMeta.missing.length} 项未能识别已按 5 分兜底`}。
+              </div>
+              {aiMeta.rationale && (
+                <div className="text-[11px] leading-relaxed border-t border-primary/15 pt-1.5">{aiMeta.rationale}</div>
+              )}
+              <div className="flex items-start gap-1 text-[10px] text-amber-600 border-t border-primary/15 pt-1.5">
+                <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                <span>带「确认」标记的 4 项 AI 无从知晓（实验室条件、你的时间与方向），它是按同类情况估的，请按实际改写。</span>
+              </div>
+            </div>
+          )}
           {Object.entries(TOPIC_CRITERIA).map(([crit, info]) => (
             <div key={crit} className="rounded-md border border-border/60 p-3">
               <div className="flex items-center justify-between mb-2">
@@ -338,7 +460,18 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onDele
                 {Object.entries(info.subItems).map(([sub, weight]) => (
                   <div key={sub} className="flex items-center gap-2">
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs">{sub}</div>
+                      <div className="text-xs flex items-center gap-1.5">
+                        {sub}
+                        {isSubjective(sub) && (
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] px-1 py-0 h-4 border-amber-500/40 text-amber-600"
+                            title="这一项只有你自己知道（实验室条件 / 你的时间 / 你的毕业论文方向），AI 给的是同类情况估值"
+                          >
+                            确认
+                          </Badge>
+                        )}
+                      </div>
                       <div className="text-[10px] text-muted-foreground">权重 {(weight * 100).toFixed(0)}%</div>
                     </div>
                     <input
@@ -346,7 +479,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onDele
                       min="0"
                       max="10"
                       value={getScore(crit, sub)}
-                      onChange={(e) => onScoreChange(topic, crit, sub, Number(e.target.value))}
+                      onChange={(e) => handleManualChange(crit, sub, Number(e.target.value))}
                       className="w-32 accent-primary"
                     />
                     <div className="w-12 text-right">
@@ -355,7 +488,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onDele
                         min="0"
                         max="10"
                         value={getScore(crit, sub)}
-                        onChange={(e) => onScoreChange(topic, crit, sub, Math.max(0, Math.min(10, Number(e.target.value))))}
+                        onChange={(e) => handleManualChange(crit, sub, Math.max(0, Math.min(10, Number(e.target.value))))}
                         className="h-7 text-xs w-12"
                       />
                     </div>

@@ -69,6 +69,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { downloadFromApi } from '@/lib/download'
 import { AISummary } from '@/components/ai-summary'
+import { TopicLinker, TopicBadges } from '@/components/topic-linker'
 import { ReadingTimer } from '@/components/reading-timer'
 import { PaperRelations } from '@/components/paper-relations'
 import { CitationTracker } from '@/components/citation-tracker'
@@ -94,6 +95,7 @@ interface Paper {
   notes: string
   readingProgress: string
   readingTime: number
+  topicIds: string
   dateAdded: string
   dateRead: string | null
 }
@@ -624,6 +626,7 @@ function PaperRow({ paper, onSelect, onStatusChange, onDelete, selected }: {
               </Badge>
             )}
             <span className="text-[10px] text-muted-foreground">{paper.year}</span>
+            <TopicBadges topicIds={paper.topicIds || '[]'} />
           </div>
           <div className="text-sm font-medium leading-snug line-clamp-2">{paper.title}</div>
           <div className="text-xs text-muted-foreground mt-1 truncate">
@@ -788,6 +791,17 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
 
         {/* AI Summary generator (§2.3.2 精读模板) */}
         <AISummary paper={paper} />
+
+        {/* 所属课题 —— 决定 AI 研究分析/AI 打分会不会用到这篇论文 */}
+        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+          <TopicLinker
+            topicIds={paper.topicIds || '[]'}
+            onSave={async (json) => {
+              await api.put(`/api/papers/${paper.id}`, { topicIds: json })
+              onUpdate({ ...paper, topicIds: json })
+            }}
+          />
+        </div>
 
         {/* Citation generator (§4.3.3 BibTeX) */}
         <CitationGenerator paper={paper} />
