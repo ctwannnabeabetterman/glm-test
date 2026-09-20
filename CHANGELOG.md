@@ -52,7 +52,16 @@
 - 新增 `tests/lib/manuscript-export-style.test.ts`：真调导出 handler，钉住「不带 style 时与旧行为逐字一致」「未知 style 400 且列出可选值」「txt 也带样式」「format 与 style 两条校验不互相吞掉」。
 - 新增 `tests/lib/review-draft.test.ts`：真调路由 handler，钉住阅读范围过滤、课题域筛选、**无料必须 400 NO_CONTEXT 且不打 LLM**、编造引用被检出且不静默丢弃、以及「引用语法是与写作台的接口约定」。
 - `tests/lib/ai-markdown.test.ts` 的「排版成档」块改写：从断言 `text-xs` 等固定字号，改为断言**基线写进行内 `--ai-md-base`** 且标题/表格用相对字号（原来的断言在新机制下已不成立）。
-- 全量：**36 文件 / 654 用例通过**；tsc 无输出、eslint 无输出（均干净）。
+- 全量：**36 文件 / 654 用例通过**；`eslint` 无输出。
+- ⚠️ **一处真实的门禁教训（值得记下来）**：本机 `tsc --noEmit` 判绿，第一次 CI 却红的 ——
+  `src/app/api/ai-review/route.ts` 有一处类型错误：`SCOPE_STATUSES[scope]` 是**元组联合类型**
+  （`readonly ["read"] | readonly ["read","reading"] | readonly []`），在它上面调 `.includes(p.status)`
+  时参数被收窄成字面量 `"read"`，于是 `string` 传不进去。
+  本机为此做了 5 组对照：同一份 TS 5.9.3、同一份 tsconfig、换 `-p`/不带 `-p`/关掉增量缓存，
+  `tsc` **一律判绿**（另做过反向验证：往该文件里塞一个必然的类型错误，`tsc` 确实会报 ⇒ 文件是被检查的）。
+  差异来自 **Next 自己的类型检查路径**，而 `next build` 在本机会无限挂起、跑不了 —— 所以本机拿不到同源门禁。
+  ⇒ 已修（显式标注 `readonly string[]`）。经验：**不要在「元组联合类型」上直接调 `.includes()`**，
+  显式标注宽类型（`readonly string[]`）即可；**涉及类型收窄的改动，最终以 CI 绿为准**，不能只看本机 `tsc`。
 
 ### 验证（四层，逐层加强）
 

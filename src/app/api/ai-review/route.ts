@@ -157,7 +157,11 @@ export async function POST(request: NextRequest) {
       orderBy: [{ year: 'desc' }, { relevance: 'desc' }],
     })
 
-    const allowedStatuses = SCOPE_STATUSES[scope]
+    // ⚠️ 必须显式标注 `readonly string[]`：`SCOPE_STATUSES[scope]` 是**元组联合类型**
+    // （`readonly ["read"] | readonly ["read","reading"] | readonly []`），
+    // 联合类型上的 `.includes` 参数会被收窄成 `"read"`，于是 `includes(p.status: string)` 直接 TS2345。
+    // 本地 `tsc` 是在这次改写**之前**跑的，没看出来；CI 的 typecheck 当场拦下。
+    const allowedStatuses: readonly string[] = SCOPE_STATUSES[scope]
     const inScope = allowedStatuses.length
       ? allRows.filter((p) => allowedStatuses.includes(p.status))
       : allRows
