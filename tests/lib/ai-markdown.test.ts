@@ -93,10 +93,31 @@ describe('AiMarkdown：不可信内容的处理', () => {
 })
 
 describe('AiMarkdown：排版成档', () => {
-  it('size 决定基础字号，避免每个面板各调一套', () => {
-    expect(html('正文', 'compact')).toContain('text-[11px]')
-    expect(html('正文', 'default')).toContain('text-xs')
-    expect(html('正文', 'loose')).toContain('text-sm')
+  /** 取出 wrapper 上的基线字号（rem） */
+  const baseRem = (size?: 'compact' | 'default' | 'loose') =>
+    Number((html('正文', size).match(/--ai-md-base:\s*([\d.]+)rem/) ?? [])[1])
+
+  it('size 只决定基线字号，写进 --ai-md-base 交给全局密度缩放', () => {
+    // 为什么不是直接断言 font-size：用户在设置里选的「紧凑/标准/论文式」是全局缩放，
+    // 最终字号 = 基线 × 密度系数，由 globals.css 计算。组件只管给出基线。
+    expect(html('正文', 'compact')).toMatch(/--ai-md-base:\s*0\.6875rem/)
+    expect(html('正文', 'default')).toMatch(/--ai-md-base:\s*0\.75rem/)
+    expect(html('正文', 'loose')).toMatch(/--ai-md-base:\s*0\.875rem/)
+    // 不传 size 时落在 default 档
+    expect(html('正文')).toMatch(/--ai-md-base:\s*0\.75rem/)
+  })
+
+  it('三档基线递增（compact < default < loose）', () => {
+    expect(baseRem('compact')).toBeLessThan(baseRem('default'))
+    expect(baseRem('default')).toBeLessThan(baseRem('loose'))
+  })
+
+  it('标题与表格用相对字号，密度换档时才不会被漏掉', () => {
+    const out = html(['# 标题', '', '| a |', '| --- |', '| 1 |'].join('\n'))
+    expect(out).toMatch(/text-\[1\.17em\]/) // h1 → h2
+    expect(out).toMatch(/text-\[0\.92em\]/) // 表格
+    // 写死的 px 字号会让「论文式」下段落变大、标题不动，观感立刻穿帮
+    expect(out).not.toMatch(/text-\[1\dpx\]/)
   })
 
   it('表格外层可横向滚动，避免宽表撑破面板', () => {

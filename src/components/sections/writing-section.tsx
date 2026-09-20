@@ -42,7 +42,7 @@ export function WritingSection() {
     <div className="space-y-4">
       <SectionHeader
         title="论文写作"
-        desc="写作工作台 · 结构检查 · 学术句式 · 审稿回复 · 投稿清单"
+        desc="写作工作台（[@引用] 自动编号 · IEEE / GB-T 7714 著录）· 阅读→综述草稿 · 结构检查 · 学术句式 · 审稿回复 · 投稿清单"
         icon={PenLine}
       />
 
@@ -59,6 +59,10 @@ export function WritingSection() {
           <TabsTrigger value="abstract">
             <FileText className="h-3.5 w-3.5 mr-1.5" />
             Abstract 生成
+          </TabsTrigger>
+          <TabsTrigger value="review-draft">
+            <BookMarked className="h-3.5 w-3.5 mr-1.5" />
+            综述草稿
           </TabsTrigger>
           <TabsTrigger value="phrases">
             <Quote className="h-3.5 w-3.5 mr-1.5" />
@@ -83,11 +87,11 @@ export function WritingSection() {
             <AbstractGenerator />
           </div>
         </TabsContent>
+        <TabsContent value="review-draft">
+          <AIReviewGenerator />
+        </TabsContent>
         <TabsContent value="review">
-          <div className="space-y-3">
-            <AIReviewGenerator />
-            <ReviewResponse />
-          </div>
+          <ReviewResponse />
         </TabsContent>
         <TabsContent value="phrases"><AcademicPhrases /></TabsContent>
         <TabsContent value="checklist"><SubmissionChecklistView /></TabsContent>

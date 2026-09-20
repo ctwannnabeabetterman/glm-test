@@ -9,10 +9,14 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { SectionHeader } from '@/components/section-header'
+import { AiMarkdown } from '@/components/ai-markdown'
+import { useAppStore } from '@/lib/store'
+import { RESULT_DENSITY_PRESETS, normalizeResultDensity } from '@/lib/result-density'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { Settings, KeyRound, Plug, CheckCircle2, AlertCircle, ExternalLink, Loader2, Database, Info, BookMarked, FolderOpen, FolderSync, RefreshCw, Download, Rocket, PackageCheck } from 'lucide-react'
+import { Settings, KeyRound, Plug, CheckCircle2, AlertCircle, ExternalLink, Loader2, Database, Info, BookMarked, FolderOpen, FolderSync, RefreshCw, Download, Rocket, PackageCheck, Type } from 'lucide-react'
 import {
   DEFAULT_OBSIDIAN_STATUS,
   loadObsidianStatus,
@@ -52,6 +56,27 @@ interface LlmStatus {
   presets: Preset[]
 }
 
+/**
+ * 密度预览用的样张。
+ *
+ * 刻意挑的是「AI 面板真实会吐出来的东西」而不是 lorem ipsum：标题 + 加粗 + 列表 + 表格，
+ * 三档密度之间的差异（字号、行高、衬线）在这四种元素上都能被看见；
+ * 用几个字的一句话做样张的话，三档看着几乎一样，用户等于在盲选。
+ */
+const DENSITY_PREVIEW_MD = [
+  '## 语义通信方向的研究缺口',
+  '',
+  '现有工作多在**理想信道假设**下报告端到端准确率，缺少对信道估计误差的敏感性分析。',
+  '',
+  '- 评测指标口径不统一，不同论文的「准确率」不可横向比较',
+  '- 噪声注入配置未公开，结果难以复现',
+  '',
+  '| 方案 | 信道模型 | 报告准确率 |',
+  '| --- | --- | --- |',
+  '| JSCC-CNN | AWGN | 92.1% |',
+  '| 改进型 JSCC | 瑞利衰落 | 88.4% |',
+].join('\n')
+
 export function SettingsSection() {
   const [status, setStatus] = useState<LlmStatus | null>(null)
   const [presetId, setPresetId] = useState('zhipu')
@@ -82,6 +107,12 @@ export function SettingsSection() {
   const [checking, setChecking] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [installing, setInstalling] = useState(false)
+
+  // ---- 界面与阅读 ----
+  // 呈现密度是纯前端偏好，走 zustand 持久化（与主题同一份 store），不进数据库：
+  // 它是「这台机器上这个人的阅读习惯」，没有跨设备同步的价值，也不该占用后端往返。
+  const resultDensity = useAppStore((s) => s.resultDensity)
+  const setResultDensity = useAppStore((s) => s.setResultDensity)
 
   useEffect(() => {
     let alive = true
@@ -397,6 +428,55 @@ export function SettingsSection() {
                   <AlertDescription className="break-all">{testResult.message}</AlertDescription>
                 </Alert>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Type className="h-5 w-5" /> 界面与阅读
+              </CardTitle>
+              <CardDescription>
+                AI 结果的呈现密度。只改 AI 输出（摘要 / 综述 / 选题分析 / 实验顾问等）的字号与行高，不动界面其余部分。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <RadioGroup
+                value={resultDensity}
+                onValueChange={(v) => setResultDensity(normalizeResultDensity(v))}
+                className="gap-2"
+              >
+                {RESULT_DENSITY_PRESETS.map((preset) => {
+                  const selected = resultDensity === preset.id
+                  return (
+                    <Label
+                      key={preset.id}
+                      htmlFor={`result-density-${preset.id}`}
+                      className={cn(
+                        'flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 transition-colors',
+                        selected ? 'border-primary bg-accent' : 'hover:bg-muted',
+                      )}
+                    >
+                      <RadioGroupItem value={preset.id} id={`result-density-${preset.id}`} className="mt-0.5" />
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-medium">{preset.name}</div>
+                        <div className="text-[11px] text-muted-foreground">{preset.summary}</div>
+                      </div>
+                    </Label>
+                  )
+                })}
+              </RadioGroup>
+
+              {/* 预览即实物：密度是全局的，所以下面这块就是 AI 结果此刻的样子，
+                  不需要另做一套「假预览」（假预览反而会和真实渲染对不上）。 */}
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="eyebrow mb-2">实时预览</div>
+                <AiMarkdown content={DENSITY_PREVIEW_MD} />
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                选择立即生效并记住；已生成的结果会直接跟着变，不需要重新跑一次 AI。
+              </p>
             </CardContent>
           </Card>
 

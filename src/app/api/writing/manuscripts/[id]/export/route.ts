@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { markdownToPlainText, renderManuscriptMarkdown, safeFileName } from '@/lib/writing/draft'
+import { CITATION_STYLES, DEFAULT_CITATION_STYLE, isCitationStyle } from '@/lib/writing/citation-styles'
 import { resolveManuscriptReferences } from '@/lib/writing/resolve'
 
 const SUPPORTED = ['md', 'txt'] as const
@@ -19,6 +20,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       )
     }
 
+    // 引文样式同理：未知样式必须 400，不能默默按 IEEE 导 ——
+    // 用户拿到的会是「投国内期刊被打回」的稿子，且看不出哪里错了。
+    const style = (request.nextUrl.searchParams.get('style') || DEFAULT_CITATION_STYLE).toLowerCase()
+    if (!isCitationStyle(style)) {
+      return NextResponse.json(
+        { error: `Unsupported style: ${style}`, supported: CITATION_STYLES },
+        { status: 400 },
+      )
+    }
+
     const row = await db.manuscript.findUnique({ where: { id } })
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -30,6 +41,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       venue: row.venue,
       sections: resolved.sections,
       references: resolved.references,
+      style,
     })
 
     const isTxt = format === 'txt'

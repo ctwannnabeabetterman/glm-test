@@ -1,7 +1,7 @@
 'use client'
 
 import { useAppStore, type Section } from '@/lib/store'
-import { ThemeManager } from '@/components/theme-manager'
+import { AppearanceManager } from '@/components/appearance-manager'
 import {
   LayoutDashboard,
   BookOpen,
@@ -85,7 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <ThemeManager />
+      <AppearanceManager />
 
       {/* ── 顶栏：克制的一行，不做渐变与发光 ───────────────── */}
       <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-sm">

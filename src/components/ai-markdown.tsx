@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, type ReactNode } from 'react'
+import { memo, type CSSProperties, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,15 @@ import { cn } from '@/lib/utils'
  *     绝不能让它往页面里注入标签
  *   - 链接强制 `target="_blank"` + `rel="noreferrer"`，且只放行 http/https
  *   - 字号/间距按面板场景成档，避免每个面板再调一遍
+ *
+ * ★ 档位与「结果呈现密度」的分工（别混）：
+ *   - 本组件的 `size` = **面板级基线**：侧栏小抽屉给 compact、主内容区给 default。
+ *     这是版面关系，只有调用处知道该给哪档。
+ *   - 用户在设置页选的「紧凑 / 标准 / 论文式」= **全局缩放**，通过
+ *     `html[data-result-density]` + CSS 变量施加（见 globals.css 与 lib/result-density.ts）。
+ *
+ *   正文与标题都写成 **相对字号（em）**，就是为了让全局缩放能一路穿透到标题和表格；
+ *   若写死 `text-xs`/`text-[13px]`，密度切换将只改变段落、标题纹丝不动。
  */
 
 interface AiMarkdownProps {
@@ -39,10 +48,15 @@ const HEADING_SHIFT: Record<string, 'h2' | 'h3' | 'h4' | 'h5' | 'h6'> = {
   h6: 'h6',
 }
 
-const SIZE_STYLES: Record<NonNullable<AiMarkdownProps['size']>, { base: string; table: string }> = {
-  compact: { base: 'text-[11px] leading-relaxed', table: 'text-[10px]' },
-  default: { base: 'text-xs leading-relaxed', table: 'text-[11px]' },
-  loose: { base: 'text-sm leading-relaxed', table: 'text-xs' },
+/**
+ * 档位表：只声明**基线字号**与表格相对比例，不写行高 ——
+ * 行高由用户在设置页选的密度决定（globals.css 的 --ai-md-leading）。
+ * 表格用 em 而不是 px：这样它会跟着密度一起缩，宽表也不会因密度换档而溢出。
+ */
+const SIZE_STYLES: Record<NonNullable<AiMarkdownProps['size']>, { baseRem: number; table: string }> = {
+  compact: { baseRem: 0.6875, table: 'text-[0.91em]' }, // 正文 11px / 表格 10px
+  default: { baseRem: 0.75, table: 'text-[0.92em]' }, //  正文 12px / 表格 11px
+  loose: { baseRem: 0.875, table: 'text-[0.86em]' }, //   正文 14px / 表格 12px
 }
 
 /** 只放行 http/https 的绝对链接，其余（javascript:、data: 等）一律不渲染成链接 */
@@ -60,14 +74,19 @@ const LINK_REL = 'noopener noreferrer'
 
 export const AiMarkdown = memo(function AiMarkdown({ content, size = 'default', className }: AiMarkdownProps) {
   const s = SIZE_STYLES[size]
+  // 基线字号走自定义属性交给 globals.css 去乘密度缩放；
+  // 直接写 font-size 会把密度偏好短路掉（这里是唯一的取用点，改动前先看 globals.css）。
+  const densityHook = { '--ai-md-base': `${s.baseRem}rem` } as CSSProperties
   return (
-    <div className={cn('ai-markdown', s.base, className)}>
+    <div className={cn('ai-markdown', className)} style={densityHook}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // 标题整体下压一级，并保持紧凑（面板里不需要 h1 那种体量）
-          h1: ({ children }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold first:mt-0">{children}</h2>,
-          h2: ({ children }) => <h3 className="mb-1.5 mt-3 text-[13px] font-semibold first:mt-0">{children}</h3>,
+          // 标题整体下压一级，并保持紧凑（面板里不需要 h1 那种体量）。
+          // 字号一律用 em：14px / 13px 是「标准档 + 正文 12px」下的原值，
+          // 换成 em 后既保住原观感，又能跟着密度缩放。
+          h1: ({ children }) => <h2 className="mb-1.5 mt-3 text-[1.17em] font-semibold first:mt-0">{children}</h2>,
+          h2: ({ children }) => <h3 className="mb-1.5 mt-3 text-[1.08em] font-semibold first:mt-0">{children}</h3>,
           h3: ({ children }) => <h4 className="mb-1 mt-2.5 font-semibold first:mt-0">{children}</h4>,
           h4: ({ children }) => <h5 className="mb-1 mt-2 font-semibold first:mt-0">{children}</h5>,
           h5: ({ children }) => <h6 className="mb-1 mt-2 font-semibold first:mt-0">{children}</h6>,

@@ -62,7 +62,7 @@ const moduleMap: DocSection = {
       ['选题评估', '规划', '4 维加权打分 · 横向对比 · AI 研究空白分析'],
       ['实验管理', '实验', '基线检查 · 超参数网格 · 消融实验 · AI 实验设计顾问'],
       ['研究规划', '进度', '40 周 Gantt 图 · 写作时间线 · 周计划 · 投稿追踪'],
-      ['论文写作', '写作', '结构检查 · 学术句式库 · AI 文献综述 · 摘要生成器'],
+      ['论文写作', '写作', '写作工作台（[@引用] 自动编号）· IEEE / GB-T 7714 著录 · 结构检查 · 学术句式库 · 阅读→综述草稿 · 摘要生成器'],
       ['科研笔记', '笔记', 'Obsidian 风格 · 阅读思考模板 · 双向链接 · 一键导出 Excel'],
       ['组网仿真实验', '仿真', '种子化可复现 · Dijkstra/负载感知/Q-Learning · 环形/Spine-Leaf/Mesh'],
       ['方法论浏览', '指南', '6 模块完整方法论 · 研究统计仪表盘'],
@@ -132,7 +132,7 @@ const apiRef: DocSection = {
     ] },
     { type: 'table', caption: 'AI 与仿真', columns: ['方法', '路径', '说明'], rows: [
       ['POST', '/api/ai-summary', '论文摘要'],
-      ['POST', '/api/ai-review', '文献综述'],
+      ['POST', '/api/ai-review', '阅读→综述草稿（按课题域 + 阅读范围取料，正文带 [@引用]）'],
       ['POST', '/api/ai-gap-analysis', '研究空白分析'],
       ['POST', '/api/ai-experiment', '实验设计顾问'],
       ['POST', '/api/sim/run', '执行仿真'],

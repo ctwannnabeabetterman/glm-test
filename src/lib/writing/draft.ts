@@ -11,6 +11,12 @@
  * 又最容易在投稿时被审稿人抓到的地方。
  */
 
+import {
+  DEFAULT_CITATION_STYLE,
+  formatReference,
+  type CitationStyle,
+} from './citation-styles'
+
 /** 正文里的引用标记：`[@paperId]`，也容忍 `[@a, @b]` / `[@a; @b]` 这类写法 */
 const CITATION_MARKER_RE = /\[@[^\]]+\]/g
 const INLINE_MARKER_RE = /\[@[^\]]+\]/g
@@ -232,20 +238,15 @@ export function applyCitationNumbers(text: string | null | undefined, refs: Reso
   })
 }
 
-/** 单条参考文献（IEEE 风格） */
+/**
+ * 单条参考文献（IEEE 风格）。
+ *
+ * 真正的实现搬到了 `./citation-styles`（那边同时提供 GB/T 7714），
+ * 这里保留同名导出以免破坏既有调用方与单测；新代码请直接用
+ * `formatReference(ref, style)` 或 `referenceBody(ref, style)`。
+ */
 export function formatReferenceIEEE(ref: ResolvedReference): string {
-  if (!ref.found) {
-    return `[${ref.number}] （未在文献库中找到 ${ref.paperId}，请检查正文引用标记）`
-  }
-  const parts: string[] = []
-  if (ref.authors) parts.push(ref.authors)
-  if (ref.title) parts.push(`"${ref.title}"`)
-  const venueYear = [ref.venue, ref.year ? String(ref.year) : ''].filter(Boolean).join(', ')
-  if (venueYear) parts.push(venueYear)
-  let body = parts.join(', ')
-  if (!body) body = `（文献库条目 ${ref.paperId} 缺少题录信息）`
-  if (ref.doi) body += `. doi: ${ref.doi}`
-  return `[${ref.number}] ${body}.`
+  return formatReference(ref, 'ieee')
 }
 
 // ---------------- 进度 ----------------
@@ -275,10 +276,16 @@ export interface ManuscriptDoc {
   venue?: string
   sections: DraftSection[]
   references: ResolvedReference[]
+  /**
+   * 参考文献著录格式。缺省 IEEE —— 与加入本字段之前的导出结果完全一致，
+   * 所以旧调用方（以及已导出的稿子）不会因为这次改动而变化。
+   */
+  style?: CitationStyle
 }
 
 /** 渲染整稿 markdown：章节标题 + 已编号正文 + 参考文献表 */
 export function renderManuscriptMarkdown(doc: ManuscriptDoc): string {
+  const style = doc.style ?? DEFAULT_CITATION_STYLE
   const lines: string[] = []
   lines.push(`# ${(doc.title || '').trim() || '未命名稿件'}`)
   if (doc.venue?.trim()) lines.push('', `> 目标：${doc.venue.trim()}`)
@@ -291,7 +298,7 @@ export function renderManuscriptMarkdown(doc: ManuscriptDoc): string {
 
   if (doc.references.length) {
     lines.push('', '## 参考文献', '')
-    for (const r of doc.references) lines.push(formatReferenceIEEE(r))
+    for (const r of doc.references) lines.push(formatReference(r, style))
   }
 
   return `${lines.join('\n').trimEnd()}\n`

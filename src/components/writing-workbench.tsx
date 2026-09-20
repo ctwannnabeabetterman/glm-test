@@ -39,10 +39,16 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useAppStore } from '@/lib/store'
+import {
+  CITATION_STYLE_PRESETS,
+  findCitationStylePreset,
+  referenceBody,
+  type CitationStyle,
+} from '@/lib/writing/citation-styles'
 import {
   collectCitationIds,
   countWords,
-  formatReferenceIEEE,
   newSection,
   sectionProgress,
   totalWords,
@@ -75,6 +81,14 @@ export function WritingWorkbench() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [savedAt, setSavedAt] = useState('')
   const [query, setQuery] = useState('')
+
+  // 引文样式是**全局偏好**（不是每篇稿件一个字段）：换样式只是换渲染，
+  // 不涉及数据，因此不需要给 Manuscript 加列、不需要迁移库 —— 升级零风险。
+  const citationStyle = useAppStore((s) => s.citationStyle)
+  const setCitationStyle = useAppStore((s) => s.setCitationStyle)
+  const draftInbox = useAppStore((s) => s.draftInbox)
+  const takeDraftInbox = useAppStore((s) => s.takeDraftInbox)
+  const stylePreset = findCitationStylePreset(citationStyle)
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -278,6 +292,38 @@ export function WritingWorkbench() {
     [activeSection, patchSection],
   )
 
+  /**
+   * 接收「AI 综述 → 写作」的一次性投递（见 store 的 DraftInbox）。
+   *
+   * 为什么要这条通道：综述面板产出的正文里带的是 `[@paperId]` 标记，
+   * **只有本组件能把它们解析成编号与参考文献表**。没有这条通道，
+   * 用户得自己复制 → 切页 → 选章节 → 粘到光标处，还要保证粘对地方。
+   *
+   * 「没有稿件时不清空」是刻意的：投递早于新建稿件是正常顺序，
+   * 让它在内存里等一会儿，用户点「新建稿件」后 effect 会立刻补插。
+   */
+  useEffect(() => {
+    if (!draftInbox || !active) return
+    // effect 体内同步调 store 会触发级联渲染（react-hooks/set-state-in-effect），
+    // 放进定时回调里就没这个问题 —— 与上文重算参考文献用的是同一招。
+    const t = setTimeout(() => {
+      const job = takeDraftInbox()
+      if (!job) return
+      const section = { ...newSection(job.title, 0), content: job.content }
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === active.id
+            ? { ...it, sections: [...it.sections, section], words: totalWords([...it.sections, section]) }
+            : it,
+        ),
+      )
+      scheduleSave(active.id, { sections: [...active.sections, section] })
+      setActiveSectionId(section.id)
+      toast.success('AI 综述草稿已插入新章节 —— 引用会自动编号')
+    }, 0)
+    return () => clearTimeout(t)
+  }, [draftInbox, active, takeDraftInbox, scheduleSave])
+
   const createManuscript = useCallback(async () => {
     try {
       const res = await fetch('/api/writing/manuscripts', {
@@ -319,13 +365,15 @@ export function WritingWorkbench() {
     (format: 'md' | 'txt') => {
       if (!active) return
       const a = document.createElement('a')
-      a.href = `/api/writing/manuscripts/${active.id}/export?format=${format}`
+      // 带上 style：导出的参考文献必须与右侧预览**用的是同一种格式**，
+      // 否则用户看到的是 GB/T、拿到的是 IEEE，还很难发现。
+      a.href = `/api/writing/manuscripts/${active.id}/export?format=${format}&style=${citationStyle}`
       a.download = ''
       document.body.appendChild(a)
       a.click()
       a.remove()
     },
-    [active],
+    [active, citationStyle],
   )
 
   const filteredPapers = useMemo(() => {
@@ -356,6 +404,11 @@ export function WritingWorkbench() {
           <p className="text-sm text-muted-foreground">
             还没有稿件。新建一篇会自动带上 Abstract / Introduction / Method 等默认章节。
           </p>
+          {draftInbox && (
+            <p className="text-xs text-primary">
+              已收到「{draftInbox.title}」，新建稿件后会立即插入为新章节。
+            </p>
+          )}
           <Button onClick={createManuscript}>
             <FilePlus2 className="h-4 w-4 mr-2" />
             新建稿件
@@ -415,11 +468,24 @@ export function WritingWorkbench() {
 
             <div className="ml-auto flex items-center gap-2">
               <SaveIndicator state={saveState} savedAt={savedAt} onRetry={() => void flush()} />
-              <Button size="sm" variant="outline" onClick={() => downloadExport('md')}>
+              <Badge variant="outline" className="text-[10px]" title={`导出会按 ${stylePreset.name} 著录参考文献`}>
+                {stylePreset.name}
+              </Badge>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => downloadExport('md')}
+                title={`导出 Markdown（参考文献按 ${stylePreset.name} 著录）`}
+              >
                 <Download className="h-3.5 w-3.5 mr-1.5" />
                 导出 md
               </Button>
-              <Button size="sm" variant="outline" onClick={() => downloadExport('txt')}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => downloadExport('txt')}
+                title={`导出纯文本（参考文献按 ${stylePreset.name} 著录）`}
+              >
                 <Download className="h-3.5 w-3.5 mr-1.5" />
                 导出 txt
               </Button>
@@ -675,6 +741,28 @@ export function WritingWorkbench() {
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0 space-y-2">
+              {/* 著录格式切换：换的只是「一条题录渲染成什么字符串」，
+                  正文编号与稿件数据都不动，所以是即时预览、不需要重算。 */}
+              <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2">
+                <Label className="text-[10px] text-muted-foreground">参考文献著录格式</Label>
+                <select
+                  aria-label="参考文献著录格式"
+                  value={citationStyle}
+                  onChange={(e) => setCitationStyle(e.target.value as CitationStyle)}
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs transition-colors"
+                >
+                  {CITATION_STYLE_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-muted-foreground leading-relaxed">{stylePreset.summary}</p>
+                <p className="text-[10px] leading-relaxed break-words rounded bg-background/70 px-1.5 py-1 text-muted-foreground">
+                  {stylePreset.sample}
+                </p>
+              </div>
+
               {missing.length > 0 && (
                 <div className="flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[11px]">
                   <TriangleAlert className="h-3.5 w-3.5 shrink-0 mt-0.5 text-destructive" />
@@ -693,7 +781,7 @@ export function WritingWorkbench() {
                   {refs.map((r) => (
                     <li key={r.paperId} className="text-[11px] leading-relaxed text-muted-foreground">
                       <span className={cn('tabular-nums', !r.found && 'text-destructive')}>[{r.number}]</span>{' '}
-                      {formatReferenceIEEE(r).replace(/^\[\d+\]\s*/, '')}
+                      {referenceBody(r, citationStyle)}
                     </li>
                   ))}
                 </ol>
@@ -701,6 +789,7 @@ export function WritingWorkbench() {
               <Separator />
               <p className="text-[10px] text-muted-foreground">
                 编号按正文首次出现顺序自动生成，删段或调序后会重排；导出与预览使用同一份来源。
+                库里没有卷、期、页码，著录时不会编造，投稿前请自行补齐。
               </p>
             </CardContent>
           </Card>

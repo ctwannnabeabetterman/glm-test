@@ -210,6 +210,73 @@
 }
 
 /* ============================================================
+   AI 结果呈现密度 —— 用户在「设置 → 界面与阅读」里选
+   ------------------------------------------------------------
+   设计要点：密度是**全局偏好**，而 AiMarkdown 的 size 档位是**面板级**基线
+   （侧栏小抽屉 / 主内容区），两者正交 —— 面板决定相对关系，密度决定整体缩放。
+   所以不走组件 props，走「一个 html 属性 + 两个 CSS 变量」：
+
+     <html data-result-density="compact|standard|paper">
+         └─ 定义 --ai-md-scale（字号缩放）、--ai-md-leading（行高）
+              └─ .ai-markdown 用 calc(base × scale) 取用
+
+   这样切换密度只改一个属性，页面上已渲染的 AI 结果立刻跟着变，
+   不需要任何面板重渲染（长文不会闪一下重新排版）。
+
+   ⚠️ 这里放 @layer components 而不是不分层：不分层会盖掉所有工具类，
+      将来某个调用处想用 className 单独覆盖字号就再也压不住了。
+   ⚠️ 数值只此一处，别在 TS 里再写一份（tests/lib/result-density.test.ts
+      会核对每个预设 id 在这里都有对应规则，漏写会红）。
+   ============================================================ */
+
+:root {
+  /* 缺省即「标准」档：即使 <html> 上还没有属性（SSR 首次渲染 / 属性被清掉），
+     结果区也按标准档渲染，不会掉到一个没定义的尺寸上 */
+  --ai-md-scale: 1;
+  --ai-md-leading: 1.625;
+}
+
+/* 「标准」档再显式写一遍，与上面的缺省值等价。
+   不是为了覆盖什么，而是为了让三个档位在文件里形状一致 ——
+   tests/lib/result-density.test.ts 会逐档核对选择器是否存在，
+   少写一档就会红，免得将来加档位时漏掉（漏掉的症状是「选了没反应」且不报错）。 */
+html[data-result-density='standard'] {
+  --ai-md-scale: 1;
+  --ai-md-leading: 1.625;
+}
+
+html[data-result-density='compact'] {
+  --ai-md-scale: 0.92;
+  --ai-md-leading: 1.5;
+}
+
+html[data-result-density='paper'] {
+  --ai-md-scale: 1.08;
+  --ai-md-leading: 1.9;
+}
+
+@layer components {
+  /* AiMarkdown 把档位基线写进行内 --ai-md-base（0.6875 / 0.75 / 0.875rem），
+     这里只负责乘上用户选的缩放与行高。 */
+  .ai-markdown {
+    font-size: calc(var(--ai-md-base, 0.75rem) * var(--ai-md-scale));
+    line-height: var(--ai-md-leading);
+  }
+
+  /* 论文式：正文换衬线体；行内代码/代码块各自声明了 mono，不受影响 */
+  html[data-result-density='paper'] .ai-markdown {
+    font-family: var(--font-body);
+  }
+
+  /* 论文式给表格多一点纵向留白（密集阅读时表格最容易被压得喘不过气） */
+  html[data-result-density='paper'] .ai-markdown th,
+  html[data-result-density='paper'] .ai-markdown td {
+    padding-top: 0.4em;
+    padding-bottom: 0.4em;
+  }
+}
+
+/* ============================================================
    排版原子类 —— 供各页面复用，保证 12 个页面观感一致
    ============================================================ */
 
