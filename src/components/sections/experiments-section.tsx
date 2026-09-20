@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SectionHeader } from './papers-section'
+import { SectionHeader } from '@/components/section-header'
 import { BASELINE_LEVELS, METRICS } from '@/lib/methodology-data'
 import { AIExperimentAdvisor } from '@/components/ai-experiment-advisor'
 import {
@@ -208,15 +208,15 @@ export function ExperimentsSection() {
       />
 
       {/* Baseline theory card */}
-      <Card className="bg-gradient-to-br from-purple-500/8 to-transparent border-purple-500/20">
+      <Card className="border-l-2 border-l-primary/60 bg-card">
         <CardContent className="p-4">
           <div className="text-xs text-muted-foreground mb-2">方法论 §3.1.1 基线对比三层原则</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             {BASELINE_LEVELS.map((b) => (
               <div key={b.level} className="rounded-md border border-border/60 bg-card p-2.5">
                 <div className="text-xs font-semibold">{b.name}</div>
-                <div className="text-[10px] text-muted-foreground mt-0.5">{b.desc}</div>
-                {b.required && <Badge variant="secondary" className="text-[9px] mt-1 bg-red-500/15 text-red-600">必须对比</Badge>}
+                <div className="text-[11px] text-muted-foreground mt-0.5">{b.desc}</div>
+                {b.required && <Badge variant="secondary" className="text-[11px] mt-1 bg-red-500/15 text-red-600">必须对比</Badge>}
               </div>
             ))}
           </div>
@@ -262,7 +262,7 @@ export function ExperimentsSection() {
               const ablations = normalizeAblations(JSON.parse(exp.ablations))
               const Icon = st.icon
               return (
-                <Card key={exp.id} className={cn('cursor-pointer transition-all hover:shadow-md', selected?.id === exp.id && 'ring-1 ring-primary')}>
+                <Card key={exp.id} className={cn('cursor-pointer transition-colors hover:border-primary/40', selected?.id === exp.id && 'ring-1 ring-primary')}>
                   <CardContent className="p-3" onClick={() => setSelected(exp)}>
                     <div className="flex items-start gap-3">
                       <div className={cn('flex h-9 w-9 items-center justify-center rounded-lg shrink-0', st.bg, st.color)}>
@@ -271,16 +271,16 @@ export function ExperimentsSection() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="text-sm font-medium">{exp.name}</span>
-                          <Badge variant="outline" className={cn('text-[10px]', st.bg, st.color, 'border-transparent')}>{st.label}</Badge>
+                          <Badge variant="outline" className={cn('text-[11px]', st.bg, st.color, 'border-transparent')}>{st.label}</Badge>
                         </div>
                         <div className="text-xs text-muted-foreground truncate">{exp.topic || '未指定课题'}</div>
-                        <div className="flex flex-wrap gap-2 mt-1.5 text-[10px] text-muted-foreground">
-                          {config.model && <Badge variant="outline" className="text-[10px] py-0">模型: {config.model}</Badge>}
-                          {config.lr && <Badge variant="outline" className="text-[10px] py-0">LR: {config.lr}</Badge>}
-                          {config.batch_size && <Badge variant="outline" className="text-[10px] py-0">BS: {config.batch_size}</Badge>}
-                          <Badge variant="outline" className="text-[10px] py-0">Seed: {exp.seed}</Badge>
-                          <Badge variant="outline" className="text-[10px] py-0">基线: {baselines.length}</Badge>
-                          <Badge variant="outline" className="text-[10px] py-0">消融: {ablations.length}</Badge>
+                        <div className="flex flex-wrap gap-2 mt-1.5 text-[11px] text-muted-foreground">
+                          {config.model && <Badge variant="outline" className="text-[11px] py-0">模型: {config.model}</Badge>}
+                          {config.lr && <Badge variant="outline" className="text-[11px] py-0">LR: {config.lr}</Badge>}
+                          {config.batch_size && <Badge variant="outline" className="text-[11px] py-0">BS: {config.batch_size}</Badge>}
+                          <Badge variant="outline" className="text-[11px] py-0">Seed: {exp.seed}</Badge>
+                          <Badge variant="outline" className="text-[11px] py-0">基线: {baselines.length}</Badge>
+                          <Badge variant="outline" className="text-[11px] py-0">消融: {ablations.length}</Badge>
                         </div>
                       </div>
                       <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -542,9 +542,9 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium">{lv.name}</span>
-                    {isRequired && <Badge variant="secondary" className="text-[9px] bg-red-500/15 text-red-600">必须</Badge>}
+                    {isRequired && <Badge variant="secondary" className="text-[11px] bg-red-500/15 text-red-600">必须</Badge>}
                   </div>
-                  <Badge variant="outline" className="text-[10px]">{checked.length}/{allItems.length}</Badge>
+                  <Badge variant="outline" className="text-[11px]">{checked.length}/{allItems.length}</Badge>
                 </div>
                 <div className="space-y-1">
                   {allItems.map((name: string) => {
@@ -561,7 +561,7 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
                         <span className={cn('flex-1', !isChecked && 'text-muted-foreground line-through')}>{name}</span>
                         {isChecked && b && (
                           <Select value={b.status || 'pending'} onValueChange={(v) => updateBaselineStatus(lv.level, name, v)}>
-                            <SelectTrigger className="h-6 w-[88px] text-[10px]">
+                            <SelectTrigger className="h-6 w-[88px] text-[11px]">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -575,7 +575,7 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
                     )
                   })}
                 </div>
-                <Button size="sm" variant="ghost" className="h-6 mt-1 text-[10px]" onClick={() => {
+                <Button size="sm" variant="ghost" className="h-6 mt-1 text-[11px]" onClick={() => {
                   const name = prompt(`添加到「${lv.name}」：`)
                   if (name) updateBaseline(lv.level, name, true)
                 }}>
@@ -627,7 +627,7 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
                       }
                     }}
                   />
-                  <span className="text-[10px] text-muted-foreground">%</span>
+                  <span className="text-[11px] text-muted-foreground">%</span>
                   <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => removeAblation(a.name)}>
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -718,7 +718,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-md border border-border/60 p-2 text-center">
       <div className="text-sm font-bold">{value}</div>
-      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
     </div>
   )
 }
@@ -850,11 +850,11 @@ function MetricsReference() {
               <div className="flex items-start justify-between mb-1">
                 <div>
                   <div className="text-sm font-semibold">{m.name}</div>
-                  <div className="text-[10px] text-muted-foreground">{m.fullName}</div>
+                  <div className="text-[11px] text-muted-foreground">{m.fullName}</div>
                 </div>
-                <Badge variant="outline" className="text-[10px]">{m.scene}</Badge>
+                <Badge variant="outline" className="text-[11px]">{m.scene}</Badge>
               </div>
-              <div className="rounded bg-muted/50 p-2 font-mono text-[10px] mt-2">{m.formula}</div>
+              <div className="rounded bg-muted/50 p-2 font-mono text-[11px] mt-2">{m.formula}</div>
             </CardContent>
           </Card>
         ))}
@@ -875,7 +875,7 @@ function MetricsReference() {
             '结果是否可复现？固定种子后能否得到相同结果？',
           ].map((q, i) => (
             <div key={i} className="flex items-start gap-2">
-              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-[10px] font-bold mt-0.5">
+              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-[11px] font-bold mt-0.5">
                 {i + 1}
               </div>
               <span className="text-muted-foreground">{q}</span>

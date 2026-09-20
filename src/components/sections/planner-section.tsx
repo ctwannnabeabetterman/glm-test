@@ -24,7 +24,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { SectionHeader } from './papers-section'
+import { SectionHeader } from '@/components/section-header'
 import { WRITING_MILESTONES, WEEKLY_PLAN_TEMPLATE, VENUES } from '@/lib/methodology-data'
 import {
   Calendar,
@@ -239,7 +239,7 @@ function ProjectSettingsDialog({
             <div className="grid grid-cols-7 gap-1.5 mt-1">
               {DAY_NAMES.map((name, i) => (
                 <div key={name}>
-                  <div className="text-[10px] text-muted-foreground text-center mb-1">{name}</div>
+                  <div className="text-[11px] text-muted-foreground text-center mb-1">{name}</div>
                   <Input
                     type="number"
                     min={0}
@@ -375,12 +375,12 @@ function GanttChart() {
           <div className="flex items-center gap-2 flex-wrap">
             <span>📅 <strong className="text-blue-700 dark:text-blue-400">研究 Gantt 图</strong> · 40 周研究计划</span>
             {hasStart ? (
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="text-[11px]">
                 起点 {projectStart}
                 {currentWeek !== null && currentWeek >= 0 && ` · 当前第 ${currentWeek + 1} 周`}
               </Badge>
             ) : (
-              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">
+              <Badge variant="outline" className="text-[11px] border-amber-500/40 text-amber-600">
                 未设起始日 —— 无法换算真实日期
               </Badge>
             )}
@@ -484,7 +484,7 @@ function GanttChart() {
           {/* 时间轴表头 */}
           <div className="flex items-end mb-2">
             <div className="w-44 shrink-0 text-xs text-muted-foreground">任务</div>
-            <div className="flex-1 grid grid-cols-10 gap-0 text-[9px] text-muted-foreground">
+            <div className="flex-1 grid grid-cols-10 gap-0 text-[11px] text-muted-foreground">
               {Array.from({ length: 10 }, (_, i) => {
                 const range = hasStart ? weekRangeLabel(projectStart, i * 4, i * 4 + 3) : null
                 return (
@@ -519,11 +519,11 @@ function GanttChart() {
                         <Trash2 className="h-3 w-3" />
                       </button>
                     </div>
-                    <div className="text-[9px] text-muted-foreground truncate">
+                    <div className="text-[11px] text-muted-foreground truncate">
                       第 {start + 1}-{end} 周{range ? ` · ${range}` : ''}
                     </div>
                     {m.refLabel && (
-                      <div className={cn('text-[9px] truncate flex items-center gap-0.5', canSync ? 'text-amber-600' : 'text-muted-foreground')}>
+                      <div className={cn('text-[11px] truncate flex items-center gap-0.5', canSync ? 'text-amber-600' : 'text-muted-foreground')}>
                         <Link2 className="h-2.5 w-2.5 shrink-0" />
                         {m.refLabel}
                         {canSync && ` · 可推进到 ${m.derivedProgress}%`}
@@ -540,7 +540,7 @@ function GanttChart() {
                       <div className="absolute inset-y-0 w-px bg-primary/60 z-20" style={{ left: `${cursorPct}%` }} title="当前周" />
                     )}
                     <div
-                      className="absolute top-1 h-5 rounded flex items-center px-1.5 text-[10px] text-white font-medium overflow-hidden shadow-sm"
+                      className="absolute top-1 h-5 rounded flex items-center px-1.5 text-[11px] text-white font-medium overflow-hidden shadow-sm"
                       style={{ left: `${left}%`, width: `${Math.max(width, 1.5)}%`, background: m.color }}
                       title={`${m.title}（第 ${start + 1}-${end} 周，进度 ${m.progress}%）`}
                     >
@@ -571,13 +571,13 @@ function GanttChart() {
               { c: '#ec4899', n: '投稿' },
               { c: '#6b7280', n: '答辩' },
             ].map((l) => (
-              <div key={l.n} className="flex items-center gap-1 text-[10px]">
+              <div key={l.n} className="flex items-center gap-1 text-[11px]">
                 <span className="h-2.5 w-2.5 rounded" style={{ background: l.c }} />
                 <span className="text-muted-foreground">{l.n}</span>
               </div>
             ))}
             {cursorPct !== null && (
-              <div className="flex items-center gap-1 text-[10px] ml-auto">
+              <div className="flex items-center gap-1 text-[11px] ml-auto">
                 <span className="h-3 w-px bg-primary" />
                 <span className="text-muted-foreground">当前周</span>
               </div>
@@ -697,17 +697,17 @@ function WritingTimeline() {
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <div className="text-sm font-medium">{m.name}</div>
                         <div className="flex items-center gap-1.5">
-                          <Badge variant="outline" className={cn('text-[10px]', daysLeft < 0 && 'bg-red-500/10 text-red-600')}>
+                          <Badge variant="outline" className={cn('text-[11px]', daysLeft < 0 && 'bg-red-500/10 text-red-600')}>
                             {daysLeft > 0 ? `${daysLeft} 天后` : daysLeft === 0 ? '今天' : `已过 ${-daysLeft} 天`}
                           </Badge>
                           {db ? (
                             <ProgressStepper progress={progress} onCommit={(next) => handleProgress(db.id, next)} />
                           ) : (
-                            <Badge variant="outline" className="text-[10px] text-muted-foreground">无记录</Badge>
+                            <Badge variant="outline" className="text-[11px] text-muted-foreground">无记录</Badge>
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 text-[10px] text-muted-foreground mb-2">
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-2">
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
                           {m.deadline}
@@ -887,7 +887,7 @@ function WeeklyPlanner() {
             （方法论 §4.4.3）—— 按优先级自动分配每日任务
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-[10px]">本周起始 {weekStart}</Badge>
+            <Badge variant="outline" className="text-[11px]">本周起始 {weekStart}</Badge>
             <Button size="sm" variant="ghost" onClick={loadTemplate} disabled={adding}>
               载入模板
             </Button>
@@ -899,19 +899,19 @@ function WeeklyPlanner() {
         <Card>
           <CardContent className="p-3 text-center">
             <div className="text-2xl font-bold text-emerald-600">{doneCount}</div>
-            <div className="text-[10px] text-muted-foreground">已完成任务</div>
+            <div className="text-[11px] text-muted-foreground">已完成任务</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-3 text-center">
             <div className={cn('text-2xl font-bold', overflow ? 'text-red-600' : 'text-amber-600')}>{totalHours}h</div>
-            <div className="text-[10px] text-muted-foreground">剩余工时</div>
+            <div className="text-[11px] text-muted-foreground">剩余工时</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-3 text-center">
             <div className="text-2xl font-bold text-blue-600">{weeklyHours}h</div>
-            <div className="text-[10px] text-muted-foreground">本周可用</div>
+            <div className="text-[11px] text-muted-foreground">本周可用</div>
           </CardContent>
         </Card>
       </div>
@@ -990,17 +990,17 @@ function WeeklyPlanner() {
               <div key={day.name} className="rounded-md border border-border/60 p-2 min-h-[100px]">
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="text-xs font-semibold">{day.name}</div>
-                  <Badge variant="outline" className="text-[9px]">{day.capacity}h</Badge>
+                  <Badge variant="outline" className="text-[11px]">{day.capacity}h</Badge>
                 </div>
                 <div className="space-y-1">
                   {day.items.map((item, i) => (
-                    <div key={i} className="rounded bg-primary/10 p-1 text-[10px]">
+                    <div key={i} className="rounded bg-primary/10 p-1 text-[11px]">
                       <div className="font-medium text-primary truncate">{item.name}</div>
                       <div className="text-muted-foreground">{item.hours}h · P{item.priority}</div>
                     </div>
                   ))}
                   {day.items.length === 0 && (
-                    <div className="text-[10px] text-muted-foreground text-center py-2">休息</div>
+                    <div className="text-[11px] text-muted-foreground text-center py-2">休息</div>
                   )}
                 </div>
               </div>
@@ -1132,17 +1132,17 @@ function SubmissionScheduler() {
           <div className="flex items-center gap-2 text-xs">
             <div className="flex-1 rounded-md border border-border p-2 text-center">
               <div className="font-semibold">① 小论文练手</div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">IEEE CL / ACCESS / 国内核心</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">IEEE CL / ACCESS / 国内核心</div>
             </div>
             <GitCommitHorizontal className="h-4 w-4 text-muted-foreground rotate-90" />
             <div className="flex-1 rounded-md border border-border p-2 text-center">
               <div className="font-semibold">② 旗舰会议</div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">IEEE ICC / GLOBECOM</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">IEEE ICC / GLOBECOM</div>
             </div>
             <GitCommitHorizontal className="h-4 w-4 text-muted-foreground rotate-90" />
             <div className="flex-1 rounded-md border border-border p-2 text-center">
               <div className="font-semibold">③ 顶级期刊</div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">IEEE TCOM / TWC / TVT</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">IEEE TCOM / TWC / TVT</div>
             </div>
           </div>
         </CardContent>
@@ -1163,11 +1163,11 @@ function SubmissionScheduler() {
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium">{m.title}</div>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <Badge variant="secondary" className={cn('text-[10px]', status.color)}>{status.label}</Badge>
-                        <Badge variant="outline" className="text-[10px]">{m.targetVenue}</Badge>
-                        {venueInfo && <span className="text-[10px] text-muted-foreground">{venueInfo.reviewCycle}</span>}
+                        <Badge variant="secondary" className={cn('text-[11px]', status.color)}>{status.label}</Badge>
+                        <Badge variant="outline" className="text-[11px]">{m.targetVenue}</Badge>
+                        {venueInfo && <span className="text-[11px] text-muted-foreground">{venueInfo.reviewCycle}</span>}
                         {m.actualEndDate && (
-                          <span className="text-[10px] text-emerald-600">录用日 {m.actualEndDate}</span>
+                          <span className="text-[11px] text-emerald-600">录用日 {m.actualEndDate}</span>
                         )}
                       </div>
                     </div>
@@ -1175,11 +1175,11 @@ function SubmissionScheduler() {
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
-                  <div className="flex items-center gap-2 mb-2 text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-2 mb-2 text-[11px] text-muted-foreground">
                     {m.startDate && <span>开始: {m.startDate}</span>}
                     {m.endDate && <span>· 截稿: {m.endDate}</span>}
                     {daysLeft !== null && daysLeft > 0 && (
-                      <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-500/30">
+                      <Badge variant="outline" className="text-[11px] text-amber-600 border-amber-500/30">
                         <Clock className="h-2.5 w-2.5 mr-0.5" />{daysLeft} 天
                       </Badge>
                     )}
@@ -1191,7 +1191,7 @@ function SubmissionScheduler() {
                         key={p}
                         onClick={() => handleStatus(m, Number(p))}
                         className={cn(
-                          'flex-1 text-[10px] py-1 rounded border transition-colors',
+                          'flex-1 text-[11px] py-1 rounded border transition-colors',
                           m.progress === Number(p)
                             ? 'bg-primary text-primary-foreground border-primary'
                             : 'border-border hover:border-primary/40',
@@ -1284,19 +1284,19 @@ function DeviationReport() {
           <Card>
             <CardContent className="p-3 text-center">
               <div className="text-2xl font-bold">{summary.total}</div>
-              <div className="text-[10px] text-muted-foreground">里程碑总数</div>
+              <div className="text-[11px] text-muted-foreground">里程碑总数</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-3 text-center">
               <div className="text-2xl font-bold text-emerald-600">{summary.done}</div>
-              <div className="text-[10px] text-muted-foreground">已完成</div>
+              <div className="text-[11px] text-muted-foreground">已完成</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-3 text-center">
               <div className="text-2xl font-bold text-red-600">{summary.behind}</div>
-              <div className="text-[10px] text-muted-foreground">落后</div>
+              <div className="text-[11px] text-muted-foreground">落后</div>
             </CardContent>
           </Card>
           <Card>
@@ -1304,7 +1304,7 @@ function DeviationReport() {
               <div className="text-2xl font-bold text-amber-600">
                 {summary.avgDeviationDays === null ? '—' : `${summary.avgDeviationDays}`}
               </div>
-              <div className="text-[10px] text-muted-foreground">平均偏差（天）</div>
+              <div className="text-[11px] text-muted-foreground">平均偏差（天）</div>
             </CardContent>
           </Card>
         </div>
@@ -1331,7 +1331,7 @@ function DeviationReport() {
       )}
 
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[10px] text-muted-foreground">筛选:</span>
+        <span className="text-[11px] text-muted-foreground">筛选:</span>
         {DEVIATION_FILTERS.map((f) => {
           const count = f.value === 'all' ? rows.length : rows.filter((r) => r.state === f.value).length
           return (
@@ -1339,7 +1339,7 @@ function DeviationReport() {
               key={f.value}
               onClick={() => setFilter(f.value)}
               className={cn(
-                'rounded-full border px-2.5 py-0.5 text-[10px] transition-colors',
+                'rounded-full border px-2.5 py-0.5 text-[11px] transition-colors',
                 filter === f.value ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40',
               )}
             >
@@ -1366,8 +1366,8 @@ function DeviationReport() {
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{r.title}</div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap text-[10px] text-muted-foreground">
-                      <Badge variant="outline" className="text-[10px]">{r.type}</Badge>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-muted-foreground">
+                      <Badge variant="outline" className="text-[11px]">{r.type}</Badge>
                       <span>计划完成 {r.plannedEnd ?? '—'}</span>
                       <span>· 实际完成 {r.actualEnd ?? '—'}</span>
                       {r.deviationDays !== null && (
@@ -1377,7 +1377,7 @@ function DeviationReport() {
                       )}
                     </div>
                   </div>
-                  <Badge variant="secondary" className={cn('text-[10px] shrink-0', stateColor[r.state])}>
+                  <Badge variant="secondary" className={cn('text-[11px] shrink-0', stateColor[r.state])}>
                     {DEVIATION_STATE_LABELS[r.state]}
                   </Badge>
                 </div>

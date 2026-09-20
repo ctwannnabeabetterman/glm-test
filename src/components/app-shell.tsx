@@ -14,17 +14,14 @@ import {
   GraduationCap,
   Moon,
   Sun,
-  Wifi,
   ChevronLeft,
-  Sparkles,
-  Database,
   Network,
   Settings,
   HelpCircle,
+  Command,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { useState, useEffect, useRef } from 'react'
 import { Toaster as SonnerToaster } from '@/components/ui/sonner'
 import { CommandPalette } from '@/components/command-palette'
@@ -33,19 +30,26 @@ import { NotificationBell } from '@/components/notification-bell'
 import { KeyboardShortcuts } from '@/components/keyboard-shortcuts'
 import { OnboardingTutorial } from '@/components/onboarding-tutorial'
 
-const NAV_ITEMS: { id: Section; label: string; sublabel: string; icon: React.ComponentType<{ className?: string }>; group: string }[] = [
-  { id: 'overview', label: '总览仪表盘', sublabel: 'Overview', icon: LayoutDashboard, group: '概览' },
-  { id: 'papers', label: '论文库', sublabel: 'Paper Library · Zotero', icon: BookOpen, group: '文献与检索' },
-  { id: 'search', label: '文献检索工具', sublabel: 'Keyword Matrix · arXiv', icon: Search, group: '文献与检索' },
-  { id: 'topics', label: '选题评估', sublabel: 'Topic Scorer', icon: Target, group: '规划' },
-  { id: 'experiments', label: '实验管理', sublabel: 'Experiments & Baselines', icon: FlaskConical, group: '规划' },
-  { id: 'planner', label: '研究规划', sublabel: 'Gantt · Timeline', icon: Calendar, group: '规划' },
-  { id: 'writing', label: '论文写作', sublabel: 'Structure · Phrases', icon: PenLine, group: '写作与投稿' },
-  { id: 'notes', label: '科研笔记', sublabel: 'Obsidian-style Notes', icon: StickyNote, group: '写作与投稿' },
-  { id: 'methodology', label: '方法论浏览', sublabel: '6 Modules Guide', icon: GraduationCap, group: '写作与投稿' },
-  { id: 'simlab', label: '组网仿真实验', sublabel: 'Seeded · Reproducible', icon: Network, group: '仿真实验' },
-  { id: 'settings', label: '系统设置', sublabel: 'LLM API Key', icon: Settings, group: '系统' },
-  { id: 'docs', label: '使用说明', sublabel: 'User Guide · 文档', icon: HelpCircle, group: '系统' },
+/* 导航定义：中文为主标签，英文降级为 title 提示（学术工具不需要双行中英对照） */
+const NAV_ITEMS: {
+  id: Section
+  label: string
+  hint: string
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+  group: string
+}[] = [
+  { id: 'overview', label: '总览', hint: 'Overview', icon: LayoutDashboard, group: '概览' },
+  { id: 'papers', label: '论文库', hint: 'Paper Library · Zotero', icon: BookOpen, group: '文献' },
+  { id: 'search', label: '文献检索', hint: 'Keyword Matrix · arXiv', icon: Search, group: '文献' },
+  { id: 'topics', label: '选题评估', hint: 'Topic Scorer', icon: Target, group: '研究' },
+  { id: 'experiments', label: '实验管理', hint: 'Experiments & Baselines', icon: FlaskConical, group: '研究' },
+  { id: 'planner', label: '研究规划', hint: 'Gantt · Timeline', icon: Calendar, group: '研究' },
+  { id: 'simlab', label: '组网仿真', hint: 'Seeded · Reproducible', icon: Network, group: '研究' },
+  { id: 'writing', label: '论文写作', hint: 'Structure · Phrases', icon: PenLine, group: '写作' },
+  { id: 'notes', label: '科研笔记', hint: 'Obsidian-style Notes', icon: StickyNote, group: '写作' },
+  { id: 'methodology', label: '方法论', hint: '6 Modules Guide', icon: GraduationCap, group: '写作' },
+  { id: 'settings', label: '设置', hint: 'LLM API Key', icon: Settings, group: '系统' },
+  { id: 'docs', label: '使用说明', hint: 'User Guide', icon: HelpCircle, group: '系统' },
 ]
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -53,7 +57,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const seededRef = useRef(false)
   const [seededToast, setSeededToast] = useState<string | null>(null)
 
-  // Auto seed on first visit (using ref to avoid setState in effect)
   useEffect(() => {
     if (seededRef.current) return
     seededRef.current = true
@@ -64,7 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .then((data) => {
           if (data?.success) {
             localStorage.setItem('ai-research-seeded', '1')
-            setSeededToast('已自动播种示例数据：论文 / 课题 / 实验 / 里程碑')
+            setSeededToast('已载入示例数据：论文 / 课题 / 实验 / 里程碑')
             setTimeout(() => setSeededToast(null), 4000)
           }
         })
@@ -72,50 +75,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // Group nav items
   const grouped = NAV_ITEMS.reduce<Record<string, typeof NAV_ITEMS>>((acc, item) => {
     if (!acc[item.group]) acc[item.group] = []
     acc[item.group].push(item)
     return acc
   }, {})
 
+  const currentLabel = NAV_ITEMS.find((n) => n.id === activeSection)?.label ?? '总览'
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <ThemeManager />
 
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-        <div className="flex h-14 items-center gap-3 px-4 lg:px-6">
-          <div className="flex items-center gap-2">
-            <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-sm">
-              <Wifi className="h-5 w-5" />
-              <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 layer-pulse ring-2 ring-background" />
-            </div>
-            <div className="hidden sm:block">
-              <div className="text-sm font-semibold leading-tight">AI Network Lab</div>
-              <div className="text-[10px] text-muted-foreground leading-tight">
-                智能网络科研工作台 · v{process.env.NEXT_PUBLIC_APP_VERSION}
-              </div>
-            </div>
+      {/* ── 顶栏：克制的一行，不做渐变与发光 ───────────────── */}
+      <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-sm">
+        <div className="flex h-12 items-center gap-4 px-5 lg:px-7">
+          <div className="flex items-center gap-2.5">
+            <Network className="h-[18px] w-[18px] text-primary" strokeWidth={1.75} />
+            <span className="font-serif text-[15px] font-semibold tracking-tight">
+              AI Network Lab
+            </span>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              v{process.env.NEXT_PUBLIC_APP_VERSION}
+            </span>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
-            <Badge variant="outline" className="hidden md:flex gap-1.5 py-1 px-2.5 text-xs border-primary/30 text-primary">
-              <Sparkles className="h-3 w-3" />
-              基于 6 模块方法论
-            </Badge>
+          <div className="ml-auto flex items-center gap-1">
             <button
-              onClick={() => {
-                // Trigger command palette via custom event
+              onClick={() =>
                 window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
-              }}
-              className="hidden md:flex items-center gap-2 h-9 rounded-md border border-border bg-background/50 px-2.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+              }
+              className="hidden md:flex items-center gap-2 h-8 rounded-sm border border-border px-2.5 text-[12px] text-muted-foreground hover:border-border hover:bg-muted transition-colors"
               aria-label="搜索"
             >
-              <Search className="h-3.5 w-3.5" />
-              <span>搜索...</span>
-              <kbd className="flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-[9px] font-mono">
-                <span className="text-[10px]">⌘</span>K
+              <Search className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <span>搜索</span>
+              <kbd className="ml-1 flex items-center gap-0.5 font-mono text-[10px] text-muted-foreground/70">
+                <Command className="h-2.5 w-2.5" />K
               </kbd>
             </button>
             <NotificationBell />
@@ -123,42 +119,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               variant="ghost"
               size="icon"
               onClick={toggleTheme}
-              className="h-9 w-9"
+              className="h-8 w-8"
               aria-label="切换主题"
             >
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {theme === 'dark' ? (
+                <Sun className="h-4 w-4" strokeWidth={1.75} />
+              ) : (
+                <Moon className="h-4 w-4" strokeWidth={1.75} />
+              )}
             </Button>
-            <a
-              href="https://github.com/ctwannnabeabetterman/glm-test"
-              target="_blank"
-              rel="noreferrer"
-              className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted text-muted-foreground"
-              aria-label="GitHub"
-            >
-              <Database className="h-4 w-4" />
-            </a>
           </div>
         </div>
       </header>
 
       <div className="flex flex-1">
-        {/* Sidebar */}
+        {/* ── 侧边栏：单行标签 + 大留白分组 ────────────────── */}
         <aside
           className={cn(
-            'sticky top-14 hidden md:flex shrink-0 flex-col border-r border-border bg-sidebar/50 transition-all duration-200',
-            sidebarCollapsed ? 'w-[60px]' : 'w-[240px]'
+            'sticky top-12 hidden md:flex shrink-0 flex-col border-r border-border bg-sidebar/40 transition-all duration-200',
+            sidebarCollapsed ? 'w-14' : 'w-[196px]'
           )}
-          style={{ height: 'calc(100vh - 3.5rem)' }}
+          style={{ height: 'calc(100vh - 3rem)' }}
         >
-          <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
-            {Object.entries(grouped).map(([group, items]) => (
-              <div key={group}>
-                {!sidebarCollapsed && (
-                  <div className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {group}
-                  </div>
-                )}
-                <div className="space-y-0.5">
+          <nav className="flex-1 overflow-y-auto py-4 px-2.5">
+            {Object.entries(grouped).map(([group, items], gi) => (
+              <div key={group} className={gi > 0 ? 'mt-5' : ''}>
+                {!sidebarCollapsed && <div className="px-2.5 mb-1.5 eyebrow">{group}</div>}
+                {sidebarCollapsed && gi > 0 && <div className="mx-2 mb-2 rule" />}
+                <div className="space-y-px">
                   {items.map((item) => {
                     const Icon = item.icon
                     const isActive = activeSection === item.id
@@ -166,25 +154,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <button
                         key={item.id}
                         onClick={() => setSection(item.id)}
+                        title={sidebarCollapsed ? item.label : item.hint}
                         className={cn(
-                          'group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all',
+                          'flex w-full items-center gap-2.5 rounded-sm px-2.5 py-[7px] text-left transition-colors',
                           isActive
-                            ? 'bg-primary/12 text-primary font-medium shadow-sm'
-                            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                          sidebarCollapsed && 'justify-center'
+                            ? 'bg-sidebar-accent text-primary font-medium'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                          sidebarCollapsed && 'justify-center px-0'
                         )}
-                        title={sidebarCollapsed ? item.label : undefined}
                       >
-                        <Icon className={cn('h-4 w-4 shrink-0', isActive && 'text-primary')} />
-                        {!sidebarCollapsed && (
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm truncate">{item.label}</div>
-                            <div className="text-[10px] text-muted-foreground truncate">{item.sublabel}</div>
-                          </div>
-                        )}
-                        {isActive && !sidebarCollapsed && (
-                          <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                        )}
+                        <Icon className="h-4 w-4 shrink-0" strokeWidth={isActive ? 2 : 1.75} />
+                        {!sidebarCollapsed && <span className="text-[13px] truncate">{item.label}</span>}
                       </button>
                     )
                   })}
@@ -193,22 +173,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
 
-          {/* Quick stats in sidebar */}
-          {!sidebarCollapsed && <SidebarStats collapsed={false} />}
-          {sidebarCollapsed && <SidebarStats collapsed={true} />}
+          <SidebarStats collapsed={sidebarCollapsed} />
 
           <div className="border-t border-border p-2">
             <button
               onClick={() => useAppStore.getState().setSidebarCollapsed(!sidebarCollapsed)}
-              className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted"
+              className="flex w-full items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-muted transition-colors"
             >
-              <ChevronLeft className={cn('h-3.5 w-3.5 transition-transform', sidebarCollapsed && 'rotate-180')} />
-              {!sidebarCollapsed && <span>收起侧边栏</span>}
+              <ChevronLeft
+                className={cn('h-3.5 w-3.5 transition-transform', sidebarCollapsed && 'rotate-180')}
+                strokeWidth={1.75}
+              />
+              {!sidebarCollapsed && <span>收起</span>}
             </button>
           </div>
         </aside>
 
-        {/* Mobile bottom nav */}
+        {/* 移动端底部导航 */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 backdrop-blur">
           <div className="flex overflow-x-auto">
             {NAV_ITEMS.map((item) => {
@@ -219,21 +200,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   key={item.id}
                   onClick={() => setSection(item.id)}
                   className={cn(
-                    'flex flex-1 min-w-[64px] flex-col items-center gap-0.5 py-2 text-[10px]',
+                    'flex flex-1 min-w-[60px] flex-col items-center gap-0.5 py-2 text-[10px]',
                     isActive ? 'text-primary' : 'text-muted-foreground'
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span className="truncate max-w-[60px]">{item.label}</span>
+                  <Icon className="h-4 w-4" strokeWidth={1.75} />
+                  <span className="truncate max-w-[56px]">{item.label}</span>
                 </button>
               )
             })}
           </div>
         </nav>
 
-        {/* Main content */}
+        {/* ── 主内容区 ──────────────────────────────────── */}
         <main className="flex-1 min-w-0 pb-16 md:pb-0">
-          <div className="mx-auto max-w-[1600px] p-4 lg:p-6">
+          {/* 面包屑：给阅读一个"位置感" */}
+          <div className="border-b border-border/60">
+            <div className="mx-auto max-w-[1180px] px-6 lg:px-10 py-2.5">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span>AI Network Lab</span>
+                <span className="text-border">/</span>
+                <span className="text-foreground">{currentLabel}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mx-auto max-w-[1180px] px-6 lg:px-10 py-7">
             <div key={activeSection} className="animate-fade-in">
               {children}
             </div>
@@ -241,28 +233,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      {/* Sticky footer */}
-      <footer className="mt-auto border-t border-border bg-sidebar/30">
-        <div className="mx-auto max-w-[1600px] px-4 lg:px-6 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 layer-pulse" />
-              系统运行正常
-            </span>
-            <span className="hidden sm:inline">·</span>
-            <span className="hidden sm:inline">数据持久化于 SQLite</span>
-            <span className="hidden md:inline">·</span>
-            <span className="hidden md:inline">方法论源：AI_Networking_Research_Methodology.md</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span>© 2026 AI Network Lab · MIT License</span>
-          </div>
+      {/* ── 页脚：一行元信息，不占视觉重量 ─────────────────── */}
+      <footer className="mt-auto border-t border-border">
+        <div className="mx-auto max-w-[1180px] px-6 lg:px-10 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <span>数据持久化于本地 SQLite</span>
+          <span className="text-border">·</span>
+          <span>方法论源：AI_Networking_Research_Methodology.md</span>
+          <span className="ml-auto">MIT License</span>
         </div>
       </footer>
 
-      {/* Seeded toast */}
       {seededToast && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-sm text-primary shadow-lg animate-fade-in">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 rounded-sm border border-border bg-card px-4 py-2 text-[13px] shadow-sm animate-fade-in">
           {seededToast}
         </div>
       )}

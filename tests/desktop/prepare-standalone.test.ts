@@ -38,6 +38,10 @@ const ps = nodeRequire('../../desktop/prepare-standalone.js') as {
   assertNoBrokenLinks: (r: { broken: string[] }) => void
   findSymlinkEntries: (listing: string) => string[]
   listZip: (zip: string) => string
+  pruneLinkedDeps: (root?: string) => { removed: number; freed: number }
+  collectRequireClosure: (dir: string, entry: string) => Set<string> | null
+  isDeadPdfkitAsset: (name: string) => boolean
+  dirSize: (p: string) => number
 }
 
 /** 1.3.3 那份 app.zip 里 `tar -tvf` 的真实输出（含目录行、普通文件行、两条链接行） */
@@ -189,5 +193,273 @@ describe('listZip：对真实 bsdtar 产物的端到端读取', () => {
     // 首字符 l 与 " -> " 两条判据必须一致，否则闸门会漏掉一半
     const byFirstChar = listing.split(/\r?\n/).filter((l) => l.startsWith('l')).length
     expect(ps.findSymlinkEntries(listing)).toHaveLength(byFirstChar)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * pruneLinkedDeps / collectRequireClosure —— 解引用后的死文件裁剪
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * 为什么需要单独守这一层（2026-09-20 体积体检）：
+ *
+ * `pruneStandalone()` 跑在 `dereferenceSymlinks()` **之前**，而 `fs.readdirSync` 不穿透
+ * 符号链接（读出来是空的）⇒ 链接目录里的废料完全躲过第一轮清理。紧接着 dereference
+ * 把链接目标**整个**复制回来，于是打包产物里又出现了：
+ *   · `@prisma/client-<hash>/runtime/` 73.4 MB —— 5 种数据库 × 2 种模块格式的
+ *     `*.wasm-base64.*`、4 套平台 runtime（edge / wasm-engine-edge / binary / react-native）与全部 sourcemap；
+ *   · `pdfkit-<hash>` 11.1 MB —— 里面居然有 `.yarn/releases/yarn-4.16.0.cjs`（2.9 MB）这类构建工具链。
+ * 合计约 87 MB，属于「清理日志显示已清理、产物却依旧臃肿」的典型静默失败。
+ *
+ * 判据是**从真实入口出发的 require 可达闭包**（Prisma）与**保守白名单**（pdfkit）：
+ *   · Prisma 生成的 `.prisma/client/index.js` 只 require `@prisma/client/runtime/library.js`，
+ *     而 `library.js` 的 require 全是 node: 内置模块 ⇒ runtime 目录里只留它一个。
+ *   · pdfkit 的 `js/pdfkit.js` 有运行时 `fs.readFileSync('./data/*.icc')`，静态 require 图
+ *     **看不见**这类读取，所以绝不能对 pdfkit 用闭包裁剪 —— 只删构建工具链与备用入口。
+ */
+describe('collectRequireClosure：静态解析相对 require', () => {
+  function closureFixture(files: Record<string, string>) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'anl-closure-'))
+    tmpDirs.push(dir)
+    for (const [name, content] of Object.entries(files)) {
+      const fp = path.join(dir, name)
+      fs.mkdirSync(path.dirname(fp), { recursive: true })
+      fs.writeFileSync(fp, content)
+    }
+    return dir
+  }
+
+  it('沿 require 链收集同目录可达文件，忽略裸模块名', () => {
+    const dir = closureFixture({
+      'entry.js': "const a = require('./a')\nconst fs = require('node:fs')\nrequire('some-pkg')",
+      'a.js': "module.exports = require('./sub/b')",
+      'sub/b.js': 'module.exports = 1',
+      'dead.js': 'module.exports = 2',
+    })
+
+    expect(ps.collectRequireClosure(dir, 'entry.js')).toEqual(
+      new Set(['entry.js', 'a.js', 'sub/b.js']),
+    )
+  })
+
+  it('识别 import(...) 形式的动态导入', () => {
+    const dir = closureFixture({
+      'entry.mjs': "export const x = import('./lazy.mjs')",
+      'lazy.mjs': 'export const y = 1',
+      'dead.mjs': 'export const z = 2',
+    })
+
+    expect(ps.collectRequireClosure(dir, 'entry.mjs')).toEqual(new Set(['entry.mjs', 'lazy.mjs']))
+  })
+
+  /**
+   * ⚠️ 这条是「目录形式 require」的回归守卫。
+   *
+   * `require('./sub')` 在 Node 里会解析到 `sub/index.js`。如果解析器不认识这种形式，
+   * 就会把它判成「解析不到」而**跳过** —— 而调用方是按 `keep` 之外一律
+   * `rmSync(..., {recursive: true})` 删除的，于是 `sub/` 整个目录会被删掉，
+   * 产物里少一个模块但打包日志一切正常。
+   */
+  it('能解析目录形式的 require（index.js 与 package.json main）', () => {
+    const dir = closureFixture({
+      'entry.js': "require('./byIndex')\nrequire('./byMain')",
+      'byIndex/index.js': 'module.exports = 1',
+      'byIndex/other.js': 'module.exports = 2',
+      'byMain/package.json': '{"main":"lib/start.js"}',
+      'byMain/lib/start.js': 'module.exports = 3',
+    })
+
+    expect(ps.collectRequireClosure(dir, 'entry.js')).toEqual(
+      new Set([
+        'entry.js',
+        'byIndex/index.js',
+        'byMain/package.json',
+        'byMain/lib/start.js',
+      ]),
+    )
+  })
+
+  /**
+   * ⚠️ 核心安全性质：**相对**依赖解析不到时必须整体放弃裁剪，而不是「跳过它继续删」。
+   *
+   * 因为调用方会删除 `keep` 之外的所有条目（且是递归删除）。解析不到就意味着
+   * 「我判断不了这个目录里什么还需要」，此时唯一安全的选择是不裁。
+   */
+  it('相对依赖解析不到时返回 null（宁可多留，也不赌）', () => {
+    const dir = closureFixture({
+      'entry.js': "require('./does-not-exist')",
+      'bystander.js': 'module.exports = 1',
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    expect(ps.collectRequireClosure(dir, 'entry.js')).toBeNull()
+  })
+
+  it('入口本身不存在时返回 null，而不是抛异常', () => {
+    const dir = closureFixture({ 'x.js': 'module.exports = 1' })
+    expect(ps.collectRequireClosure(dir, 'nope.js')).toBeNull()
+  })
+
+  it('越界引用（../ 跑到 dir 之外）视为解析不到', () => {
+    const dir = closureFixture({
+      'sub/entry.js': "require('../../outside')",
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // outside 不在 dir 内 ⇒ 不属于本目录裁剪范围 ⇒ 放弃裁剪
+    expect(ps.collectRequireClosure(dir, 'sub/entry.js')).toBeNull()
+  })
+})
+
+describe('isDeadPdfkitAsset：pdfkit 里哪些文件可以删', () => {
+  it.each([
+    'pdfkit.browser.js',
+    'pdfkit.browser.mjs',
+    'pdfkit.browser.old.js',
+    'pdfkit.browser.old.mjs',
+    'pdfkit.old.js',
+    'pdfkit.standalone.js',
+    'pdfkit.js.map',
+    'pdfkit.node.mjs.map',
+    'pdfkit.browser.js.map',
+    'index.d.ts',
+  ])('构建工具链/备用入口/sourcemap 判为可删：%s', (name) => {
+    expect(ps.isDeadPdfkitAsset(name)).toBe(true)
+  })
+
+  it.each([
+    'pdfkit.js',
+    'pdfkit.node.mjs',
+    'output.cjs',
+    'output.mjs',
+    'Helvetica.afm',
+    'sRGB_IEC61966_2_1.icc',
+    'Helvetica.cjs',
+  ])('运行时需要的文件必须保留：%s', (name) => {
+    expect(ps.isDeadPdfkitAsset(name)).toBe(false)
+  })
+})
+
+describe('pruneLinkedDeps：解引用之后的死文件裁剪', () => {
+  /** 造一个带 Prisma 与 pdfkit 的目录树，形如解引用后的 standalone */
+  function linkedFixture() {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'anl-linked-'))
+    tmpDirs.push(root)
+
+    // ── Prisma：顶层入口 + runtime 目录（library.js 可达，其余是死重） ──
+    const prismaClient = path.join(root, 'node_modules', '@prisma', 'client')
+    fs.mkdirSync(path.join(prismaClient, 'runtime'), { recursive: true })
+    fs.writeFileSync(path.join(prismaClient, 'default.js'), "module.exports = require('#main-entry-point')")
+    fs.writeFileSync(path.join(prismaClient, 'package.json'), '{"name":"@prisma/client"}')
+    fs.writeFileSync(
+      path.join(prismaClient, 'runtime', 'library.js'),
+      "const fs = require('node:fs')\nconst u = require('./helpers/util')\nmodule.exports = {}",
+    )
+    // 必需的嵌套模块：用来守住「按顶层名比较会连坐删掉父目录」这个坑
+    fs.mkdirSync(path.join(prismaClient, 'runtime', 'helpers'), { recursive: true })
+    fs.writeFileSync(path.join(prismaClient, 'runtime', 'helpers', 'util.js'), 'module.exports = {}')
+    // 不该被保留的兄弟目录（用于确认裁剪确实在干活）
+    fs.mkdirSync(path.join(prismaClient, 'runtime', 'dead-dir'), { recursive: true })
+    fs.writeFileSync(path.join(prismaClient, 'runtime', 'dead-dir', 'x.js'), 'module.exports = {}')
+    fs.writeFileSync(path.join(prismaClient, 'runtime', 'edge.js'), 'module.exports = {}')
+    fs.writeFileSync(path.join(prismaClient, 'runtime', 'binary.js'), 'module.exports = {}')
+    fs.writeFileSync(
+      path.join(prismaClient, 'runtime', 'query_engine_bg.sqlite.wasm-base64.js'),
+      'A'.repeat(4096),
+    )
+    fs.writeFileSync(path.join(prismaClient, 'runtime', 'library.js.map'), '{}')
+
+    // ── 带 hash 的外部化副本（standalone 特有） ──
+    const hashed = path.join(root, '.next', 'node_modules', '@prisma', 'client-abc123def456abcd')
+    fs.mkdirSync(path.join(hashed, 'runtime'), { recursive: true })
+    fs.writeFileSync(path.join(hashed, 'runtime', 'library.js'), 'module.exports = {}')
+    fs.writeFileSync(path.join(hashed, 'runtime', 'query_engine_bg.mysql.wasm-base64.mjs'), 'B'.repeat(2048))
+
+    // ── pdfkit：构建工具链 + 数据目录 ──
+    const pdfkit = path.join(root, '.next', 'node_modules', 'pdfkit-d5967b64ee09fcf0')
+    fs.mkdirSync(path.join(pdfkit, 'js', 'data'), { recursive: true })
+    fs.mkdirSync(path.join(pdfkit, '.yarn', 'releases'), { recursive: true })
+    fs.mkdirSync(path.join(pdfkit, 'tools'), { recursive: true })
+    fs.writeFileSync(path.join(pdfkit, 'js', 'pdfkit.js'), 'module.exports = {}')
+    fs.writeFileSync(path.join(pdfkit, 'js', 'pdfkit.node.mjs'), 'export default {}')
+    fs.writeFileSync(path.join(pdfkit, 'js', 'pdfkit.browser.js'), 'X'.repeat(1024))
+    fs.writeFileSync(path.join(pdfkit, 'js', 'pdfkit.js.map'), '{}')
+    fs.writeFileSync(path.join(pdfkit, 'js', 'data', 'sRGB_IEC61966_2_1.icc'), 'ICC')
+    fs.writeFileSync(path.join(pdfkit, 'js', 'data', 'Helvetica.afm'), 'AFM')
+    fs.writeFileSync(path.join(pdfkit, '.yarn', 'releases', 'yarn-4.16.0.cjs'), 'Y'.repeat(8192))
+    fs.writeFileSync(path.join(pdfkit, 'tools', 'afm-converter.js'), 'tool')
+    fs.writeFileSync(path.join(pdfkit, 'package.json'), '{"name":"pdfkit"}')
+
+    return { root, prismaClient, hashed, pdfkit }
+  }
+
+  it('Prisma runtime 只保留可达闭包，顶层入口一根汗毛都不动', () => {
+    const { root, prismaClient, hashed } = linkedFixture()
+
+    ps.pruneLinkedDeps(root)
+
+    // runtime 里只剩 library.js 与它真正 require 的 helpers/ 目录
+    expect(fs.readdirSync(path.join(prismaClient, 'runtime')).sort()).toEqual(['helpers', 'library.js'])
+    expect(fs.readdirSync(path.join(hashed, 'runtime'))).toEqual(['library.js'])
+
+    // ⚠️ 嵌套依赖必须完整存活 —— 只按顶层名比较会把 helpers/ 整个删掉
+    expect(fs.existsSync(path.join(prismaClient, 'runtime', 'helpers', 'util.js'))).toBe(true)
+    // 确认裁剪确实在干活（兄弟目录被清掉）
+    expect(fs.existsSync(path.join(prismaClient, 'runtime', 'dead-dir'))).toBe(false)
+
+    // ⚠️ 顶层入口必须完好 —— 删了就是 Cannot find module / PrismaClient is not a constructor
+    expect(fs.existsSync(path.join(prismaClient, 'default.js'))).toBe(true)
+    expect(fs.existsSync(path.join(prismaClient, 'package.json'))).toBe(true)
+  })
+
+  it('pdfkit 只删构建工具链与备用入口，数据目录必须保留', () => {
+    const { root, pdfkit } = linkedFixture()
+
+    ps.pruneLinkedDeps(root)
+
+    // 删掉的
+    expect(fs.existsSync(path.join(pdfkit, '.yarn'))).toBe(false)
+    expect(fs.existsSync(path.join(pdfkit, 'tools'))).toBe(false)
+    expect(fs.existsSync(path.join(pdfkit, 'js', 'pdfkit.browser.js'))).toBe(false)
+    expect(fs.existsSync(path.join(pdfkit, 'js', 'pdfkit.js.map'))).toBe(false)
+
+    // ⚠️ 保留的：js/pdfkit.js 会在运行时 fs.readFileSync 这些数据文件，
+    //    静态 require 图看不见，删了是隐蔽的运行时故障
+    expect(fs.existsSync(path.join(pdfkit, 'js', 'pdfkit.js'))).toBe(true)
+    expect(fs.existsSync(path.join(pdfkit, 'js', 'pdfkit.node.mjs'))).toBe(true)
+    expect(fs.existsSync(path.join(pdfkit, 'js', 'data', 'sRGB_IEC61966_2_1.icc'))).toBe(true)
+    expect(fs.existsSync(path.join(pdfkit, 'js', 'data', 'Helvetica.afm'))).toBe(true)
+    expect(fs.existsSync(path.join(pdfkit, 'package.json'))).toBe(true)
+  })
+
+  it('闭包解析失败时保持原样，一个文件都不删', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'anl-linked-bad-'))
+    tmpDirs.push(root)
+    const runtime = path.join(root, 'node_modules', '@prisma', 'client', 'runtime')
+    fs.mkdirSync(runtime, { recursive: true })
+    // library.js 缺失 ⇒ 无法建立闭包 ⇒ 必须放弃裁剪
+    fs.writeFileSync(path.join(runtime, 'edge.js'), 'module.exports = {}')
+    fs.writeFileSync(path.join(runtime, 'binary.js'), 'module.exports = {}')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const res = ps.pruneLinkedDeps(root)
+
+    expect(res.removed).toBe(0)
+    expect(fs.readdirSync(runtime).sort()).toEqual(['binary.js', 'edge.js'])
+  })
+
+  it('目录不存在时是空操作，不抛异常', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'anl-linked-empty-'))
+    tmpDirs.push(root)
+    expect(ps.pruneLinkedDeps(root)).toEqual({ removed: 0, freed: 0 })
+  })
+
+  it('返回的回收量与实际减少的字节数一致', () => {
+    const { root } = linkedFixture()
+    const before = ps.dirSize(root)
+
+    const res = ps.pruneLinkedDeps(root)
+
+    expect(ps.dirSize(root)).toBe(before - res.freed)
+    expect(res.freed).toBeGreaterThan(0)
   })
 })

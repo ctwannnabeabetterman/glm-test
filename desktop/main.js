@@ -17,6 +17,10 @@ const path = require('path')
 const fs = require('fs')
 const { migrateDatabase, readDatabaseVersion, encodeVersion, formatVersion } = require('./migrate-database')
 const { findForeignLabInstances, buildConflictDetail } = require('./instance-guard')
+const {
+  registerAppHardening,
+  registerWindowHardening,
+} = require('./hardening')
 
 /**
  * 自动更新器（electron-updater）。
@@ -581,6 +585,15 @@ function createWindow(port) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 以下几项在 Electron 里默认就是关的，这里显式写出来是为了「改不回去」——
+      // 任何一项打开都等于在渲染进程里开一个逃逸口，写死能防住后续误改。
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      webviewTag: false,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+      // 省内存：本应用没有任何需要拼写检查的输入场景
+      spellcheck: false,
     },
   })
 
@@ -595,6 +608,12 @@ function createWindow(port) {
       return { action: 'deny' }
     }
     return { action: 'allow' }
+  })
+
+  // 安全加固（DevTools 锁定 + 导航白名单）—— 细节见 desktop/hardening.js
+  registerWindowHardening(mainWindow, {
+    isPackaged: app.isPackaged,
+    trustedOrigin,
   })
 
   mainWindow.once('ready-to-show', () => mainWindow.show())
@@ -902,6 +921,11 @@ async function bootstrap() {
   await enforceSingleVersion()
   await ensureAppExtracted()
   const port = await getFreePort()
+  // 端口确定后受信任源才成立，CSP / 导航白名单都依赖它 —— 因此加固放在这一行之后。
+  registerAppHardening({
+    isPackaged: app.isPackaged,
+    trustedOrigin: `http://127.0.0.1:${port}`,
+  })
   const dbPath = ensureDatabase()
   startInternalServer(port, dbPath)
   await waitForServer(`http://127.0.0.1:${port}/api/settings/llm`)

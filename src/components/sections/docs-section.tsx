@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { SectionHeader } from './papers-section'
+import { SectionHeader } from '@/components/section-header'
 import {
   Rocket, LayoutGrid, Sparkles, Code2, Database, HelpCircle, BookOpen,
   ChevronRight, Copy, Check, AlertTriangle,
@@ -226,8 +226,8 @@ function CodeBlock({ lang, title, content }: { lang: string; title?: string; con
   return (
     <div className="overflow-hidden rounded-lg border border-border">
       <div className="flex items-center justify-between bg-muted/60 px-3 py-1.5 border-b border-border">
-        <span className="text-[10px] font-mono text-muted-foreground">{title || lang}</span>
-        <button onClick={handleCopy} className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
+        <span className="text-[11px] font-mono text-muted-foreground">{title || lang}</span>
+        <button onClick={handleCopy} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
           {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
           {copied ? '已复制' : '复制'}
         </button>

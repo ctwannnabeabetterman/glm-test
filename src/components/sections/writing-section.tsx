@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
-import { SectionHeader } from './papers-section'
+import { SectionHeader } from '@/components/section-header'
 import { WritingWorkbench } from '@/components/writing-workbench'
 import { AIAbstractGenerator } from '@/components/ai-abstract-generator'
 import { AIReviewGenerator } from '@/components/ai-review-generator'
@@ -258,7 +258,7 @@ function AbstractGenerator() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm">生成预览</CardTitle>
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className={cn('text-[10px]', wordCount > 200 ? 'text-amber-600' : 'text-emerald-600')}>
+              <Badge variant="outline" className={cn('text-[11px]', wordCount > 200 ? 'text-amber-600' : 'text-emerald-600')}>
                 {wordCount} words
               </Badge>
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { navigator.clipboard.writeText(abstract); toast.success('已复制') }} disabled={!abstract}>
@@ -291,7 +291,7 @@ function SentenceEditor({ label, placeholder, value, example, onChange, color }:
       <CardContent className="p-3">
         <div className="flex items-center justify-between mb-2">
           <Label className="text-xs font-medium">{label}</Label>
-          <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => { onChange(example); toast.success('已填入示例') }}>
+          <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => { onChange(example); toast.success('已填入示例') }}>
             <Sparkles className="h-2.5 w-2.5 mr-0.5" /> 示例
           </Button>
         </div>
@@ -356,7 +356,7 @@ function AcademicPhrases() {
                     <button
                       key={i}
                       onClick={() => copy(p)}
-                      className="rounded-md bg-muted/50 px-2 py-1 text-[10px] hover:bg-primary/10 hover:text-primary transition-colors"
+                      className="rounded-md bg-muted/50 px-2 py-1 text-[11px] hover:bg-primary/10 hover:text-primary transition-colors"
                     >
                       {p}
                     </button>

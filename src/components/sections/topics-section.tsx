@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SectionHeader } from './papers-section'
+import { SectionHeader } from '@/components/section-header'
 import { TOPIC_CRITERIA, TOPIC_DIRECTIONS } from '@/lib/methodology-data'
 import { AIGapAnalysis } from '@/components/ai-gap-analysis'
 import { AIDirectionExplorer } from '@/components/ai-direction-explorer'
@@ -227,7 +227,7 @@ export function TopicsSection() {
       <AIGapAnalysis />
 
       {/* Theory card */}
-      <Card className="bg-gradient-to-br from-amber-500/8 to-transparent border-amber-500/20">
+      <Card className="border-l-2 border-l-primary/60 bg-card">
         <CardContent className="p-4">
           <div className="text-xs text-muted-foreground mb-2">方法论 §1.3.1 创新性三维模型</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -372,7 +372,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
             <div className="flex-1 min-w-0">
               <CardTitle className="text-base leading-tight">{topic.name}</CardTitle>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <Badge variant="outline" className="text-[10px]">{topic.direction}</Badge>
+                <Badge variant="outline" className="text-[11px]">{topic.direction}</Badge>
                 <Badge variant="secondary" className="text-xs bg-primary/15 text-primary font-bold">
                   <Star className="h-2.5 w-2.5 mr-0.5 fill-current" />
                   {topic.totalScore.toFixed(2)} / 10
@@ -382,7 +382,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
                   <Badge
                     variant="outline"
                     className={cn(
-                      'text-[10px] font-normal',
+                      'text-[11px] font-normal',
                       topic.paperCount === 0 && topic.noteCount === 0
                         ? 'border-amber-500/40 text-amber-600'
                         : 'text-muted-foreground'
@@ -439,7 +439,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
               {aiMeta.rationale && (
                 <div className="text-[11px] leading-relaxed border-t border-primary/15 pt-1.5">{aiMeta.rationale}</div>
               )}
-              <div className="flex items-start gap-1 text-[10px] text-amber-600 border-t border-primary/15 pt-1.5">
+              <div className="flex items-start gap-1 text-[11px] text-amber-600 border-t border-primary/15 pt-1.5">
                 <Info className="h-3 w-3 mt-0.5 shrink-0" />
                 <span>带「确认」标记的 4 项 AI 无从知晓（实验室条件、你的时间与方向），它是按同类情况估的，请按实际改写。</span>
               </div>
@@ -450,7 +450,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{crit}</span>
-                  <Badge variant="outline" className="text-[10px]">权重 {(info.weight * 100).toFixed(0)}%</Badge>
+                  <Badge variant="outline" className="text-[11px]">权重 {(info.weight * 100).toFixed(0)}%</Badge>
                 </div>
                 <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
                   {getCritScore(crit).toFixed(2)}
@@ -465,14 +465,14 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
                         {isSubjective(sub) && (
                           <Badge
                             variant="outline"
-                            className="text-[9px] px-1 py-0 h-4 border-amber-500/40 text-amber-600"
+                            className="text-[11px] px-1 py-0 h-4 border-amber-500/40 text-amber-600"
                             title="这一项只有你自己知道（实验室条件 / 你的时间 / 你的毕业论文方向），AI 给的是同类情况估值"
                           >
                             确认
                           </Badge>
                         )}
                       </div>
-                      <div className="text-[10px] text-muted-foreground">权重 {(weight * 100).toFixed(0)}%</div>
+                      <div className="text-[11px] text-muted-foreground">权重 {(weight * 100).toFixed(0)}%</div>
                     </div>
                     <input
                       type="range"
@@ -500,7 +500,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
           <div className="rounded-md bg-primary/8 border border-primary/20 p-3 text-center">
             <div className="text-xs text-muted-foreground">综合评分</div>
             <div className="text-2xl font-bold gradient-text">{topic.totalScore.toFixed(2)} / 10</div>
-            <div className="text-[10px] text-muted-foreground mt-1">
+            <div className="text-[11px] text-muted-foreground mt-1">
               {topic.totalScore >= 8 ? '⭐ 优秀课题，强烈推荐' :
                topic.totalScore >= 6.5 ? '✓ 良好课题，建议推进' :
                topic.totalScore >= 5 ? '△ 一般课题，需评估' :
@@ -514,7 +514,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {Object.entries(TOPIC_CRITERIA).map(([crit]) => (
               <div key={crit} className="rounded-md border border-border/40 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">{crit}</div>
+                <div className="text-[11px] text-muted-foreground">{crit}</div>
                 <div className="text-sm font-bold">{getCritScore(crit).toFixed(1)}</div>
                 <Progress value={getCritScore(crit) * 10} className="h-1 mt-1" />
               </div>
@@ -542,7 +542,7 @@ function InnovationCard({ label, desc, difficulty }: { label: string; desc: stri
     <div className="rounded-md border border-border/60 p-2.5 bg-card">
       <div className="text-sm font-semibold">{label}</div>
       <div className="text-[11px] text-muted-foreground mt-0.5">{desc}</div>
-      <div className="text-[10px] text-amber-600 mt-1">{difficulty}</div>
+      <div className="text-[11px] text-amber-600 mt-1">{difficulty}</div>
     </div>
   )
 }

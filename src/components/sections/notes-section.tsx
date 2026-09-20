@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { SectionHeader } from './papers-section'
+import { SectionHeader } from '@/components/section-header'
 import { KnowledgeGraph } from '@/components/knowledge-graph'
 import { NoteTemplates } from '@/components/note-templates'
 import { NotesExport } from '@/components/notes-export'
@@ -236,13 +236,13 @@ export function NotesSection() {
               return (
                 <Card
                   key={n.id}
-                  className={cn('cursor-pointer transition-all hover:shadow-sm', selected?.id === n.id && 'ring-1 ring-primary')}
+                  className={cn('cursor-pointer transition-colors hover:border-primary/40', selected?.id === n.id && 'ring-1 ring-primary')}
                   onClick={() => setSelected(n)}
                 >
                   <CardContent className="p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="secondary" className={cn('text-[9px] py-0', cat.color)}>{cat.label}</Badge>
-                      <span className="text-[10px] text-muted-foreground ml-auto">
+                      <Badge variant="secondary" className={cn('text-[11px] py-0', cat.color)}>{cat.label}</Badge>
+                      <span className="text-[11px] text-muted-foreground ml-auto">
                         {new Date(n.updatedAt).toLocaleDateString('zh-CN')}
                       </span>
                     </div>
@@ -251,7 +251,7 @@ export function NotesSection() {
                     {n.tags && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
                         {n.tags.split(',').slice(0, 3).map((t) => (
-                          <Badge key={t} variant="outline" className="text-[9px] py-0">#{t.trim()}</Badge>
+                          <Badge key={t} variant="outline" className="text-[11px] py-0">#{t.trim()}</Badge>
                         ))}
                       </div>
                     )}
@@ -346,11 +346,11 @@ function NoteDetail({ note, onUpdate, onDelete }: {
               <CardTitle className="text-base">{note.title}</CardTitle>
             )}
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <Badge variant="secondary" className={cn('text-[10px]', CATEGORY_LABELS[note.category]?.color)}>
+              <Badge variant="secondary" className={cn('text-[11px]', CATEGORY_LABELS[note.category]?.color)}>
                 {CATEGORY_LABELS[note.category]?.label}
               </Badge>
               <TopicBadges topicIds={note.topicIds || '[]'} />
-              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5" />
                 更新于 {new Date(note.updatedAt).toLocaleString('zh-CN')}
               </span>
@@ -398,7 +398,7 @@ function NoteDetail({ note, onUpdate, onDelete }: {
             {tags && (
               <div className="flex flex-wrap gap-1">
                 {tags.split(',').map((t) => (
-                  <Badge key={t} variant="outline" className="text-[10px]">
+                  <Badge key={t} variant="outline" className="text-[11px]">
                     <Tag className="h-2.5 w-2.5 mr-0.5" />
                     {t.trim()}
                   </Badge>

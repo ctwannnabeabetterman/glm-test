@@ -30,7 +30,7 @@ import {
   DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { SectionHeader } from './papers-section'
+import { SectionHeader } from '@/components/section-header'
 import { FullTextSearch } from '@/components/full-text-search'
 import { AIRelatedPapers } from '@/components/ai-related-papers'
 import {
@@ -194,7 +194,7 @@ function KeywordMatrix() {
   return (
     <div className="space-y-4">
       {/* Summary card */}
-      <Card className="bg-gradient-to-br from-primary/8 to-transparent border-primary/20">
+      <Card className="border-l-2 border-l-primary/60 bg-card">
         <CardContent className="p-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
@@ -222,7 +222,7 @@ function KeywordMatrix() {
                   {DIMENSION_LABELS[dim].label}
                 </CardTitle>
                 <div className="flex items-center gap-1">
-                  <Badge variant="outline" className="text-[10px]">{grouped[dim].length}</Badge>
+                  <Badge variant="outline" className="text-[11px]">{grouped[dim].length}</Badge>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -563,7 +563,7 @@ function ArxivMonitor() {
             <Card key={i} className="card-hover">
               <CardContent className="p-3">
                 <div className="flex items-start gap-2 mb-1.5">
-                  <Badge variant="secondary" className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 shrink-0">
+                  <Badge variant="secondary" className="text-[11px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 shrink-0">
                     {p.published}
                   </Badge>
                   <div className="text-sm font-medium leading-snug flex-1">{p.title}</div>
@@ -641,7 +641,7 @@ function SnowballMethod() {
               <div className="flex flex-col items-center gap-4">
                 {/* Seed */}
                 <div className="rounded-lg border-2 border-primary bg-primary/10 px-4 py-2 text-center max-w-md">
-                  <div className="text-[10px] text-primary font-semibold mb-0.5">🌱 种子论文</div>
+                  <div className="text-[11px] text-primary font-semibold mb-0.5">🌱 种子论文</div>
                   <div className="text-xs font-medium">{seedPaper}</div>
                 </div>
 
@@ -653,9 +653,9 @@ function SnowballMethod() {
                       <ArrowUpRight className="h-4 w-4" />
                       向后雪球（最新进展）
                     </div>
-                    <div className="text-[10px] text-muted-foreground ml-6">查看谁引用了它</div>
+                    <div className="text-[11px] text-muted-foreground ml-6">查看谁引用了它</div>
                     {tree.newer.map((p, i) => (
-                      <div key={i} className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2 text-xs hover:shadow-sm cursor-pointer">
+                      <div key={i} className="rounded-md border border-border bg-card p-2 text-xs transition-colors hover:border-primary/40 cursor-pointer">
                         <div className="flex items-start gap-1.5">
                           <span className="text-emerald-600 mt-0.5">→</span>
                           <span>{p}</span>
@@ -670,9 +670,9 @@ function SnowballMethod() {
                       <ArrowDownRight className="h-4 w-4" />
                       向前雪球（理论基础）
                     </div>
-                    <div className="text-[10px] text-muted-foreground ml-6">查看它引用的论文</div>
+                    <div className="text-[11px] text-muted-foreground ml-6">查看它引用的论文</div>
                     {tree.foundational.map((p, i) => (
-                      <div key={i} className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs hover:shadow-sm cursor-pointer">
+                      <div key={i} className="rounded-md border border-border bg-card p-2 text-xs transition-colors hover:border-primary/40 cursor-pointer">
                         <div className="flex items-start gap-1.5">
                           <span className="text-amber-600 mt-0.5">←</span>
                           <span>{p}</span>
@@ -764,7 +764,7 @@ function SearchLogs() {
                       <Database className="h-3 w-3 mr-1" />
                       {log.database}
                     </Badge>
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       {new Date(log.createdAt).toLocaleDateString('zh-CN')}
                     </span>
@@ -988,13 +988,13 @@ function ComparisonTableGenerator() {
                     'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
                     isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
                   )}>
-                    {isSelected && <span className="text-[10px]">✓</span>}
+                    {isSelected && <span className="text-[11px]">✓</span>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium truncate">{p.title}</div>
-                    <div className="text-[10px] text-muted-foreground truncate">{p.authors} · {p.venue}</div>
+                    <div className="text-[11px] text-muted-foreground truncate">{p.authors} · {p.venue}</div>
                   </div>
-                  <Badge variant="outline" className="text-[9px] shrink-0">{p.year}</Badge>
+                  <Badge variant="outline" className="text-[11px] shrink-0">{p.year}</Badge>
                 </button>
               )
             })}
@@ -1019,7 +1019,7 @@ function ComparisonTableGenerator() {
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {COMPARISON_COLUMNS.map((c) => (
                       <div key={c.key}>
-                        <Label className="text-[10px] text-muted-foreground">{c.label}</Label>
+                        <Label className="text-[11px] text-muted-foreground">{c.label}</Label>
                         <Input
                           value={columnValues[p.id]?.[c.key] ?? c.default}
                           onChange={(e) => updateColumn(p.id, c.key, e.target.value)}
@@ -1062,7 +1062,7 @@ function ComparisonTableGenerator() {
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
-            <pre className="rounded-md bg-muted/50 border border-border/40 p-3 text-[10px] font-mono overflow-x-auto whitespace-pre">
+            <pre className="rounded-md bg-muted/50 border border-border/40 p-3 text-[11px] font-mono overflow-x-auto whitespace-pre">
               {generatedContent}
             </pre>
             <div className="flex gap-2">

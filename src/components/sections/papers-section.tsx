@@ -67,6 +67,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { SectionHeader } from '@/components/section-header'
 import { downloadFromApi } from '@/lib/download'
 import { AISummary } from '@/components/ai-summary'
 import { TopicLinker, TopicBadges } from '@/components/topic-linker'
@@ -604,7 +605,7 @@ function PaperRow({ paper, onSelect, onStatusChange, onDelete, selected }: {
   return (
     <div
       className={cn(
-        'rounded-lg border bg-card p-3 transition-all hover:shadow-sm cursor-pointer',
+        'rounded-md border bg-card p-3 transition-colors hover:border-primary/40 cursor-pointer',
         selected ? 'border-primary ring-1 ring-primary/30' : 'border-border'
       )}
       onClick={onSelect}
@@ -612,20 +613,20 @@ function PaperRow({ paper, onSelect, onStatusChange, onDelete, selected }: {
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className={cn('inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium', status.bg, status.color)}>
+            <span className={cn('inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md font-medium', status.bg, status.color)}>
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />
               {status.label}
             </span>
             {paper.category && (
-              <Badge variant="outline" className="text-[10px] py-0">{CATEGORY_LABELS[paper.category] ?? paper.category}</Badge>
+              <Badge variant="outline" className="text-[11px] py-0">{CATEGORY_LABELS[paper.category] ?? paper.category}</Badge>
             )}
             {paper.priority === 'high' && (
-              <Badge variant="secondary" className="text-[10px] py-0 bg-red-500/15 text-red-600">
+              <Badge variant="secondary" className="text-[11px] py-0 bg-red-500/15 text-red-600">
                 <Star className="h-2.5 w-2.5 mr-0.5 fill-current" />
                 高优先
               </Badge>
             )}
-            <span className="text-[10px] text-muted-foreground">{paper.year}</span>
+            <span className="text-[11px] text-muted-foreground">{paper.year}</span>
             <TopicBadges topicIds={paper.topicIds || '[]'} />
           </div>
           <div className="text-sm font-medium leading-snug line-clamp-2">{paper.title}</div>
@@ -635,7 +636,7 @@ function PaperRow({ paper, onSelect, onStatusChange, onDelete, selected }: {
           {paper.tags && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {paper.tags.split(',').slice(0, 4).map((t) => (
-                <Badge key={t} variant="outline" className="text-[10px] py-0 px-1.5 text-muted-foreground">#{t.trim()}</Badge>
+                <Badge key={t} variant="outline" className="text-[11px] py-0 px-1.5 text-muted-foreground">#{t.trim()}</Badge>
               ))}
             </div>
           )}
@@ -674,7 +675,7 @@ function PaperRankedRow({ paper, rank, score, onSelect }: {
   const rankColors = rank === 1 ? 'bg-amber-500 text-white' : rank === 2 ? 'bg-slate-400 text-white' : rank === 3 ? 'bg-orange-700 text-white' : 'bg-muted text-muted-foreground'
   return (
     <div
-      className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 transition-all hover:shadow-sm cursor-pointer hover:border-primary/40"
+      className="flex items-center gap-3 rounded-md border border-border bg-card p-3 transition-colors cursor-pointer hover:border-primary/40"
       onClick={onSelect}
     >
       <div className={cn('flex h-9 w-9 items-center justify-center rounded-full font-bold text-sm shrink-0', rankColors)}>
@@ -689,15 +690,15 @@ function PaperRankedRow({ paper, rank, score, onSelect }: {
       <div className="flex items-center gap-3 shrink-0 text-xs">
         <div className="text-center">
           <div className="font-bold text-emerald-600">{paper.relevance}</div>
-          <div className="text-[9px] text-muted-foreground">相关</div>
+          <div className="text-[11px] text-muted-foreground">相关</div>
         </div>
         <div className="text-center">
           <div className="font-bold text-blue-600">{paper.novelty}</div>
-          <div className="text-[9px] text-muted-foreground">新颖</div>
+          <div className="text-[11px] text-muted-foreground">新颖</div>
         </div>
         <div className="text-center">
           <div className="font-bold text-amber-600">{paper.citations}</div>
-          <div className="text-[9px] text-muted-foreground">引用</div>
+          <div className="text-[11px] text-muted-foreground">引用</div>
         </div>
         <Badge variant="secondary" className="bg-primary/15 text-primary font-bold">
           {score.toFixed(1)}
@@ -842,7 +843,7 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setPdfOpen(true)}>
                 <FileText className="h-3.5 w-3.5 mr-1" /> 内联阅读 PDF
               </Button>
-              <a href={`/api/papers/pdf?id=${paper.id}`} target="_blank" rel="noreferrer" className="text-[10px] text-muted-foreground hover:text-primary hover:underline">
+              <a href={`/api/papers/pdf?id=${paper.id}`} target="_blank" rel="noreferrer" className="text-[11px] text-muted-foreground hover:text-primary hover:underline">
                 新窗口打开
               </a>
             </>
@@ -851,8 +852,8 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
               <Upload className="h-3 w-3 mr-1" /> 挂载 PDF
             </Button>
           )}
-          {paper.doi && <span className="text-[10px] text-muted-foreground">DOI {paper.doi}</span>}
-          {paper.zoteroKey && <span className="text-[10px] text-muted-foreground">Zotero {paper.zoteroKey}</span>}
+          {paper.doi && <span className="text-[11px] text-muted-foreground">DOI {paper.doi}</span>}
+          {paper.zoteroKey && <span className="text-[11px] text-muted-foreground">Zotero {paper.zoteroKey}</span>}
         </div>
 
         <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
@@ -997,17 +998,17 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
   }
 
   return (
-    <div className="rounded-lg border border-primary/20 bg-gradient-to-br from-primary/5 to-transparent p-3">
+    <div className="rounded-sm border-l-2 border-l-primary/60 border-y border-r border-border bg-card p-3">
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="text-xs font-semibold flex items-center gap-1.5">
             <span>📚</span>
             三遍阅读法进度
           </div>
-          <div className="text-[10px] text-muted-foreground">方法论 §2.3.1 三遍阅读法</div>
+          <div className="text-[11px] text-muted-foreground">方法论 §2.3.1 三遍阅读法</div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="text-[10px] text-muted-foreground">{completedCount}/3 完成</div>
+          <div className="text-[11px] text-muted-foreground">{completedCount}/3 完成</div>
           <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden">
             <div className="h-full bg-primary transition-all" style={{ width: `${overallPct}%` }} />
           </div>
@@ -1041,25 +1042,25 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
                   )}
                   style={isDone ? { background: p.color, borderColor: p.color } : {}}
                 >
-                  {isDone && <span className="text-[10px]">✓</span>}
+                  {isDone && <span className="text-[11px]">✓</span>}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-medium">{p.title}</span>
-                    <span className="text-[9px]">{p.icon}</span>
+                    <span className="text-[11px]">{p.icon}</span>
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">{p.duration}</div>
-                  <div className="text-[10px] text-muted-foreground/80 mt-1">{p.desc}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">{p.duration}</div>
+                  <div className="text-[11px] text-muted-foreground/80 mt-1">{p.desc}</div>
                 </div>
               </div>
 
               {isExpanded && (
                 <div className="mt-3 pt-3 border-t border-border/40 space-y-2 animate-fade-in">
                   <div>
-                    <div className="text-[10px] font-medium text-muted-foreground mb-1">需要回答的问题：</div>
+                    <div className="text-[11px] font-medium text-muted-foreground mb-1">需要回答的问题：</div>
                     <ul className="space-y-0.5">
                       {p.questions.map((q, i) => (
-                        <li key={i} className="text-[10px] flex items-start gap-1">
+                        <li key={i} className="text-[11px] flex items-start gap-1">
                           <span style={{ color: p.color }}>•</span>
                           <span>{q}</span>
                         </li>
@@ -1067,26 +1068,26 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
                     </ul>
                   </div>
                   <div>
-                    <div className="text-[10px] font-medium text-muted-foreground mb-1">产出：{p.decision}</div>
+                    <div className="text-[11px] font-medium text-muted-foreground mb-1">产出：{p.decision}</div>
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <div className="text-[10px] font-medium text-muted-foreground">阅读笔记：</div>
+                      <div className="text-[11px] font-medium text-muted-foreground">阅读笔记：</div>
                       {editingPass === p.key ? (
                         <div className="flex gap-1">
                           <button
                             onClick={(e) => { e.stopPropagation(); setEditingPass(null); setNotesDraft({}) }}
-                            className="text-[10px] text-muted-foreground hover:text-foreground"
+                            className="text-[11px] text-muted-foreground hover:text-foreground"
                           >取消</button>
                           <button
                             onClick={(e) => { e.stopPropagation(); savePassNotes(p.key) }}
-                            className="text-[10px] text-primary hover:underline"
+                            className="text-[11px] text-primary hover:underline"
                           >保存</button>
                         </div>
                       ) : (
                         <button
                           onClick={(e) => { e.stopPropagation(); setEditingPass(p.key); setNotesDraft({ ...notesDraft, [p.key]: passNotes }) }}
-                          className="text-[10px] text-primary hover:underline"
+                          className="text-[11px] text-primary hover:underline"
                         >编辑</button>
                       )}
                     </div>
@@ -1099,7 +1100,7 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
                         onClick={(e) => e.stopPropagation()}
                       />
                     ) : (
-                      <div className="rounded bg-background/60 p-2 text-[10px] whitespace-pre-wrap min-h-[40px] border border-border/30">
+                      <div className="rounded bg-background/60 p-2 text-[11px] whitespace-pre-wrap min-h-[40px] border border-border/30">
                         {passNotes || <span className="text-muted-foreground">暂无笔记</span>}
                       </div>
                     )}
@@ -1189,7 +1190,7 @@ function CitationGenerator({ paper }: { paper: Paper }) {
             <span>📑</span>
             BibTeX 引用
           </div>
-          <div className="text-[10px] text-muted-foreground">方法论 §4.3.3 BibTeX 文献管理</div>
+          <div className="text-[11px] text-muted-foreground">方法论 §4.3.3 BibTeX 文献管理</div>
         </div>
         <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowCitation(!showCitation)}>
           {showCitation ? '收起' : '展开'}
@@ -1199,12 +1200,12 @@ function CitationGenerator({ paper }: { paper: Paper }) {
       {showCitation && (
         <div className="space-y-2 animate-fade-in">
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="secondary" className="text-[10px] bg-purple-500/15 text-purple-600">
+            <Badge variant="secondary" className="text-[11px] bg-purple-500/15 text-purple-600">
               @{type}
             </Badge>
-            <Badge variant="outline" className="text-[10px] font-mono">{key}</Badge>
+            <Badge variant="outline" className="text-[11px] font-mono">{key}</Badge>
           </div>
-          <pre className="rounded-md bg-background/80 border border-border/40 p-2.5 text-[10px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
+          <pre className="rounded-md bg-background/80 border border-border/40 p-2.5 text-[11px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
             {content}
           </pre>
           <Button size="sm" variant="outline" className="h-7 text-xs w-full" onClick={copy}>
@@ -1224,7 +1225,7 @@ function DetailStat({ label, value, color }: { label: string; value: string | nu
   return (
     <div className="rounded-md border border-border/60 p-2.5">
       <div className={cn('text-lg font-bold', color)}>{value}</div>
-      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
     </div>
   )
 }
@@ -1253,26 +1254,6 @@ function EmptyCard({ text }: { text: string }) {
   )
 }
 
-function SectionHeader({ title, desc, icon: Icon, action }: {
-  title: string
-  desc: string
-  icon: React.ComponentType<{ className?: string }>
-  action?: React.ReactNode
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-xs text-muted-foreground">{desc}</p>
-        </div>
-      </div>
-      {action}
-    </div>
-  )
-}
-
-export { SectionHeader }
+/* SectionHeader 已收敛到 @/components/section-header（全部 12 个页面共用）。
+   这里保留 re-export 仅为兼容旧引用，新代码请直接从新路径导入。 */
+export { SectionHeader } from '@/components/section-header'

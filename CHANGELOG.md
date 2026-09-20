@@ -3,6 +3,84 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.3.7] - 2026-09-20
+
+**这一版做三件事：把界面从「AI 生成的仪表盘」改成「能长时间读的科研工具」、把运行时手感与打包体积收一遍、给桌面壳层做一轮安全加固。**
+
+起因是两条用户反馈：一是 *「主要功能具备了，但是还是像 demo」*（并要求「科研风的页面排版」），二是 *「优化下运行时的手感和加载速度 …… 重视下软件安全，防止有人拿到软件逆向破解」*。第一条是体量主体（**全部 12 个页面一次改完**，方向定为学术论文风：干净白底、衬线正文、细分割线、大留白、单色强调）；后两条不改变任何功能语义，只让**同样的功能跑得更快、更小、更难被逆向**。
+
+### 为什么"像 demo" —— 诊断结论
+
+不是配色问题，是**信息层级与排版语法**的问题：
+
+| 症状 | 证据 | 为什么显得像模板 |
+|---|---|---|
+| 字号全线偏小 | 实测 `text-[9px]` 16 处、`text-[10px]` 126 处、`text-xs` 263 处 | 正文普遍 10–12px，是「控件说明面板」的密度，不是阅读密度 |
+| 卡片套卡片 | 每个 section 都是 `Card > CardHeader > CardContent` | 屏幕被切成等大方块，视觉上没有主次 |
+| 装饰过载 | 7 处渐变、7 处 hover 上浮阴影、脉冲绿点、渐变标题文字 | 营销落地页的语言，不是工具 |
+| 首屏被零值占据 | 4 个统计卡显示「0 已读 / 0 评审」 | 无数据时这些卡是纯噪音 |
+
+### 改造 — 设计令牌层（`src/app/globals.css` 重写）
+
+- **字体切到系统字体栈，彻底移除 `next/font/google`。** 这是本次唯一的功能性修复：本应用是**离线桌面客户端**，`next/font/google` 断网时拉不到字体。改用系统自带的 **Noto Serif SC（思源宋体）** 做正文、Noto Sans SC 做界面、Cascadia Mono 做数字。
+- **字号阶梯重建**：正文 14px、长文 15px/行高 1.75、页标题 24px 衬线。并在令牌层把 Tailwind `text-xs` 从 12px 抬到 13px —— 代码里有 400+ 处此类 class，**在令牌层抬高比在 class 层逐处改更彻底**。
+- **配色收敛**：改为纸感暖白 + 墨色文字 + 单一墨蓝强调色；深色主题改为阅读器夜间模式。清掉全部彩色渐变。
+- 新增排版原子类：`.eyebrow` / `.page-title` / `.display-title` / `.section-title` / `.prose-research` / `.caption` / `.rule` / `.tabular`。
+
+### 改造 — 结构与组件
+
+- **新增 `src/components/section-header.tsx`**：把原先寄生在 `papers-section.tsx` 里、被 11 个页面 import 的 `SectionHeader` 抽成独立组件并重设计（眉标 + 衬线标题 + 说明行 + 分割线），同时提供 `SubSection` 与 `EmptyState`。消除页面间互相 import 的耦合。
+- **`app-shell.tsx`**：顶栏从 14 行压到 12 行，去掉 logo 渐变与脉冲点；侧边栏导航由「中文 + 英文副标题双行」改为单行中文、英文降级为 hover 提示；新增面包屑给阅读定位感；版心宽度统一为 1180px。
+- **`overview-section.tsx`**：首屏改为论文式题头 + 摘要段落；统计条改为**分割线网格**并在**全为 0 时整体收起**；「三层架构」从彩色渐变卡片改为学术表格式线性表达。
+- **其余 10 个页面**：批量提级过小字号 **142 处**，清掉全部装饰性渐变与 hover 上浮阴影，改用边框高亮表达可交互。
+
+### 性能 — 加载速度与运行时手感
+
+- **12 个功能页全部改为 `next/dynamic` 按需加载（`src/app/page.tsx`）。** 这是个单页工作台，改造前 12 个 section 是**静态 import** ⇒ 打包器把它们连同各自的重量级依赖压进同一个入口 chunk：打开应用哪怕只想看首页，也得先下载并解析**全部** 12 个页面的 JS。实测首屏前端 JS 达 **1.8 MB**，其中 recharts 一块就占 **1.1 MB**（全站前端 JS 的六成）。改造后每个 section 是独立 chunk，首屏只加载「总览」一块，其余在点击时按需拉取 —— 这是**首屏收益最大的一处改动**。
+- **把 recharts 从首屏关键路径上摘掉（新增 `src/components/stats-charts.tsx`）。** 图表原先内联在 `overview-section.tsx` 里，导致「总览」自己的 chunk 就绑着 1.1 MB 的图表库。现已抽成独立组件、与同样依赖 recharts 的阅读历史一起改为 `dynamic()` 延迟加载：**统计区没数据时连这个 chunk 都不会被请求**。
+- **切换页面时不再有白屏。** 每个懒加载 section 都配了保持版心与留白的骨架占位（`SectionFallback`），避免「点一下 → 布局塌掉 → 内容跳出」的跳动感。
+- **核对了「运行时手感」的另一半：没有发现无意义的持续开销。** 全量扫过 `setInterval` / 轮询 / 高频重渲染路径后确认：唯一的定时器是阅读计时器（语义上必须有），不存在后台轮询接口的行为。**这一条是结论，不是遗漏** —— 没有为了「优化」去动本来就不慢的地方。
+
+### 性能 — 打包体积与体积泄漏
+
+- **修掉一处隐蔽的体积泄漏：`pruneStandalone()` 对符号链接目录完全无效。** 它跑在 `dereferenceSymlinks()` **之前**，而 `readdirSync` 不穿透符号链接 —— walk 进去看到的是空目录，于是「清理过了」的假象下，`@prisma/client-<hash>/runtime/` 在解引用**之后**又整个变回 **73.4 MB**。新增 `pruneLinkedDeps()` 排在解引用之后执行，这一轮才真正清得掉。
+- **Prisma：按可达性闭包裁剪（`collectRequireClosure`）。** 判据来自实测而非猜测：`.prisma/client/index.js` → `require('@prisma/client/runtime/library.js')`，而 `library.js` 的全部 require 都是 Node 内置模块，**不引用 runtime 目录里的任何兄弟文件**。也就是说 73.4 MB 里真正必需的是 `library.js` **一个文件（197.8 KB）**，其余是 5 种数据库 × 2 种模块格式的 `*.wasm-base64.*`、四套平台 runtime（edge / wasm-engine-edge / binary / react-native）与全部 sourcemap。删 `wasm-base64`（含 sqlite 那份）是安全的：生成的 client 走 **native 引擎**（`query_engine-windows.dll.node`），WASM 路径只有 `wasm.js` / `wasm-engine-edge.js` / `edge.js` 三个入口用得上，已确认它们**从未被任何编译产物 require**。
+- **pdfkit：刻意不用闭包裁剪，改走保守白名单。** 它是 **Yarn workspace 快照**（11.1 MB），里面混着构建工具链（`.yarn/releases/yarn-4.16.0.cjs` 2.9 MB、`install-state.gz`、`tools/`）和四份并列产物。**不能照搬闭包裁剪的原因**：`js/pdfkit.js` 里有运行时 `fs.readFileSync`，读的是 `./data/*.icc` 这类**非 JS 资源**，静态 require 图根本看不见 —— 闭包算法会得出「只需 pdfkit.js 一个文件」并据此删掉数据目录，那是个定时炸弹（PDF/A 的 `endSubset()` 会读 ICC）。所以只删构建工具链 + 明显走不到的备用入口 + sourcemap，**数据目录一律保留**。
+- **闭包算法的安全性质：解析不到就整体放弃。** `collectRequireClosure` 遇到任何**相对** specifier 解析不出落点时**返回 `null`**，调用方据此放弃这个包的裁剪 —— 因为删除是 `recursive: true` 的，一个解析不到的 `require('./x')` 若其实指向 `./x/index.js`，整个目录就会被误删。**宁可多留，也不赌。**（裸模块名不受此限：它们本来就不在待裁目录里。）另外按「保留路径的顶层段」而非「名字相等」决定删不删，否则目录式 require 的父目录会被连坐删掉 —— 这两条都是被单测当场抓出来的真 bug。
+- **关闭服务端 source map（`next.config.ts` 的 `serverSourceMaps: false`）。** Next 默认会在 `.next/server` 下为每个 route 生成 `.js.map`（实测 **191 个**），而它们带 `sourcesContent` —— 即**完整的原始 TypeScript 源码与注释**。对一个要防止逆向的桌面客户端，这等于把后端逻辑连同注释一起送出去。关掉后收益是双份的：少约 190 个文件（体积与解压时间同降）+ 逆向者只能读到压缩后的产物。
+- **实测回收 95.6 MB（120.9 MB → 25.3 MB）。** 在真实产物副本上干跑 `pruneLinkedDeps` 并逐项断言：必需文件（`library.js`、包顶层入口、pdfkit 的 `js/data/**` 与 `js/standard-fonts/**`）全在，废料（`*.wasm-base64.*`、`.yarn/`、`tools/`、`*.js.map`）全清。
+
+### 安全 — 防止逆向破解（新增 `desktop/hardening.js`）
+
+**基线是本来就有的**（`contextIsolation: true` / `nodeIntegration: false` / `sandbox: true` / 无应用菜单 / 外链交系统浏览器 / 每个 IPC handler 校验调用方来源）；本模块补齐其余部分，集中在一处便于审阅与回归：
+
+- **生产态 DevTools 关死（两层）。** ① `devtools-opened` → 立刻 `closeDevTools()`，兜住所有「已经开出来」的路径（含外部插件、命令行开关）；② `before-input-event` 拦掉 F12 / `Ctrl+Shift+I|J|C` / `Ctrl+U`。两层都要的原因：只靠 ① 会有「闪一下又关」的观感，而且 **DevTools 一开就已经能读到内存里的 API Key、能改前端逻辑绕过校验**，闪一下可能就够用。
+- **导航白名单。** `will-navigate` / `will-frame-navigate` 只放行受信任源，外部 http(s) 一律 `preventDefault()` 后交系统浏览器。要拦的不是页面里的 `<a target="_blank">`（那些走 `setWindowOpenHandler`），而是**当前窗口自身被导航走** —— 一旦导航到外部站点，那个站点的脚本就跑在一个挂着我们 preload 的窗口里，能直接调 `electronSaveFile` / `electronInstallUpdate` 这些通道（`guardSender` 会因来源不符拒绝，但安全性不该只押在一层上）。
+- **权限全拒。** `request` / `check` / `device` 三路 handler 一律 `false`（摄像头、麦克风、定位、通知、剪贴板读、USB/串口/HID）。科研工作台不需要这些，全关比逐个评估更安全。
+- **CSP 响应头（生产态生效）。** `default-src 'self'`、`connect-src 'self'`、`object-src 'none'`、`base-uri 'none'`、`form-action 'none'`、`frame-ancestors 'none'`，**不启用 `unsafe-eval`**。同时覆盖而非追加同名头（重复 CSP 在浏览器里是取交集，会让策略变得难以预测），并补 `X-Content-Type-Options: nosniff`。
+  - **唯一的让步是 `script-src` 里的 `'unsafe-inline'`**，且是必需的：Next App Router 会在 HTML 里内联引导脚本（本项目的主题初始化也是内联脚本），无法用 nonce 覆盖所有情况。之所以可接受：页面内容全部来自本地打包产物，**「能往页面里插脚本」这个前提在当前架构下并不成立**。
+  - **开发态不启用 CSP**：`next dev` 的 Turbopack HMR 走 eval，没有 `'unsafe-eval'` 会直接把开发服务器打死。代价（「CSP 在开发期不受检验」）由两道补偿兜住：`ANL_FORCE_CSP=1` 可在开发态强行打开；打包态挂 `watchCspViolations`，真有资源被拦时日志里直接给出行令与 URL，而不是只对着白屏猜。
+- **`webPreferences` 把默认值显式写死。** `nodeIntegrationInWorker` / `nodeIntegrationInSubFrames` / `webviewTag` / `allowRunningInsecureContent` / `experimentalFeatures` 在 Electron 里默认就是关的，写出来是为了**改不回去**（任何一项打开都等于在渲染进程上开一个逃逸口）；另外关掉 `spellcheck`（本应用没有需要拼写检查的输入场景，顺带避免输入内容被系统检查器读走）。
+- **`app.zip` 里的构建机符号链接断言保持不变**（§6.12）：打包前 `dereferenceSymlinks()` + 对最终 zip 断言 0 条链接 —— 宁可打包失败，也不发一个所有用户都装不起来的包。
+
+> **这一轮的边界要讲清楚**：以上都是**提高逆向成本**，不是「无法破解」。Electron 应用的代码最终一定在用户机器上，能做的只有把「读内存里的密钥」「改前端绕过校验」「拿到带注释的原始后端源码」这几条路一条条堵上。本轮把最容易被顺手利用的几处（DevTools、源码 map、无 CSP、权限默认放开）全部处理掉了。
+
+### 修复
+
+- **`next.config.ts` 新增 `allowedDevOrigins`。** Next 16 默认拒绝非 `localhost` 来源的开发资源请求，导致本机用 `127.0.0.1` 抓图时「页面 200 但 JS 全被拦」—— 表现为截图只有空壳 HTML、注入状态后仍停在同一页，**极易被误判成「样式没生效」**。这个坑排查了很久，记在此处。
+- **`papers-section.tsx` 的 `SectionHeader` 引用**：抽出组件后文件自身仍在使用 `<SectionHeader>`，而 re-export 不产生本地绑定，导致运行时 `ReferenceError: SectionHeader is not defined`（整页白屏）。已改为正常 import。
+- 本地 dev 库缺 `Paper.topicIds` / `Note.topicIds` 列导致 `/api/notifications` 等接口 500，已用 `prisma db push` 补齐（改动前已备份 `db/custom.db`）。
+
+### 验证
+
+- `tsc --noEmit` 通过（rc=0）；`eslint .` 通过（rc=0）。
+- `vitest run`：**32 文件 / 573 用例全过**（1.3.6 是 31 / 519），无回归。新增 `tests/desktop/hardening.test.ts`（26 例：CSP 指令逐条、`applyCsp` 只对受信任源生效、权限三路全拒、DevTools 锁定只在打包态生效、导航白名单、`openExternal` 抛错不影响主流程），并把 `tests/desktop/prepare-standalone.test.ts` 扩到 36 例（补 `collectRequireClosure` / `pruneLinkedDeps` / `isDeadPdfkitAsset` 三组）。
+- **CSP 用真实服务响应验证过兼容性，不是「写了就算」**：拉取 9 个前端 chunk 逐一扫过，`eval` / `new Function` **0 处**（唯一命中是 lodash 的 `Function("return this")()` 短路 idiom，正常路径走不到）、无外部 CSS `url()`、唯一的外部引用（favicon 指向 CDN）已改为本地 `/logo.svg`。**这三条正是 `'unsafe-eval'` 与 `connect-src 'self'` 敢收这么紧的依据。**
+- **裁剪做了「功能验证」，不只是比对文件清单。** 把运行时**真正加载的那份** pdfkit（`.next/node_modules/pdfkit-d5967b64ee09fcf0`，11.13 MB / 323 个文件）复制成夹具，先跑一次基线：能生成 PDF（1615 B，头 `%PDF-1.3`）；再跑 `pruneLinkedDeps`（移除 121 项、回收 9.35 MB → 1.79 MB），**裁剪后再生成一次，仍然成功**（1612 B，头 `%PDF-1.3`），且 `js/data/*.icc`、`js/data/*.afm`、`js/standard-fonts/**`、嵌套的 `node_modules/@noble/hashes/**` 与两个入口文件全部保留。prisma 侧同理：`require(runtime/library.js)` 在纯 Node 进程里载入成功（导出 30 项含 `getPrismaClient`），其 11 处 `require` 全为 `node:*` 内置模块。
+  - ⚠️ 排查途中踩到一个**假警报**，记下来免得下次重踩：`node_modules/pdfkit`（tracer 复制的那份）里的 `@noble/hashes` 是被**掏空**的（只剩 `esm/` 子集），直接 `require` 它会报 `Cannot find module '@noble/hashes/utils.js'`。但那**不是运行时那一份** —— 编译产物用的是 `e.y("pdfkit-d5967b64ee09fcf0")`（Turbopack 外部化），运行时加载的是 `.next/node_modules/` 下带哈希的副本，它的嵌套 `node_modules/@noble/hashes` 是完整的。**判定「哪一份在跑」必须看编译产物里的外部化名，不能按目录名猜。**
+- 用无头 Edge 逐页截图核对浅色与深色两套主题。
+- **本机没有跑 `npm run desktop:build`**：`next build` 的 typecheck 阶段在本机无限挂起（实测挂过 2h20m），打包一律交给打 tag 后的 CI。体积裁剪的本地证据是**在真实产物副本上干跑 + 逐项断言 + 功能验证**（见上），产物级验证由 CI 的打包自检完成。
+
 ## [1.3.6] - 2026-09-18
 
 **这一版回答两个问题：「更新过程完全看不懂」和「AI 功能拿不到该拿的原料」。** 用户跑通 1.3.4 → 1.3.5 的自更新后反馈：*「不知道怎么下的，需要重启安装，然后安装没有进度条之类的」*；紧接着又提了两条：*「打分应该是 AI 打的吧，自己打分有点难」* 与 *「AI 研究分析应该要加一个课题选择，多个同时分析内容少不说还容易在课题多了以后互相干扰」*。前者的结论是**三点里只有一点能在架构上修**，另两点只能把话说清楚；后两条是这版的功能主体。

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { SectionHeader } from './papers-section'
+import { SectionHeader } from '@/components/section-header'
 import { METHODOLOGY_MODULES, type MethodologyModule } from '@/lib/methodology-data'
 import { ResearchStatsDashboard } from '@/components/research-stats-dashboard'
 import {
@@ -49,7 +49,7 @@ export function MethodologySection() {
       <ResearchStatsDashboard />
 
       {/* Overview card */}
-      <Card className="bg-gradient-to-br from-primary/8 via-primary/4 to-transparent border-primary/20">
+      <Card className="border-l-2 border-l-primary/60 bg-card">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/15 text-primary shrink-0">
@@ -65,7 +65,7 @@ export function MethodologySection() {
                   <button
                     key={m.id}
                     onClick={() => { setExpanded(m.id); document.getElementById(`module-${m.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
-                    className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[10px] font-medium text-primary hover:bg-primary/10 transition-colors"
+                    className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors"
                   >
                     <span className="font-bold">M{m.id}</span>
                     {m.title}
@@ -129,17 +129,17 @@ function ModuleCard({ module: m, expanded, onToggle, onNavigate }: {
     <Card id={`module-${m.id}`} className={cn('overflow-hidden transition-all', expanded && 'ring-1 ring-primary/30')}>
       <CardHeader className="pb-3 cursor-pointer" onClick={onToggle}>
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-lg">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-border font-mono text-[13px] font-medium text-primary">
             M{m.id}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <CardTitle className="text-base">{m.title}</CardTitle>
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="text-[11px]">
                 <Layers className="h-2.5 w-2.5 mr-0.5" />
                 {m.sections.length} 节
               </Badge>
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="text-[11px]">
                 <FileCode className="h-2.5 w-2.5 mr-0.5" />
                 {m.scripts.length} 脚本
               </Badge>
@@ -171,7 +171,7 @@ function ModuleCard({ module: m, expanded, onToggle, onNavigate }: {
                     className="rounded-md border border-border/60 p-2.5 hover:border-primary/40 transition-colors group"
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary font-mono">{s.id}</Badge>
+                      <Badge variant="secondary" className="text-[11px] bg-primary/10 text-primary font-mono">{s.id}</Badge>
                       <span className="text-xs font-medium flex-1">{s.title}</span>
                       {navTarget && navTarget !== 'methodology' && (
                         <button
@@ -195,7 +195,7 @@ function ModuleCard({ module: m, expanded, onToggle, onNavigate }: {
             <div className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
               <FileCode className="h-3 w-3" />
               Python 脚本索引
-              <span className="text-[10px] text-muted-foreground/70 ml-1">（点击查看代码示例）</span>
+              <span className="text-[11px] text-muted-foreground/70 ml-1">（点击查看代码示例）</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
               {m.scripts.map((s) => (
@@ -250,21 +250,21 @@ function ScriptCard({ name, desc, code }: { name: string; desc: string; code?: s
         <FileCode className="h-3 w-3 text-primary shrink-0" />
         <code className="text-[11px] font-mono font-medium text-primary flex-1 truncate">{name}</code>
         {code && (
-          <Badge variant="outline" className="text-[9px] py-0 px-1 shrink-0">
+          <Badge variant="outline" className="text-[11px] py-0 px-1 shrink-0">
             <Code className="h-2 w-2 mr-0.5" />
             代码
           </Badge>
         )}
       </div>
-      <div className="text-[10px] text-muted-foreground">{desc}</div>
+      <div className="text-[11px] text-muted-foreground">{desc}</div>
 
       {expanded && code && (
         <div className="mt-2 animate-fade-in" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-medium text-muted-foreground">Python 代码示例</span>
+            <span className="text-[11px] font-medium text-muted-foreground">Python 代码示例</span>
             <button
               onClick={copy}
-              className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+              className="flex items-center gap-1 text-[11px] text-primary hover:underline"
             >
               {copied ? (
                 <><CheckCircle2 className="h-2.5 w-2.5" /> 已复制</>
@@ -273,7 +273,7 @@ function ScriptCard({ name, desc, code }: { name: string; desc: string; code?: s
               )}
             </button>
           </div>
-          <pre className="rounded-md bg-muted/50 border border-border/40 p-2.5 text-[10px] font-mono overflow-x-auto whitespace-pre leading-relaxed">
+          <pre className="rounded-md bg-muted/50 border border-border/40 p-2.5 text-[11px] font-mono overflow-x-auto whitespace-pre leading-relaxed">
             {code}
           </pre>
         </div>
