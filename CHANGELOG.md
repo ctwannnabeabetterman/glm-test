@@ -49,6 +49,7 @@
 - **闭包算法的安全性质：解析不到就整体放弃。** `collectRequireClosure` 遇到任何**相对** specifier 解析不出落点时**返回 `null`**，调用方据此放弃这个包的裁剪 —— 因为删除是 `recursive: true` 的，一个解析不到的 `require('./x')` 若其实指向 `./x/index.js`，整个目录就会被误删。**宁可多留，也不赌。**（裸模块名不受此限：它们本来就不在待裁目录里。）另外按「保留路径的顶层段」而非「名字相等」决定删不删，否则目录式 require 的父目录会被连坐删掉 —— 这两条都是被单测当场抓出来的真 bug。
 - **关闭服务端 source map（`next.config.ts` 的 `serverSourceMaps: false`）。** Next 默认会在 `.next/server` 下为每个 route 生成 `.js.map`（实测 **191 个**），而它们带 `sourcesContent` —— 即**完整的原始 TypeScript 源码与注释**。对一个要防止逆向的桌面客户端，这等于把后端逻辑连同注释一起送出去。关掉后收益是双份的：少约 190 个文件（体积与解压时间同降）+ 逆向者只能读到压缩后的产物。
 - **实测回收 95.6 MB（120.9 MB → 25.3 MB）。** 在真实产物副本上干跑 `pruneLinkedDeps` 并逐项断言：必需文件（`library.js`、包顶层入口、pdfkit 的 `js/data/**` 与 `js/standard-fonts/**`）全在，废料（`*.wasm-base64.*`、`.yarn/`、`tools/`、`*.js.map`）全清。
+- **落到用户看得到的那个数字上：安装包 144.2 MB → 114.8 MB（−29.4 MB，约小 20%）。** ⚠️ 两个数字不一样不是矛盾 —— 上面 95.6 MB 是**解压后的产物体积**，而安装包是压缩过的，被删的内容里占比最大的 `*.wasm-base64.*` 本身就是 base64 文本、压缩比极高（87 MB 的 Prisma 载荷压完只剩二十几 MB）。**要报「装得更小」就报 29.4 MB，别拿 95.6 MB 去说安装包。**
 
 ### 安全 — 防止逆向破解（新增 `desktop/hardening.js`）
 
