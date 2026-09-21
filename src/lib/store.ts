@@ -33,10 +33,20 @@ export type Section =
  * 不该在重启后突然冒出一段要插入的正文 —— 那比丢掉更让人困惑。
  */
 export interface DraftInbox {
-  /** 要插入稿件的 markdown（含 `[@paperId]` 标记） */
+  /** 要插入稿件的 markdown（可以只是 `[@paperId]`，也可以是一整节综述） */
   content: string
-  /** 建议的章节标题 */
+  /** 建议的章节标题（`mode='section'` 时用作新章节名） */
   title: string
+  /**
+   * `section` = 插成**新章节**（综述草稿用）；
+   * `append`  = 追加到某个**已有章节的末尾**（插入引用、补一段话用）。
+   *
+   * 为什么要有两种：单条 `[@p1]` 也走「新建章节」的话，用户会看到稿件里
+   * 凭空多出一个只含一个引用标记的章节 —— 比不插入更糟。
+   */
+  mode: 'section' | 'append'
+  /** `mode='append'` 时优先匹配的章节名（例如 `Related Work`）；匹配不到会自行回落 */
+  targetTitle?: string
   /** 投递时间戳，仅用于展示 */
   at: number
 }
@@ -55,8 +65,13 @@ interface AppState {
   setSidebarCollapsed: (v: boolean) => void
   setResultDensity: (d: ResultDensity) => void
   setCitationStyle: (s: CitationStyle) => void
-  sendDraftToWriting: (payload: { content: string; title: string }) => void
-  /** 取出并清空待插入的综述草稿；没有则返回 null（写作工作台在插入完成后调用） */
+  sendDraftToWriting: (payload: {
+    content: string
+    title: string
+    mode?: 'section' | 'append'
+    targetTitle?: string
+  }) => void
+  /** 取出并清空待插入的内容；没有则返回 null（写作工作台在插入完成后调用） */
   takeDraftInbox: () => DraftInbox | null
 }
 
@@ -78,8 +93,8 @@ export const useAppStore = create<AppState>()(
       // 同理：脏样式值会让「导出用的样式」与「预览显示用的样式」不一致，
       // 用户看到的是 A、拿到的是 B —— 比报错更难发现。
       setCitationStyle: (s) => set({ citationStyle: normalizeCitationStyle(s) }),
-      sendDraftToWriting: ({ content, title }) =>
-        set({ draftInbox: { content, title, at: Date.now() } }),
+      sendDraftToWriting: ({ content, title, mode, targetTitle }) =>
+        set({ draftInbox: { content, title, mode: mode ?? 'section', targetTitle, at: Date.now() } }),
       takeDraftInbox: () => {
         const current = get().draftInbox
         if (current) set({ draftInbox: null })

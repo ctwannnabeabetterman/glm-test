@@ -57,7 +57,7 @@ const moduleMap: DocSection = {
     { type: 'para', text: '平台包含 9 大功能模块，覆盖从选题到投稿的完整科研链路。每个模块对应一个侧边栏入口。' },
     { type: 'table', caption: '功能模块一览', columns: ['模块', '定位', '核心能力'], rows: [
       ['总览仪表盘', '全局视图', '统计卡片 · 三层架构图 · 阅读热力图 · 成就徽章 · 自定义组件'],
-      ['论文库', '文献管理', 'Zotero 风格 · 三遍阅读法 · AI 摘要 · BibTeX/CSV 导出 · 引用网络'],
+      ['论文库', '文献管理', 'Zotero 风格 · 三遍阅读法 · AI 摘要 · AI 重评阅读优先级 · 引用关系可一键插入稿件 · BibTeX/CSV 导出'],
       ['文献检索工具', '检索', '关键词矩阵 · 实时 arXiv · 雪球法 · 全文搜索 · 方向推荐'],
       ['选题评估', '规划', '4 维加权打分 · 横向对比 · AI 研究空白分析'],
       ['实验管理', '实验', '基线检查 · 超参数网格 · 消融实验 · AI 实验设计顾问'],
@@ -133,6 +133,7 @@ const apiRef: DocSection = {
     { type: 'table', caption: 'AI 与仿真', columns: ['方法', '路径', '说明'], rows: [
       ['POST', '/api/ai-summary', '论文摘要'],
       ['POST', '/api/ai-review', '阅读→综述草稿（按课题域 + 阅读范围取料，正文带 [@引用]）'],
+      ['POST', '/api/ai-paper-score', 'AI 重评论文的相关度 / 新颖度 / 阅读优先级（只出建议，确认后写回）'],
       ['POST', '/api/ai-gap-analysis', '研究空白分析'],
       ['POST', '/api/ai-experiment', '实验设计顾问'],
       ['POST', '/api/sim/run', '执行仿真'],

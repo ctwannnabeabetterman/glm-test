@@ -12,16 +12,28 @@ export async function GET() {
     const papers = await db.paper.findMany()
     const paperMap = new Map(papers.map((p) => [p.id, p]))
 
-    const enrichedCitations = citations.map((c) => ({
+    const enrichedAll = citations.map((c) => ({
       ...c,
       citingPaper: paperMap.get(c.citingPaperId),
       citedPaper: paperMap.get(c.citedPaperId),
-    })).filter((c) => c.citingPaper && c.citedPaper)
+    }))
+    /**
+     * ⚠️ 指向「已不在库中」的论文的关系会被过滤掉。
+     *
+     * 但**不能只过滤、不交代** —— 原来的实现里 `stats.totalCitations` 用的是**过滤前**的条数，
+     * 于是界面上会出现「引用关系 3」而列表区写着「暂无引用关系」：数字与内容自相矛盾，
+     * 且用户完全看不出为什么（删论文时并不会连带删除引用关系）。
+     *
+     * 现在：统计口径与列表口径**一致**，并把被隐藏的条数如实报出来，
+     * 由界面提示「另有 N 条关系的论文已不在库中」。
+     */
+    const enrichedCitations = enrichedAll.filter((c) => c.citingPaper && c.citedPaper)
+    const orphanCitations = enrichedAll.length - enrichedCitations.length
 
-    // Calculate citation stats per paper
+    // Calculate citation stats per paper（只统计**确实存在**的关系，与列表口径保持一致）
     const citingCount: Record<string, number> = {} // how many papers this paper cites
     const citedCount: Record<string, number> = {} // how many papers cite this paper
-    for (const c of citations) {
+    for (const c of enrichedCitations) {
       citingCount[c.citingPaperId] = (citingCount[c.citingPaperId] || 0) + 1
       citedCount[c.citedPaperId] = (citedCount[c.citedPaperId] || 0) + 1
     }
@@ -44,8 +56,11 @@ export async function GET() {
     return NextResponse.json({
       citations: enrichedCitations,
       stats: {
-        totalCitations: citations.length,
+        // 与 citations 的长度**同源**：数字与列表必须对得上
+        totalCitations: enrichedCitations.length,
         papersWithCitations: topCited.length,
+        // 被隐藏的条数（对方论文已不在库中）
+        orphanCitations,
       },
       topCited,
     })

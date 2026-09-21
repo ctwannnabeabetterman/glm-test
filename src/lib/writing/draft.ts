@@ -269,6 +269,57 @@ export function sectionProgress(section: DraftSection): Progress {
   return progressOf(countWords(section.content), section.targetWords)
 }
 
+// ---------------- 追加目标的选择（跨面板投递用） ----------------
+
+/**
+ * 选「这段内容该追加到哪一章」。
+ *
+ * 场景：用户在**别的面板**（引用追踪、论文详情、AI 相关论文）点「插入引用」，
+ * 内容通过 store 的一次性投递送过来，而写作工作台此时可能刚挂载 ——
+ * 光标位置、上次选中的章节都不存在了，必须由规则决定落点，且**必须是可预测的**。
+ *
+ * 规则（按优先级）：
+ *  1. 指定了 `preferredTitle` 且能按标题匹配到章节 → 就用它
+ *     （引用类内容默认投到 `Related Work`，正是它该待的地方）；
+ *  2. 否则落到**最后一个有内容的章节** —— 新写的段落跟在已写内容之后最自然；
+ *  3. 一点内容都没有时落到第一章；
+ *  4. 一章都没有 → 返回 -1，由调用方决定（现在是「改插成新章节」）。
+ *
+ * 标题匹配刻意用**去空格 + 忽略大小写**的严格相等，而不是 `includes`：
+ * 「Related Work」若写成模糊匹配，会把「Related Work Summary」也吃掉，
+ * 而用户看到的是「只插了一条引用，却整章变了」。
+ */
+export function pickAppendTarget(sections: DraftSection[], preferredTitle?: string): number {
+  if (sections.length === 0) return -1
+  const want = (preferredTitle || '').trim().toLowerCase()
+  if (want) {
+    const hit = sections.findIndex((s) => (s.title || '').trim().toLowerCase() === want)
+    if (hit >= 0) return hit
+  }
+  for (let i = sections.length - 1; i >= 0; i -= 1) {
+    if ((sections[i].content || '').trim()) return i
+  }
+  return 0
+}
+
+/**
+ * 把一段文本追加到指定章节的末尾。
+ *
+ * 会自动补一个空行 —— 直接拼会把引用标记粘到上一句的句尾（`…很重要。[@p1]`），
+ * 而 `applyCitationNumbers` 只认 `[@id]` 本身，粘上之后标记仍能解析，
+ * 但用户看到的是一坨难以编辑的长句。空行分离既好读，也不影响编号。
+ */
+export function appendToSection(sections: DraftSection[], index: number, text: string): DraftSection[] {
+  const add = (text || '').trim()
+  if (!add) return sections
+  if (index < 0 || index >= sections.length) return sections
+  const cur = sections[index].content || ''
+  const joined = cur.trim() ? `${cur.trimEnd()}\n\n${add}` : add
+  const next = [...sections]
+  next[index] = { ...sections[index], content: joined }
+  return next
+}
+
 // ---------------- 导出 ----------------
 
 export interface ManuscriptDoc {

@@ -18,6 +18,7 @@ import {
 import { GitBranch, Trash2, Plus, ArrowRight, TrendingUp, Award } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { InsertCitationButton } from '@/components/insert-citation-button'
 
 interface Paper {
   id: string
@@ -39,7 +40,7 @@ interface Citation {
 
 interface CitationData {
   citations: Citation[]
-  stats: { totalCitations: number; papersWithCitations: number }
+  stats: { totalCitations: number; papersWithCitations: number; orphanCitations?: number }
   topCited: Array<Paper & { citedByCount: number; citesCount: number }>
 }
 
@@ -109,6 +110,14 @@ export function CitationTracker() {
         </div>
       </div>
 
+      {/* 「有数字但列表空」曾经是这条接口的一个真 bug：统计用的是过滤前的条数。
+          现在口径一致，并把被隐藏的条数如实说出来，避免用户对着 3 和空列表发懵。 */}
+      {(data?.stats.orphanCitations ?? 0) > 0 && (
+        <p className="text-[10px] text-muted-foreground rounded-md border border-dashed border-border/60 px-2 py-1.5">
+          另有 {data?.stats.orphanCitations} 条引用关系的论文已不在库中（删论文不会连带删除关系），已隐藏。
+        </p>
+      )}
+
       {/* Add citation button */}
       <Button
         size="sm"
@@ -175,6 +184,14 @@ export function CitationTracker() {
           <div className="text-[11px] font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
             <Award className="h-3 w-3 text-amber-500" />
             引用排行 Top {topCited.length}
+            {/* 一次把「这个领域最常被引的几篇」合成一处引用送进稿子 ——
+                写 Related Work 时最常用的动作，省掉逐篇复制 */}
+            <InsertCitationButton
+              className="ml-auto h-6 text-[10px]"
+              papers={topCited.slice(0, 5).map((p) => ({ id: p.id, title: p.title }))}
+              label={`把前 ${Math.min(5, topCited.length)} 篇插入稿件`}
+              showIcon={false}
+            />
           </div>
           <div className="space-y-1.5">
             {topCited.map((p, i) => (
@@ -196,6 +213,13 @@ export function CitationTracker() {
                   <Badge variant="secondary" className="text-[9px] bg-blue-500/10 text-blue-600">
                     引用 {p.citesCount}
                   </Badge>
+                  <InsertCitationButton
+                    size="icon"
+                    variant="ghost"
+                    className="h-5 w-5"
+                    papers={p.id}
+                    label=""
+                  />
                 </div>
               </div>
             ))}
@@ -237,12 +261,25 @@ export function CitationTracker() {
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleDelete(c.id)}
-                    className="opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive shrink-0"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {/* 引用「被引方」—— 写 Related Work 时真正要引的就是它 */}
+                    {c.citedPaper?.id && (
+                      <InsertCitationButton
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        papers={c.citedPaper.id}
+                        label=""
+                      />
+                    )}
+                    <button
+                      onClick={() => handleDelete(c.id)}
+                      className="opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive shrink-0"
+                      title="删除这条引用关系"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

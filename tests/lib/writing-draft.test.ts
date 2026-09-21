@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  appendToSection,
   applyCitationNumbers,
   buildReferences,
   collectCitationIds,
@@ -10,6 +11,7 @@ import {
   markdownToPlainText,
   newSection,
   normalizeSections,
+  pickAppendTarget,
   renderManuscriptMarkdown,
   safeFileName,
   sectionProgress,
@@ -226,6 +228,66 @@ describe('safeFileName', () => {
     const long = 'A'.repeat(200)
     expect(safeFileName(long).length).toBe(80)
     expect(safeFileName(long).startsWith('AAAA')).toBe(true)
+  })
+})
+
+describe('追加目标的选择（跨面板投递：插入引用 / 补一段话）', () => {
+  const secs = (...pairs: Array<[string, string]>): DraftSection[] =>
+    pairs.map(([title, content], i) => ({ id: `s${i}`, title, targetWords: 0, content }))
+
+  it('指定章节名优先 —— 引用默认落 Related Work', () => {
+    const s = secs(['Abstract', 'x'], ['Introduction', ''], ['Related Work', ''], ['Method', 'y'])
+    expect(pickAppendTarget(s, 'Related Work')).toBe(2)
+  })
+
+  it('标题匹配忽略大小写与首尾空格，但**不做模糊匹配**', () => {
+    const s = secs(['Related Work', ''], ['Related Work Summary', ''])
+    expect(pickAppendTarget(s, ' related work ')).toBe(0)
+    expect(pickAppendTarget(s, 'Related Work Summary')).toBe(1)
+    // 半截名不匹配 —— 否则「Related」会把两章都吃掉，用户看到的是「插一条引用整章变了」。
+    // 匹配不到就走回落规则；这组用例里两章都是空的 ⇒ 落到第一章。
+    expect(pickAppendTarget(s, 'Related')).toBe(0)
+  })
+
+  it('没指定 / 匹配不到 → 落到最后一个有内容的章节', () => {
+    const s = secs(['Abstract', 'a'], ['Introduction', 'b'], ['Method', ''])
+    expect(pickAppendTarget(s, 'Related Work')).toBe(1)
+    expect(pickAppendTarget(s)).toBe(1)
+  })
+
+  it('全空 → 第一章；完全没有章节 → -1（由调用方退化成「新建章节」）', () => {
+    expect(pickAppendTarget(secs(['A', ''], ['B', '   ']))).toBe(0)
+    expect(pickAppendTarget([])).toBe(-1)
+  })
+
+  it('appendToSection 自动补空行，不与上一句粘连', () => {
+    const next = appendToSection(secs(['Related Work', '已有内容。']), 0, '[@p1]')
+    expect(next[0].content).toBe('已有内容。\n\n[@p1]')
+  })
+
+  it('空章节直接写入，不留前导空行', () => {
+    expect(appendToSection(secs(['A', '']), 0, '[@p1]')[0].content).toBe('[@p1]')
+    expect(appendToSection(secs(['A', '   ']), 0, '[@p1]')[0].content).toBe('[@p1]')
+  })
+
+  it('不修改入参（React state 就地改会引发难查的重渲染问题）', () => {
+    const s = secs(['A', 'x'])
+    const snapshot = JSON.parse(JSON.stringify(s))
+    appendToSection(s, 0, '[@p1]')
+    expect(s).toEqual(snapshot)
+  })
+
+  it('空文本 / 越界索引原样返回（不制造一个空章节）', () => {
+    const s = secs(['A', 'x'])
+    expect(appendToSection(s, 0, '   ')).toBe(s)
+    expect(appendToSection(s, 5, '[@p1]')).toBe(s)
+    expect(appendToSection(s, -1, '[@p1]')).toBe(s)
+  })
+
+  it('追加进去的引用标记照常编号（语法没被拼接破坏）', () => {
+    const s = appendToSection(secs(['Related Work', '综述见']), 0, '[@p1, @p2]')
+    const refs = buildReferences(collectCitationIds(s), PAPERS)
+    expect(applyCitationNumbers(s[0].content, refs)).toContain('[1, 2]')
   })
 })
 

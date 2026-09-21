@@ -4,8 +4,9 @@ import { useFetch } from '@/lib/hooks'
 import { useState, useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Network, Tag, FolderTree, User } from 'lucide-react'
+import { Network, Tag, FolderTree, User, Quote } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { InsertCitationButton } from '@/components/insert-citation-button'
 
 interface Paper {
   id: string
@@ -191,7 +192,7 @@ export function PaperRelations() {
           return (
             <button
               key={p.id}
-              onClick={() => setSelectedPort(isSelected ? null : p.id)}
+              onClick={() => selectPaper(isSelected ? null : p.id)}
               className={cn(
                 'flex items-center gap-2 rounded-md border p-1.5 text-left transition-all',
                 isSelected ? 'border-primary bg-primary/10' : 'border-border/60 hover:border-primary/40',
@@ -232,14 +233,14 @@ export function PaperRelations() {
                   </div>
                   <div className="flex-1 min-w-0 grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => setSelectedPort(r.paperA.id)}
+                      onClick={() => selectPaper(r.paperA.id)}
                       className="text-[10px] text-left truncate hover:text-primary hover:underline"
                       title={r.paperA.title}
                     >
                       {r.paperA.title}
                     </button>
                     <button
-                      onClick={() => setSelectedPort(r.paperB.id)}
+                      onClick={() => selectPaper(r.paperB.id)}
                       className="text-[10px] text-left truncate hover:text-primary hover:underline"
                       title={r.paperB.title}
                     >
@@ -254,6 +255,17 @@ export function PaperRelations() {
                       ×{r.strength}
                     </Badge>
                   )}
+                  {/* 「这两篇有关系」往往就是你想把它们一起引的理由 */}
+                  <InsertCitationButton
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0"
+                    papers={[
+                      { id: r.paperA.id, title: r.paperA.title },
+                      { id: r.paperB.id, title: r.paperB.title },
+                    ]}
+                    label=""
+                  />
                 </div>
               </div>
             )
@@ -263,7 +275,9 @@ export function PaperRelations() {
     </div>
   )
 
-  function setSelectedPort(id: string | null) {
+  // 以前这里叫 setSelectedPort（Port 是 Paper 的手误），读起来像「选中某个端口」；
+  // 只是顺手改回本名，行为不变。
+  function selectPaper(id: string | null) {
     setSelectedPaper(id)
   }
 }

@@ -321,6 +321,9 @@ describe('AI 提示词：防编造约束必须在位', () => {
     ['ai-gap-analysis', /NO_FABRICATION_GUARD/, '会输出「相关论文」'],
     ['ai-related-papers', /NO_FABRICATION_GUARD/, '会输出论文标题/作者/年份/期刊'],
     ['ai-review', /NO_FABRICATION_GUARD/, '会写文献综述并引用'],
+    // ai-paper-score 给论文打「相关度/新颖度/阅读优先级」，分数直接决定那张阅读优先级榜
+    ['ai-paper-score', /NO_FABRICATION_GUARD/, '打分必须基于题录与摘要，不能凭印象补方法细节'],
+    ['ai-paper-score', /JSON_ONLY_GUARD/, '结构化输出必须只回 JSON，且 id 只能取自清单'],
     // ai-topic-score 给 14 个细项打分，分数直接影响「这个课题该不该做」的判断
     ['ai-topic-score', /NO_FABRICATION_GUARD/, '打分必须按课题事实，不能凭印象填数'],
     // ai-direction 用的是自带措辞（比通用版更具体），这里按原文匹配
@@ -370,6 +373,13 @@ describe('AI 提示词：输出格式合同必须在位', () => {
     // weekly / breakdown 要求「只输出 JSON、不要 Markdown」，会被格式合同带偏 ⇒ 二者不得同时出现
     const jsonRule = src.slice(src.indexOf('const JSON_FORMAT_RULE'))
     expect(jsonRule.slice(0, 400)).not.toMatch(/OUTPUT_FORMAT_CONTRACT/)
+  })
+
+  it('JSON 模式的 AI 路由：拼 JSON_ONLY_GUARD，且**不得**拼 Markdown 格式合同', () => {
+    const src = readFileSync(path.resolve('src/app/api/ai-paper-score/route.ts'), 'utf8')
+    expect(src).toMatch(/JSON_ONLY_GUARD/)
+    // 两条约束互斥：同时出现会让模型产出「JSON 外面裹一层 Markdown」，解析失败率上升
+    expect(src).not.toMatch(/OUTPUT_FORMAT_CONTRACT/)
   })
 
   it('渲染端只有一份 Markdown 渲染器，且默认不渲染 raw HTML', () => {

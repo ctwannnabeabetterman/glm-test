@@ -64,6 +64,7 @@ import {
   Copy,
   Network,
   GitBranch,
+  Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -74,6 +75,13 @@ import { TopicLinker, TopicBadges } from '@/components/topic-linker'
 import { ReadingTimer } from '@/components/reading-timer'
 import { PaperRelations } from '@/components/paper-relations'
 import { CitationTracker } from '@/components/citation-tracker'
+import { PaperScorePanel } from '@/components/paper-score-panel'
+import { InsertCitationButton } from '@/components/insert-citation-button'
+import {
+  describeScoreParts,
+  rankByPriority,
+  readingPriorityScore,
+} from '@/lib/library/reading-priority'
 
 interface Paper {
   id: string
@@ -120,7 +128,8 @@ function parseReadingProgress(s: string | undefined | null): ReadingProgress {
   }
 }
 
-const PRIORITY_RANK = { high: 3, medium: 2, low: 1 }
+// ⚠️ 评分公式与优先级的权重表已挪到 `src/lib/library/reading-priority.ts`（唯一定义处）。
+// 这里以前还留着一份 `PRIORITY_RANK`，与排序比较器、行内渲染各写一遍 —— 三份实现必然漂移。
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   unread: { label: '未读', color: 'text-amber-700', bg: 'bg-amber-100 dark:bg-amber-900/30' },
   reading: { label: '阅读中', color: 'text-blue-700', bg: 'bg-blue-100 dark:bg-blue-900/30' },
@@ -136,6 +145,10 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export function PapersSection() {
   const { data: papers, loading, refetch } = useFetch<Paper[]>('/api/papers')
+  // 哪些论文的分数是 AI 给的、什么时候给的（存成一条 Setting，不是数据库列）
+  const { data: provenance, refetch: refetchProvenance } = useFetch<{ scored: Record<string, { at: string }> }>(
+    '/api/papers/score-provenance',
+  )
   const api = useApi()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -172,14 +185,28 @@ export function PapersSection() {
     })
   }, [papers, search, statusFilter, categoryFilter, priorityFilter])
 
-  // Compute priority rank (relevance*0.4 + novelty*0.3 + code*15 + year_bonus*0.5)
-  const ranked = useMemo(() => {
-    return [...filtered].sort((a, b) => {
-      const sa = a.relevance * 0.4 + a.novelty * 0.3 + (a.codeUrl ? 15 : 0) + Math.min(a.year - 2019, 5) * 0.5 + PRIORITY_RANK[a.priority as keyof typeof PRIORITY_RANK] * 2
-      const sb = b.relevance * 0.4 + b.novelty * 0.3 + (b.codeUrl ? 15 : 0) + Math.min(b.year - 2019, 5) * 0.5 + PRIORITY_RANK[b.priority as keyof typeof PRIORITY_RANK] * 2
-      return sb - sa
-    })
-  }, [filtered])
+  /**
+   * 评分与排序**统一走 `src/lib/library/reading-priority.ts`**。
+   *
+   * 以前这段公式在三个地方各写了一遍（排序比较器两处 + 行内渲染一处），
+   * 改一处忘一处就会变成「显示的分数与排序依据不一致」—— 这种不一致还特别难被发现。
+   */
+  const ranked = useMemo(() => rankByPriority(filtered), [filtered])
+
+  /** 交给 AI 打分面板的最小形状（含当前的分数，用来显示「当前 → 建议」） */
+  const scorable = useMemo(
+    () =>
+      (papers ?? []).map((p) => ({
+        id: p.id,
+        title: p.title,
+        year: p.year,
+        codeUrl: p.codeUrl,
+        relevance: p.relevance,
+        novelty: p.novelty,
+        priority: p.priority,
+      })),
+    [papers],
+  )
 
   const handleStatusChange = async (paper: Paper, status: string) => {
     try {
@@ -548,12 +575,25 @@ export function PapersSection() {
         {/* Ranked view */}
         <TabsContent value="ranked" className="space-y-2">
           <Card className="bg-muted/30">
-            <CardContent className="p-3 text-xs text-muted-foreground flex items-center gap-2">
-              <TrendingUp className="h-3.5 w-3.5 text-primary" />
-              评分公式：相关度 × 0.4 + 新颖度 × 0.3 + 开源代码 × 15 + 年份加成 × 0.5 + 优先级 × 2
-              <span className="ml-auto">（方法论 §2.3.4 reading_priority.py）</span>
+            <CardContent className="p-3 text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+              <TrendingUp className="h-3.5 w-3.5 text-primary shrink-0" />
+              评分公式：相关度 × 0.4 + 新颖度 × 0.3 + 开源代码 × 15 + 年份项 × 0.5 + 优先级 × 2
+              <span className="text-[10px] text-muted-foreground/80">
+                （方法论 §2.3.4 reading_priority.py · 公式只在
+                <code className="mx-0.5">src/lib/library/reading-priority.ts</code>定义一份）
+              </span>
+              <span className="ml-auto text-[10px]">相关度 / 新颖度 / 优先级可由 AI 按论文信息重评</span>
             </CardContent>
           </Card>
+
+          <PaperScorePanel
+            papers={scorable}
+            onApplied={() => {
+              refetch()
+              refetchProvenance()
+            }}
+          />
+
           {loading ? (
             <SkeletonList />
           ) : (
@@ -563,7 +603,9 @@ export function PapersSection() {
                   key={p.id}
                   paper={p}
                   rank={i + 1}
-                  score={p.relevance * 0.4 + p.novelty * 0.3 + (p.codeUrl ? 15 : 0) + Math.min(p.year - 2019, 5) * 0.5 + PRIORITY_RANK[p.priority as keyof typeof PRIORITY_RANK] * 2}
+                  score={readingPriorityScore(p)}
+                  scoreTip={describeScoreParts(p)}
+                  aiScoredAt={provenance?.scored?.[p.id]?.at}
                   onSelect={() => setSelectedPaper(p)}
                 />
               ))}
@@ -666,13 +708,20 @@ function PaperRow({ paper, onSelect, onStatusChange, onDelete, selected }: {
   )
 }
 
-function PaperRankedRow({ paper, rank, score, onSelect }: {
+function PaperRankedRow({ paper, rank, score, scoreTip, aiScoredAt, onSelect }: {
   paper: Paper
   rank: number
   score: number
+  /** 分数构成的可读拆解（悬停可见）—— 公式只此一份，界面不再抄一遍 */
+  scoreTip?: string
+  /** 有值表示这条分数是 AI 给的（ISO 时间串） */
+  aiScoredAt?: string
   onSelect: () => void
 }) {
   const rankColors = rank === 1 ? 'bg-amber-500 text-white' : rank === 2 ? 'bg-slate-400 text-white' : rank === 3 ? 'bg-orange-700 text-white' : 'bg-muted text-muted-foreground'
+  const aiTip = aiScoredAt
+    ? `这条评分由 AI 按题录与摘要给出（${new Date(aiScoredAt).toLocaleString('zh-CN', { hour12: false })}）；你手工改过分数后标记会自动摘掉`
+    : undefined
   return (
     <div
       className="flex items-center gap-3 rounded-md border border-border bg-card p-3 transition-colors cursor-pointer hover:border-primary/40"
@@ -682,7 +731,19 @@ function PaperRankedRow({ paper, rank, score, onSelect }: {
         #{rank}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium leading-snug line-clamp-1">{paper.title}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium leading-snug line-clamp-1">{paper.title}</span>
+          {aiScoredAt && (
+            <Badge
+              variant="secondary"
+              className="shrink-0 text-[9px] py-0 bg-primary/15 text-primary gap-0.5"
+              title={aiTip}
+            >
+              <Sparkles className="h-2.5 w-2.5" />
+              AI 评
+            </Badge>
+          )}
+        </div>
         <div className="text-xs text-muted-foreground truncate">
           {paper.authors} · {paper.venue} · {paper.year}
         </div>
@@ -700,7 +761,7 @@ function PaperRankedRow({ paper, rank, score, onSelect }: {
           <div className="font-bold text-amber-600">{paper.citations}</div>
           <div className="text-[11px] text-muted-foreground">引用</div>
         </div>
-        <Badge variant="secondary" className="bg-primary/15 text-primary font-bold">
+        <Badge variant="secondary" className="bg-primary/15 text-primary font-bold" title={scoreTip}>
           {score.toFixed(1)}
         </Badge>
       </div>
@@ -1184,17 +1245,22 @@ function CitationGenerator({ paper }: { paper: Paper }) {
 
   return (
     <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div>
           <div className="text-xs font-semibold flex items-center gap-1.5">
             <span>📑</span>
             BibTeX 引用
           </div>
-          <div className="text-[11px] text-muted-foreground">方法论 §4.3.3 BibTeX 文献管理</div>
+          <div className="text-[11px] text-muted-foreground">
+            方法论 §4.3.3 · 也可以直接插进稿件（用 [@引用]，编号与著录格式由写作工作台统一生成）
+          </div>
         </div>
-        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowCitation(!showCitation)}>
-          {showCitation ? '收起' : '展开'}
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          <InsertCitationButton papers={paper.id} label="插入稿件" className="h-7 text-xs" />
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowCitation(!showCitation)}>
+            {showCitation ? '收起' : '展开'}
+          </Button>
+        </div>
       </div>
 
       {showCitation && (

@@ -47,9 +47,11 @@ import {
   type CitationStyle,
 } from '@/lib/writing/citation-styles'
 import {
+  appendToSection,
   collectCitationIds,
   countWords,
   newSection,
+  pickAppendTarget,
   sectionProgress,
   totalWords,
   writingProgress,
@@ -309,6 +311,23 @@ export function WritingWorkbench() {
     const t = setTimeout(() => {
       const job = takeDraftInbox()
       if (!job) return
+
+      // mode='append'：追加到某个已有章节的末尾（插入引用、补一段话）。
+      // 落点由 `pickAppendTarget` 按规则决定 —— 光标位置在这个时间点是不存在的，
+      // 与其猜，不如用「指定章节优先 → 否则最后一个有内容的章节」这种可预测的规则。
+      const targetIdx = job.mode === 'append' ? pickAppendTarget(active.sections, job.targetTitle) : -1
+      if (targetIdx >= 0) {
+        const next = appendToSection(active.sections, targetIdx, job.content)
+        setItems((prev) =>
+          prev.map((it) => (it.id === active.id ? { ...it, sections: next, words: totalWords(next) } : it)),
+        )
+        scheduleSave(active.id, { sections: next })
+        setActiveSectionId(next[targetIdx].id)
+        toast.success(`已插入「${next[targetIdx].title}」章节末尾 —— 引用会自动编号`)
+        return
+      }
+
+      // 默认（以及 append 找不到落点时的退化）：插成新章节
       const section = { ...newSection(job.title, 0), content: job.content }
       setItems((prev) =>
         prev.map((it) =>
