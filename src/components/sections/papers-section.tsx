@@ -79,6 +79,8 @@ import { PaperScorePanel } from '@/components/paper-score-panel'
 import { InsertCitationButton } from '@/components/insert-citation-button'
 import {
   describeScoreParts,
+  normalizePriority,
+  normalizeScore,
   rankByPriority,
   readingPriorityScore,
 } from '@/lib/library/reading-priority'
@@ -626,7 +628,16 @@ export function PapersSection() {
         {/* Detail view */}
         <TabsContent value="detail">
           {selectedPaper ? (
-            <PaperDetail paper={selectedPaper} onUpdate={(updated) => { setSelectedPaper(updated); refetch() }} />
+            <PaperDetail
+              paper={selectedPaper}
+              aiScoredAt={provenance?.scored?.[selectedPaper.id]?.at}
+              onUpdate={(updated) => {
+                setSelectedPaper(updated)
+                refetch()
+                // 手动改分会摘掉 AI 标记 ⇒ 顺手刷新来源映射，让徽标立刻消失
+                refetchProvenance()
+              }}
+            />
           ) : (
             <EmptyCard text="点击左侧列表选择论文查看详情" />
           )}
@@ -769,12 +780,53 @@ function PaperRankedRow({ paper, rank, score, scoreTip, aiScoredAt, onSelect }: 
   )
 }
 
-function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) => void }) {
+function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: (p: Paper) => void; aiScoredAt?: string }) {
   const api = useApi()
   const [notes, setNotes] = useState(paper.notes)
   const [editing, setEditing] = useState(false)
   const [pdfOpen, setPdfOpen] = useState(false)
   const attachPdfRef = useRef<HTMLInputElement>(null)
+
+  /**
+   * 手动改分。
+   *
+   * 为什么必须给这个入口：AI 重评会**写回**相关度/新颖度/优先级，如果界面上不能改回来，
+   * 用户不同意某个分数时**无处下手** —— 「可人工覆盖」这句承诺就是空的。
+   * 保存走的是同一条 `PUT /api/papers/[id]`，那边会**摘掉「AI 评」标记**
+   * （标记在你改完之后继续说谎，比不显示标记更糟）。
+   */
+  const [editingScores, setEditingScores] = useState(false)
+  const [scoreDraft, setScoreDraft] = useState({
+    relevance: paper.relevance,
+    novelty: paper.novelty,
+    priority: paper.priority,
+  })
+
+  const openScoreEditor = () => {
+    setScoreDraft({ relevance: paper.relevance, novelty: paper.novelty, priority: paper.priority })
+    setEditingScores(true)
+  }
+
+  const saveScores = async () => {
+    // 与 API 同样的收敛口径（1-10 整数 / 三档优先级），别让界面能造出 API 会拒绝的值
+    const payload = {
+      relevance: normalizeScore(scoreDraft.relevance),
+      novelty: normalizeScore(scoreDraft.novelty),
+      priority: normalizePriority(scoreDraft.priority),
+    }
+    try {
+      await api.put(`/api/papers/${paper.id}`, payload)
+      toast.success(
+        aiScoredAt
+          ? '已保存 —— 这篇的「AI 评」标记已摘掉（现在是你自己的判断）'
+          : '已保存',
+      )
+      setEditingScores(false)
+      onUpdate({ ...paper, ...payload })
+    } catch {
+      toast.error('保存失败')
+    }
+  }
 
   const exportNotes = async (format: 'md' | 'pdf' | 'txt') => {
     try {
@@ -828,11 +880,82 @@ function PaperDetail({ paper, onUpdate }: { paper: Paper; onUpdate: (p: Paper) =
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <DetailStat label="相关度" value={`${paper.relevance}/10`} color="text-emerald-600" />
-          <DetailStat label="新颖度" value={`${paper.novelty}/10`} color="text-blue-600" />
+          <DetailStat label={aiScoredAt ? '相关度 · AI' : '相关度'} value={`${paper.relevance}/10`} color="text-emerald-600" />
+          <DetailStat label={aiScoredAt ? '新颖度 · AI' : '新颖度'} value={`${paper.novelty}/10`} color="text-blue-600" />
           <DetailStat label="引用数" value={paper.citations} color="text-amber-600" />
           <DetailStat label="状态" value={STATUS_LABELS[paper.status]?.label ?? paper.status} color="text-primary" />
         </div>
+
+        {/* 手动改分的入口 —— 没有它，「AI 打了分但你不认同」就无处下手 */}
+        {!editingScores ? (
+          <div className="flex flex-wrap items-center gap-2 -mt-1">
+            <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={openScoreEditor}>
+              <Pencil className="h-3 w-3 mr-1" />
+              改分数与优先级
+            </Button>
+            {aiScoredAt ? (
+              <span className="text-[10px] text-primary">
+                这项评分由 AI 按题录与摘要给出（{new Date(aiScoredAt).toLocaleString('zh-CN', { hour12: false })}）·
+                你手动改过之后标记会自动摘掉
+              </span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">
+                当前是你自己填的分数（或历史数据）
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-end gap-2 rounded-md border border-border/60 bg-muted/20 p-2">
+            <div>
+              <Label className="text-[10px] text-muted-foreground">相关度 1-10</Label>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={scoreDraft.relevance}
+                onChange={(e) => setScoreDraft({ ...scoreDraft, relevance: Number(e.target.value) })}
+                className="mt-0.5 h-7 w-20 text-xs"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] text-muted-foreground">新颖度 1-10</Label>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={scoreDraft.novelty}
+                onChange={(e) => setScoreDraft({ ...scoreDraft, novelty: Number(e.target.value) })}
+                className="mt-0.5 h-7 w-20 text-xs"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] text-muted-foreground">优先级</Label>
+              <Select
+                value={scoreDraft.priority}
+                onValueChange={(v) => setScoreDraft({ ...scoreDraft, priority: v })}
+              >
+                <SelectTrigger className="mt-0.5 h-7 w-24 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="high">高</SelectItem>
+                  <SelectItem value="medium">中</SelectItem>
+                  <SelectItem value="low">低</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" className="h-7 text-xs" onClick={saveScores}>
+              <CheckCircle2 className="h-3 w-3 mr-1" />
+              保存
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingScores(false)}>
+              取消
+            </Button>
+            <span className="text-[10px] text-muted-foreground">
+              分数会影响「优先级排序」那张榜；改完会摘掉该篇的 AI 标记
+            </span>
+          </div>
+        )}
 
         {/* Reading timer (§2.3 三遍阅读法) */}
         <ReadingTimer

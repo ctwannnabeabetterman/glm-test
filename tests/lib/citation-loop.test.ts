@@ -114,3 +114,28 @@ describe('AI 打分面板：接线与「来源可见」', () => {
     expect(section).toMatch(/AI 评/)
   })
 })
+
+describe('人工改分的入口（「可人工覆盖」不能只是一句承诺）', () => {
+  const section = read('src/components/sections/papers-section.tsx')
+
+  it('论文详情里能改相关度/新颖度/优先级，且走同一条 PUT', () => {
+    expect(section).toMatch(/改分数与优先级/)
+    expect(section).toMatch(/saveScores/)
+    expect(section).toMatch(/api\.put\(`\/api\/papers\/\$\{paper\.id\}`, payload\)/)
+  })
+
+  it('保存前用与 API 相同的收敛口径（不让界面造出 API 会拒绝的值）', () => {
+    expect(section).toMatch(/normalizeScore\(scoreDraft\.relevance\)/)
+    expect(section).toMatch(/normalizePriority\(scoreDraft\.priority\)/)
+  })
+
+  it('详情页要能拿到「这篇是 AI 评的」并说明改完会摘标记', () => {
+    expect(section).toMatch(/aiScoredAt=\{[^}]*scored/)
+    expect(section).toMatch(/标记会自动摘掉/)
+  })
+
+  it('改完分数后刷新来源映射，徽标立刻消失（不能等下次进页面）', () => {
+    const detail = section.slice(section.indexOf('<PaperDetail'))
+    expect(detail.slice(0, 400)).toMatch(/refetchProvenance\(\)/)
+  })
+})
