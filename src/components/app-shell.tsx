@@ -153,6 +153,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     return (
                       <button
                         key={item.id}
+                        data-section={item.id}
+                        aria-current={isActive ? 'page' : undefined}
                         onClick={() => setSection(item.id)}
                         title={sidebarCollapsed ? item.label : item.hint}
                         className={cn(
@@ -198,6 +200,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               return (
                 <button
                   key={item.id}
+                  data-section={item.id}
                   onClick={() => setSection(item.id)}
                   className={cn(
                     'flex flex-1 min-w-[60px] flex-col items-center gap-0.5 py-2 text-[10px]',
@@ -213,7 +216,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* ── 主内容区 ──────────────────────────────────── */}
-        <main className="flex-1 min-w-0 pb-16 md:pb-0">
+        <main className="flex-1 min-w-0 pb-16 md:pb-0" data-active-section={activeSection}>
           {/* 面包屑：给阅读一个"位置感" */}
           <div className="border-b border-border/60">
             <div className="mx-auto max-w-[1180px] px-6 lg:px-10 py-2.5">

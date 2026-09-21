@@ -17,14 +17,20 @@ test.beforeEach(async ({ context }) => {
   })
 })
 
-async function gotoSection(page: Page, label: string) {
+/**
+ * ⚠️ 2026-09-21：`gotoSection` 以前按**可见文案**找侧边栏按钮（`{ name: /组网仿真实验/ }`），
+ * 而 1.3.7 把侧边栏文案缩短成「组网仿真」—— 于是这个用例从 1.3.7 起一直 120s 超时，
+ * 连带 serial 模式下后面的用例全部跳过。现在统一按 `data-section` 的 id 找（与 sections.spec.ts 一致），
+ * 文案再改也找不到「找不到按钮」这种失败。
+ */
+async function gotoSection(page: Page, sectionId: string) {
   await page.goto('/')
-  await page.getByRole('button', { name: new RegExp(label) }).first().click()
+  await page.locator(`[data-section="${sectionId}"]`).first().click()
 }
 
 test.describe.serial('关键工作流', () => {
   test('论文库：添加论文 → 列表可见 → API 清理', async ({ page, request }) => {
-    await gotoSection(page, '论文库')
+    await gotoSection(page, 'papers')
 
     await page.getByRole('button', { name: '添加论文' }).first().click()
     const dialog = page.getByRole('dialog')
@@ -47,7 +53,7 @@ test.describe.serial('关键工作流', () => {
   })
 
   test('组网仿真：运行实验 → 指标卡出现合法交付率', async ({ page }) => {
-    await gotoSection(page, '组网仿真实验')
+    await gotoSection(page, 'simlab')
     await page.getByRole('button', { name: '运行实验' }).first().click()
     // 引擎在服务端毫秒级完成；等待指标卡渲染
     const rateCard = page.getByText('交付率', { exact: false }).first()
@@ -58,7 +64,7 @@ test.describe.serial('关键工作流', () => {
   })
 
   test('系统设置：预设渲染；无 Key 时连通测试给出中文引导', async ({ page }) => {
-    await gotoSection(page, '系统设置')
+    await gotoSection(page, 'settings')
     await expect(page.getByRole('heading', { name: '系统设置' })).toBeVisible()
     await expect(page.getByText('服务商').first()).toBeVisible()
     await expect(page.getByRole('button', { name: '测试连通' })).toBeVisible()
