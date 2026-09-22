@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { chatComplete } from '@/lib/llm'
 import { llmFailureResponse } from '@/lib/llm/http'
 import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
+import { recordActivity } from '@/lib/activity'
 
 /** POST /api/ai-direction —— 方向探索：基于本地论文/课题库检查重复度与创新空间 */
 export async function POST(request: NextRequest) {
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       return llmFailureResponse(e, '方向探索失败')
     }
+    void recordActivity({ module: 'topic', action: 'generate', title: `探索了候选方向「${String(candidate).slice(0, 30)}」` })
     return NextResponse.json({ success: true, candidate, content })
   } catch (e) {
     console.error('AI direction error', e)

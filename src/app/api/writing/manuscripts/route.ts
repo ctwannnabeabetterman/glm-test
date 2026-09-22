@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { defaultOutline, normalizeSections } from '@/lib/writing/draft'
 import { toManuscriptDto } from '@/lib/writing/dto'
+import { recordActivity } from '@/lib/activity'
 
 export async function GET() {
   try {
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
         sections: JSON.stringify(hasSections ? normalizeSections(body.sections) : defaultOutline()),
       },
     })
+    void recordActivity({ module: 'writing', action: 'create', title: `新建了稿件「${created.title}」`, refId: created.id })
     return NextResponse.json(toManuscriptDto(created), { status: 201 })
   } catch (e) {
     console.error('POST manuscripts error', e)

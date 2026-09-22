@@ -258,3 +258,30 @@ model SimRun {
   @@index([algorithm])
   @@index([createdAt])
 }
+
+/// 使用记录 —— 「每个模块都被怎么用了」的时间线（「近 7 天使用记录」面板的数据源）。
+///
+/// 为什么不从各模块已有的时间戳推导：
+///   ① 「生成摘要」这类动作**不留痕迹**（AI 结果写在 Note/Paper 上，没有独立时间戳）；
+///   ② 编辑会覆盖 updatedAt、删除后连行都没了，历史直接消失；
+///   ③ 跨模块看「这周在做什么」需要一条**共同时间线**，分模块查询拼不出真实先后顺序。
+///
+/// 配套：`desktop/migrate-database.js` 的 newTables 里有一段等价的 CREATE TABLE，
+/// 让**已装老版本**的用户升级后自动得到这张表（DDL 由 prisma migrate diff 生成，别手写）。
+model Activity {
+  id        String   @id @default(cuid())
+  /// 模块：paper / note / writing / experiment / topic / planner / sim / search / settings / backup
+  module    String
+  /// 动作：create / update / delete / generate / run / export / import / sync
+  action    String
+  /// 面向用户的一句话（例：写了科研笔记「DRL资源分配 - 核心方法笔记」）
+  title     String
+  /// 关联对象 id（删除类记录的是已删对象的 id，仅作追溯）
+  refId     String   @default("")
+  /// 附加说明（AI 模型名、参数摘要等）
+  detail    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([module])
+}

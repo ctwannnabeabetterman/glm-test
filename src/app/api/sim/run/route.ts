@@ -1,30 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { runExperiment } from '@/lib/sim'
+import { parseExperimentParams } from '@/lib/sim/params'
 import type { ExperimentParams } from '@/lib/sim/types'
+import { recordActivity } from '@/lib/activity'
 
 // POST /api/sim/run - 执行组网仿真实验并持久化（完全可复现：同参数同结果）
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const params: ExperimentParams = {
-      topology: ['ring', 'spineleaf', 'mesh'].includes(body.topology) ? body.topology : 'ring',
-      algorithm: ['dijkstra', 'loadaware', 'qlearning'].includes(body.algorithm) ? body.algorithm : 'dijkstra',
-      seed: Number.isFinite(body.seed) ? Math.floor(body.seed) : 20260727,
-      runs: Number.isFinite(body.runs) ? Math.min(20, Math.max(1, Math.floor(body.runs))) : 1,
-      nodeCount: Number.isFinite(body.nodeCount) ? body.nodeCount : undefined,
-      spineCount: Number.isFinite(body.spineCount) ? body.spineCount : undefined,
-      leafCount: Number.isFinite(body.leafCount) ? body.leafCount : undefined,
-      source: typeof body.source === 'string' && body.source ? body.source : undefined,
-      destination: typeof body.destination === 'string' && body.destination ? body.destination : undefined,
-      queueCapacityPackets: Number.isFinite(body.queueCapacityPackets) ? body.queueCapacityPackets : undefined,
-      scheduler: body.scheduler === 'priority' ? 'priority' : 'fifo',
-      discipline: body.discipline === 'red' ? 'red' : 'droptail',
-      red: body.red && typeof body.red === 'object' ? body.red : undefined,
-      failureAtMs: Number.isFinite(body.failureAtMs) ? body.failureAtMs : 0,
-      detectionDelayMs: Number.isFinite(body.detectionDelayMs) ? body.detectionDelayMs : 40,
-      qlearning: body.qlearning && typeof body.qlearning === 'object' ? body.qlearning : undefined,
-    }
+    // 参数解析统一走 lib/sim/params.ts —— 参数扫描那条路由共用同一份默认值与兜底规则
+    const params: ExperimentParams = parseExperimentParams(body)
 
     let result
     try {
@@ -57,6 +43,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    void recordActivity({ module: 'sim', action: 'run', title: `跑了一次仿真（${params.topology} · ${params.algorithm}）`, refId: saved.id })
     return NextResponse.json({ runId: saved.id, createdAt: saved.createdAt, ...result })
   } catch (e) {
     return NextResponse.json({ error: '请求无效: ' + (e as Error).message }, { status: 400 })

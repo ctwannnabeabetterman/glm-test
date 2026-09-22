@@ -165,6 +165,15 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
       CREATE INDEX WeeklyTask_weekStart_idx ON WeeklyTask(weekStart);
       CREATE INDEX WeeklyTask_done_idx ON WeeklyTask(done);
     `)
+    // newTables / newIndexes 直接取自迁移模块：**新增表时这里自动跟上**。
+    // 以前这份清单是手工维护的，2026-09-22 加 Activity 表时忘了同步，
+    // 于是「已经是干净结构」的库被判成「需要迁移」，这条用例就红了。
+    const { newTables, newIndexes } = require('../../desktop/migrate-database.js') as {
+      newTables: Record<string, string>
+      newIndexes: Record<string, { sql: string }>
+    }
+    for (const ddl of Object.values(newTables)) db.exec(ddl)
+    for (const idx of Object.values(newIndexes)) db.exec(idx.sql)
     db.close()
 
     const { migrateDatabase } = require('../../desktop/migrate-database.js')

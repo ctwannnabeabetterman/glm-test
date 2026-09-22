@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 export async function GET() {
   try {
@@ -23,6 +24,7 @@ export async function POST(request: NextRequest) {
         notes: body.notes || '',
       },
     })
+    void recordActivity({ module: 'search', action: 'create', title: '记录了一次检索', refId: log.id })
     return NextResponse.json(log, { status: 201 })
   } catch (e) {
     console.error('POST search-logs error', e)

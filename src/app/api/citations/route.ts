@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 // GET /api/citations - get all citations with paper details
 export async function GET() {
@@ -91,6 +92,7 @@ export async function POST(request: NextRequest) {
       create: { citingPaperId, citedPaperId, context: context || '' },
     })
 
+    void recordActivity({ module: 'paper', action: 'create', title: '建立了一条引用关系', refId: citation.id })
     return NextResponse.json(citation, { status: 201 })
   } catch (e) {
     console.error('Create citation error', e)

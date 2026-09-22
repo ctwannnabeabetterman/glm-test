@@ -12,6 +12,7 @@ import {
   interpretScorePayload,
 } from '@/lib/methodology/topic-ai'
 import { scopeByTopic } from '@/lib/methodology/topic-scope'
+import { recordActivity } from '@/lib/activity'
 
 /**
  * 行类型显式声明（理由同 ai-gap-analysis：Prisma 的 findMany 返回递归泛型，
@@ -168,6 +169,7 @@ ${evidenceBlock}
       )
     }
 
+    void recordActivity({ module: 'topic', action: 'generate', title: '给选题打了分' })
     return NextResponse.json({
       success: true,
       topicId: topicInfo.id,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 export async function GET() {
   try {
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
         seed: body.seed ? Number(body.seed) : 42,
       },
     })
+    void recordActivity({ module: 'experiment', action: 'create', title: `新建了实验记录「${experiment.name}」`, refId: experiment.id })
     return NextResponse.json(experiment, { status: 201 })
   } catch (e) {
     console.error('POST experiments error', e)

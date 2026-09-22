@@ -82,6 +82,19 @@ const ReadingSessionHistory = dynamic(
   }
 )
 
+/** 近 7 天使用记录 —— ⚠️ 同样直接 import recharts（堆叠柱），必须懒加载，理由见上面那段。 */
+const RecentActivityPanel = dynamic(
+  () => import('@/components/recent-activity-panel').then((m) => m.RecentActivityPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-sm border border-border p-8 text-center text-xs text-muted-foreground">
+        正在加载使用记录…
+      </div>
+    ),
+  }
+)
+
 interface Stats {
   papers: { total: number; read: number; reading: number; unread: number; highPriority: number }
   topics: { total: number; top: { id: string; name: string; totalScore: number; direction: string }[] }
@@ -425,6 +438,9 @@ export function OverviewSection() {
 
       {/* Reading session history */}
       {isVisible('readingHistory') && <ReadingSessionHistory />}
+
+      {/* 近 7 天使用记录 —— 跨模块的操作时间线（不只是仿真运行） */}
+      {isVisible('activity') && <RecentActivityPanel />}
 
       {/* Achievements */}
       {isVisible('achievements') && <Achievements />}

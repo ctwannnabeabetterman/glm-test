@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { scopeByTopic } from '@/lib/methodology/topic-scope'
+import { recordActivity } from '@/lib/activity'
 
 /** 行类型显式声明（理由同 AI 路由：Prisma 的 findMany 返回递归泛型，T 推断会掉） */
 type PaperRow = { id: string; title: string; tags: string; abstract: string; topicIds: string }
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
         totalScore: body.totalScore ? Number(body.totalScore) : 0,
       },
     })
+    void recordActivity({ module: 'topic', action: 'create', title: `新建了选题「${topic.name}」`, refId: topic.id })
     return NextResponse.json(topic, { status: 201 })
   } catch (e) {
     console.error('POST topics error', e)

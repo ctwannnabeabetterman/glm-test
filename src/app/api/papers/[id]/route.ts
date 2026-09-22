@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { clearScoredInDb } from '@/lib/library/score-provenance-server'
+import { recordActivity } from '@/lib/activity'
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -79,6 +80,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (body.readingTime !== undefined) data.readingTime = Number(body.readingTime)
 
     const paper = await db.paper.update({ where: { id }, data })
+    void recordActivity({ module: 'paper', action: 'update', title: `更新了论文「${paper.title}」`, refId: paper.id })
 
     // 人工改过「相关度/新颖度/优先级」⇒ 摘掉那条「分数来自 AI」的标记。
     // 不摘的后果是界面会继续显示 AI 徽标，用户会以为自己看到的仍是模型的判断
@@ -98,7 +100,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
+    // 先取标题：删完再查就只剩 id 了，时间线上会变成一串看不懂的字符
+    const removed = await db.paper.findUnique({ where: { id }, select: { title: true } })
     await db.paper.delete({ where: { id } })
+    void recordActivity({ module: 'paper', action: 'delete', title: `删除了论文「${removed?.title ?? id}」`, refId: id })
     return NextResponse.json({ success: true })
   } catch (e) {
     console.error('DELETE paper error', e)

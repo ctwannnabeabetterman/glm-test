@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { SectionHeader } from '@/components/section-header'
+import { SimSweepPanel } from '@/components/sim-sweep-panel'
 import { TOPOLOGY_META } from '@/lib/sim'
 import type { Algorithm, BatchResult, TopologyId } from '@/lib/sim/types'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar } from 'recharts'
@@ -57,6 +58,7 @@ export function SimLabSection() {
     const res = await fetch('/api/sim/runs?limit=20')
     setHistory(await res.json())
   }, [])
+
 
   useEffect(() => {
     // 挂载时加载实验历史；loadHistory 内唯一 setState 位于 await fetch 之后，
@@ -447,6 +449,15 @@ export function SimLabSection() {
           )}
         </div>
       </div>
+
+      {/* 参数扫描：轴 × 算法 × 多种子，一次跑完画成曲线（论文里的图就来自这里） */}
+      <SimSweepPanel
+        topology={topology}
+        baseParams={buildParams(algorithm)}
+        onFinished={() => {
+          loadHistory()
+        }}
+      />
 
       {/* 历史记录 */}
       <Card>

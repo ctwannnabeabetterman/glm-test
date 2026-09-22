@@ -12,6 +12,7 @@ import {
 import { computeDeviation, type Deviation, type MilestoneLike } from '@/lib/planner/linkage'
 import { loadProjectConfig } from '@/lib/planner/server'
 import { resolveWeekStart, weeksSince } from '@/lib/planner/schedule'
+import { recordActivity } from '@/lib/activity'
 
 /**
  * POST /api/planner/assist —— AI 规划助手（D4）。
@@ -77,11 +78,13 @@ export async function POST(request: NextRequest) {
 
     // risk 模式是纯分析，直接返回文本
     if (mode === 'risk') {
-      return NextResponse.json({ success: true, mode, weekStart, content, tasks: [], parseError: null })
+      void recordActivity({ module: 'planner', action: 'generate', title: `用了规划助手（${String(body.mode)}）` })
+    return NextResponse.json({ success: true, mode, weekStart, content, tasks: [], parseError: null })
     }
 
     const { tasks, parseError } = parseWeeklyPlan(content, weekStart)
 
+    void recordActivity({ module: 'planner', action: 'generate', title: '用了规划助手' })
     return NextResponse.json({
       success: true,
       mode,

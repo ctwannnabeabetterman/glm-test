@@ -161,6 +161,21 @@ const newTables = {
     CREATE INDEX IF NOT EXISTS "WeeklyTask_weekStart_idx" ON "WeeklyTask"("weekStart");
     CREATE INDEX IF NOT EXISTS "WeeklyTask_done_idx" ON "WeeklyTask"("done");
   `,
+  // 「使用记录」表（2026-09-22）—— 「近 7 天使用记录」面板的数据源。
+  // 老库没有这张表时在这里补出来；不补的话启动后一切到「使用记录」就是 P2021 (table does not exist)。
+  Activity: `
+    CREATE TABLE IF NOT EXISTS "Activity" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "module" TEXT NOT NULL,
+      "action" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "refId" TEXT NOT NULL DEFAULT '',
+      "detail" TEXT NOT NULL DEFAULT '',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS "Activity_createdAt_idx" ON "Activity"("createdAt");
+    CREATE INDEX IF NOT EXISTS "Activity_module_idx" ON "Activity"("module");
+  `,
 }
 
 /**

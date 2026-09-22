@@ -5,6 +5,7 @@ import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { formatRetrievedForPrompt, retrieveRelatedPapers } from '@/lib/library/retrieval'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 // POST /api/ai-related-papers - AI-powered related paper recommendations
 // Suggests research directions and related papers based on a topic or paper
@@ -171,6 +172,7 @@ ${context}
 
     // 把「这次是真实检索还是纯生成」如实回传，并在有检索时附带原始清单，
     // 用户可以直接点 DOI 去核实（不再只能相信模型的一面之词）。
+    void recordActivity({ module: 'paper', action: 'generate', title: '找了一批相关论文' })
     return NextResponse.json({
       success: true,
       content,

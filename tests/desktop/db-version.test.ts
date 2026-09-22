@@ -17,7 +17,8 @@ afterEach(() => {
  *
  * 必须与当前的 Prisma schema 同步增长 —— 一旦新增了模型/列/索引，这里漏掉就会让
  * `migrateDatabase` 判定为「需要迁移」，本文件的版本戳用例会集体误报。
- * 加字段时记得同时改这里和 tests/desktop/migration.test.ts 的「干净库」用例。
+ * ⚠️ 新增**表/索引**现在会自动跟上（下面直接取迁移模块的 newTables/newIndexes）；
+ *    新增**列**仍需手工加到上面的清单里（列是逐表 PRAGMA 比对的，没法从 DDL 派生）。
  */
 function makeCleanDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], dbPath: string) {
   const db = new DatabaseSync(dbPath)
@@ -31,6 +32,16 @@ function makeCleanDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], d
     CREATE INDEX WeeklyTask_weekStart_idx ON WeeklyTask(weekStart);
     CREATE INDEX WeeklyTask_done_idx ON WeeklyTask(done);
   `)
+  // newTables / newIndexes 直接取自迁移模块：**新增表时这里会自动跟上**。
+  // 以前这份清单是手工维护的，注释里写着「加字段时记得同时改这里」——
+  // 而 2026-09-22 加 Activity 表时就真的忘了改，于是「已经是干净结构」的库
+  // 被判成「需要迁移」，两条版本戳用例集体误报。现在改成派生，这类假红不会再出现。
+  const { newTables, newIndexes } = require('../../desktop/migrate-database.js') as {
+    newTables: Record<string, string>
+    newIndexes: Record<string, { sql: string }>
+  }
+  for (const ddl of Object.values(newTables)) db.exec(ddl)
+  for (const idx of Object.values(newIndexes)) db.exec(idx.sql)
   db.close()
 }
 

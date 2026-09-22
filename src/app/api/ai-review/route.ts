@@ -6,6 +6,7 @@ import { scopeByTopic } from '@/lib/methodology/topic-scope'
 import { extractCitationIds } from '@/lib/writing/draft'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 /**
  * 阅读范围 → 可编号的综述草稿。
@@ -290,6 +291,7 @@ Structure:
     const knownIds = new Set(paperContext.map((p) => p.id))
     const unknownCitations = cited.filter((id) => !knownIds.has(id))
 
+    void recordActivity({ module: 'paper', action: 'generate', title: '生成了综述草稿' })
     return NextResponse.json({
       success: true,
       content,

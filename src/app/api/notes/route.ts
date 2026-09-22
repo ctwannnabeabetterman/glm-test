@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 export async function GET() {
   try {
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
         lastReadAt: body.lastReadAt ? new Date(body.lastReadAt) : undefined,
       },
     })
+    void recordActivity({ module: 'note', action: 'create', title: `写了笔记「${note.title}」`, refId: note.id })
     return NextResponse.json(note, { status: 201 })
   } catch (e) {
     console.error('POST notes error', e)

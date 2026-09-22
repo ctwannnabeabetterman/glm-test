@@ -5,6 +5,7 @@ import { scopeByTopic } from '@/lib/methodology/topic-scope'
 import { parseScoreSuggestions } from '@/lib/library/reading-priority'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 /**
  * 让 AI 按论文信息重新给「相关度 / 新颖度 / 阅读优先级」打分。
@@ -192,6 +193,7 @@ ${JSON.stringify(payload, null, 2)}
     // 模型输出不可信：这里做唯一的收口（id 白名单 + 数值夹紧 + 枚举归一）
     const parsed = parseScoreSuggestions(content, picked.map((p) => p.id))
 
+    void recordActivity({ module: 'paper', action: 'generate', title: '让 AI 重评了阅读优先级' })
     return NextResponse.json({
       success: true,
       suggestions: parsed.suggestions,

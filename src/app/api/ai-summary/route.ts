@@ -4,6 +4,7 @@ import { METADATA_ONLY_GUARD, NO_FABRICATION_GUARD } from '@/lib/llm/prompts'
 import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 // POST /api/ai-summary - generate AI summary for a paper using LLM skill
 export async function POST(request: NextRequest) {
@@ -129,6 +130,7 @@ ${paperInfo}
 
     // 把「这次的结论是基于摘要原文还是仅凭元数据」如实返回，
     // 前端据此提示用户「补上摘要后结果会更可靠」。
+    void recordActivity({ module: 'paper', action: 'generate', title: `用 AI 生成了一段内容（${String(type)}）` })
     return NextResponse.json({ success: true, content, type, basedOn: hasAbstract ? 'abstract' : 'metadata' })
   } catch (e) {
     console.error('AI summary error', e)

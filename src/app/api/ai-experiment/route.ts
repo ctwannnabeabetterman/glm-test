@@ -4,6 +4,7 @@ import { NO_FABRICATION_GUARD } from '@/lib/llm/prompts'
 import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 // POST /api/ai-experiment - AI-powered experiment design advisor
 // Suggests baselines, ablation components, metrics, and hyperparameters
@@ -192,6 +193,7 @@ ${context}
       return llmFailureResponse(e, 'AI 实验设计失败')
     }
 
+    void recordActivity({ module: 'experiment', action: 'generate', title: '用 AI 设计了实验方案' })
     return NextResponse.json({ success: true, content, type })
   } catch (e) {
     console.error('AI experiment error', e)

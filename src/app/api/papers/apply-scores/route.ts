@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { normalizePriority, normalizeScore } from '@/lib/library/reading-priority'
 import { markScoredInDb } from '@/lib/library/score-provenance-server'
+import { recordActivity } from '@/lib/activity'
 
 /**
  * 把（通常是 AI 给的）分数写回论文库，并记下「这些分数是 AI 给的」。
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
     const at = new Date().toISOString()
     if (appliedIds.length) await markScoredInDb(appliedIds, at)
 
+    void recordActivity({ module: 'paper', action: 'update', title: '把 AI 建议的分数写回了论文库' })
     return NextResponse.json({
       success: true,
       applied: appliedIds.length,

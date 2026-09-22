@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { deriveProgress, normalizeRefType, type RefSnapshot } from '@/lib/planner/linkage'
 import { loadRefSnapshots, refKey, refLabel } from '@/lib/planner/server'
 import { sortByWeekIndex } from '@/lib/planner/schedule'
+import { recordActivity } from '@/lib/activity'
 
 export async function GET(request: NextRequest) {
   try {
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
         actualEndDate: typeof body.actualEndDate === 'string' ? body.actualEndDate : '',
       },
     })
+    void recordActivity({ module: 'planner', action: 'create', title: `新建了里程碑「${milestone.title}」`, refId: milestone.id })
     return NextResponse.json(milestone, { status: 201 })
   } catch (e) {
     console.error('POST milestones error', e)

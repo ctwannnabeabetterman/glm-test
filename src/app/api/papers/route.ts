@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 // GET /api/papers - list all papers
 export async function GET(request: NextRequest) {
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
         notes: body.notes || '',
       },
     })
+    void recordActivity({ module: 'paper', action: 'create', title: `入库论文「${paper.title}」`, refId: paper.id })
     return NextResponse.json(paper, { status: 201 })
   } catch (e) {
     console.error('POST papers error', e)

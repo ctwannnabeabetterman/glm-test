@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 export async function GET() {
   try {
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest) {
         dimension: body.dimension,
       },
     })
+    void recordActivity({ module: 'search', action: 'create', title: `加了关键词「${keyword.text}」`, refId: keyword.id })
     return NextResponse.json(keyword, { status: 201 })
   } catch (e) {
     console.error('POST keywords error', e)

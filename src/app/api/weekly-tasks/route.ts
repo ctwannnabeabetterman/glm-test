@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { normalizeTaskInput, resolveWeekStart } from '@/lib/planner/schedule'
+import { recordActivity } from '@/lib/activity'
 
 // GET /api/weekly-tasks?week=YYYY-MM-DD —— 取某一周的任务（缺省为本周）
 export async function GET(request: NextRequest) {
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     const created = await db.weeklyTask.create({ data: value })
+    void recordActivity({ module: 'planner', action: 'create', title: `加了周计划「${created.name}」`, refId: created.id })
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
     console.error('POST weekly-tasks error', e)

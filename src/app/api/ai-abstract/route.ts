@@ -3,6 +3,7 @@ import { llmFailureResponse } from '@/lib/llm/http'
 import { NO_FABRICATION_GUARD } from '@/lib/llm/prompts'
 import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { NextRequest, NextResponse } from 'next/server'
+import { recordActivity } from '@/lib/activity'
 
 // POST /api/ai-abstract - AI-powered abstract generation
 // Generates a 4-sentence abstract based on paper title and context
@@ -67,6 +68,7 @@ ${context}
       return llmFailureResponse(e, 'AI 摘要生成失败')
     }
 
+    void recordActivity({ module: 'paper', action: 'generate', title: '用 AI 写了一段摘要' })
     return NextResponse.json({ success: true, content })
   } catch (e) {
     console.error('AI abstract error', e)

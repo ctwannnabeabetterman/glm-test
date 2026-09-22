@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { normalizeSections } from '@/lib/writing/draft'
 import { toManuscriptDto } from '@/lib/writing/dto'
+import { recordActivity } from '@/lib/activity'
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -36,6 +37,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const updated = await db.manuscript.update({ where: { id }, data })
+    void recordActivity({ module: 'writing', action: 'update', title: `写了稿件「${updated.title}」`, refId: updated.id })
     return NextResponse.json(toManuscriptDto(updated))
   } catch (e) {
     console.error('PUT manuscript error', e)
@@ -46,7 +48,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
+    const removed = await db.manuscript.findUnique({ where: { id }, select: { title: true } })
     await db.manuscript.delete({ where: { id } })
+    void recordActivity({ module: 'writing', action: 'delete', title: `删除了稿件「${removed?.title ?? id}」`, refId: id })
     return NextResponse.json({ success: true })
   } catch (e) {
     console.error('DELETE manuscript error', e)

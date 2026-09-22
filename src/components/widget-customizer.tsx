@@ -26,6 +26,8 @@ export type WidgetId =
   | 'readingGoals'
   | 'readingHeatmap'
   | 'readingHistory'
+  /** 近 7 天使用记录（跨模块操作时间线） */
+  | 'activity'
   | 'achievements'
   | 'dataManagement'
 
@@ -43,6 +45,7 @@ const WIDGET_CONFIG: Array<{ id: WidgetId; label: string; desc: string; default:
   { id: 'readingGoals', label: '阅读目标追踪', desc: '每周/每月阅读目标', default: true },
   { id: 'readingHeatmap', label: '阅读活动热力图', desc: 'GitHub 风格热力图', default: true },
   { id: 'readingHistory', label: '阅读时长历史', desc: '每日阅读时长柱状图', default: true },
+  { id: 'activity', label: '近 7 天使用记录', desc: '每个模块的操作时间线（写笔记 / 生成摘要 / 跑实验…）', default: true },
   { id: 'achievements', label: '成就与徽章', desc: '科研里程碑和徽章', default: true },
   { id: 'dataManagement', label: '数据管理', desc: '导出/导入备份', default: true },
 ]

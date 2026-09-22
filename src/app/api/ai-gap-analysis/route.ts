@@ -5,6 +5,7 @@ import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
 import { formatTopicScope, scopeByTopic } from '@/lib/methodology/topic-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordActivity } from '@/lib/activity'
 
 /** 不带课题时，上下文里最多放多少条 —— 防止课题一多把提示词撑爆 */
 const GLOBAL_PAPER_LIMIT = 60
@@ -260,6 +261,7 @@ ${context}
       return llmFailureResponse(e, 'AI 分析失败')
     }
 
+    void recordActivity({ module: 'topic', action: 'generate', title: '做了研究空白分析' })
     return NextResponse.json({
       success: true,
       content,
