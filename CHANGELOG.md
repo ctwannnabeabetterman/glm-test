@@ -3,6 +3,74 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.3.12] - 2026-09-22
+
+**修「客户端不会自动更新」的真因：更新检查在第一个请求上就被一次 504 打掉，而它没有重试。**
+
+### 修复 — 自动更新：一次瞬时故障不再等于「这一版拿不到」
+
+用户报「我客户端也不会自动更新」。查 `%APPDATA%\ai-network-lab\logs\update.log` 拿到现场：
+
+```
+[15:23:45] Checking for update
+[15:23:58] [updater:error] HttpError: 504  GET .../glm-test/releases.atom
+[15:23:58] 更新出错：unknown — 504 ／ 启动静默检查未成功：unknown — 504
+```
+
+根因两层：
+
+1. 更新源用 **GitHub provider**，每次检查都要**先拉 `releases.atom`** 判断最新 tag ——
+   这个 feed 动态生成、不吃缓存，会偶发 5xx（同一次故障里本机请求同一地址是 200，属边缘节点瞬时问题）。
+2. **启动检查只跑一次**（`main.js` 里 6 秒后一次 `checkForUpdates()`），失败只写日志、**没有重试**
+   ⇒ 那一次启动就等于「不更新」，且用户没有任何重试的机会。
+
+三处改动：
+
+- **publish provider 从 `github` 换成 `generic`**（`url: .../releases/latest/download`）：
+  直接取 `<url>/latest.yml`、资产走 `<url>/<latest.yml 里的 path>`，**完全不碰 atom feed**。
+  已确认 `latest.yml` 仍会生成（写不写只取决于「有没有 publish 配置」，与 provider 无关）。
+- 新增 `desktop/update-retry.js`（纯模块，不 require electron）+ `main.js` 的 `checkForUpdatesWithRetry()`：
+  启动检查退避 `0/30s/120s`、手动检查 `0/3s/8s`；**只重试瞬时故障**（5xx/超时/连接类），
+  404/406/「发布侧没有正式版本」/版本回退**一律不重试** —— 白等还会把发布侧的问题伪装成网络问题。
+- `classifyUpdateError` 新增 **`upstream`**（5xx）分类，并**排在 406/404 判断之前**：
+  以前 504 落到 `unknown`，用户看到「更新出错：unknown — 504」，既不知道是谁的锅也不知道能不能重试；
+  现在界面会说「更新源（GitHub）瞬时故障，不是本机问题，等一两分钟再点重试」。
+  启动检查最终失败时**把状态推给界面**（「设置 → 软件更新」可见，**不弹窗** —— 每次开机被念一遍很烦）。
+
+⚠️ **生效前提**：已经装在机器上的旧版本仍按各自那份 `app-update.yml`（github provider）走，
+所以必须**先成功更新一次**才轮到新路径。自动检查失败时，到「设置 → 软件更新」多点两次「检查更新」，
+504 是瞬时的，通常就过了。
+
+### 加固 — `PUT /api/papers/[id]` 改为可写字段白名单
+
+原来是 `const data = { ...body }`：请求体里有什么就写什么，**连 `id` / `createdAt` 都能改**，且不会报错。
+本机 UI 只发合法字段，所以它不是「已发生的故障」，而是一类**等着被踩**的缺陷（一次手写 curl、
+一个同步脚本、或将来某次重构多传一个字段，就能把主键/时间戳写坏）。现在按 Paper 的可编辑列建白名单，
+其余字段静默忽略（不报 500，免得把无害的多余字段变成客户端更难用的错误）。
+
+### 其他
+
+- `package.json` 补回 `repository`（远程仓库链接）。**没**加 `homepage`：它会被 electron-builder 用作
+  NSIS 的 `UNINSTALL_URL_UPDATE_INFO`，属于本机验不了的行为变化，不放进这次发版。
+- `KNOWN_ISSUES.md`：把「v1.2.0 安装包 ~1.3GB」更正为「已收敛到 ~120 MB（v1.3.11 实测 120,470,134 B）」；
+  新增更新链路那一条；写清「笔记导出不做按标题模糊兜底」的理由（填错作者比留空更糟）。
+- git 分支 `main` 的上游追踪链接补回（`origin/main`），此前 `@{u}` 取不到 ⇒ 裸 `git push` / `git pull` 会报
+  "no upstream branch"。
+
+### 验证
+
+- **本机 e2e 14/14**：对着**自己起的 dev server**（3122）跑分区导航 12 项 + 两条关键工作流，
+  零失败、零未捕获异常（会真写库的「组网仿真运行实验」仍留给 CI）。
+- **全量单测 43 文件 / 765 用例通过**；`tsc`、`eslint` 零输出。
+- **真 `GenericProvider` 打真 Release**：用 electron-updater 自己的 provider 代码解析出 `1.3.11`、
+  资产 URL `.../releases/latest/download/AI-Network-Lab-Setup-1.3.11.exe`、安装包 `HEAD 200` 且
+  `content-length` 与发布核对逐字节一致 ⇒ 新更新路径在真实发布上是通的。
+- **行为级重试测试**：vm 载入 `main.js` + 定时器同步化，断言调用次数 / 退避序列 / 最终分类。
+- **配置 schema 校验**：用 `app-builder-lib` 自己的校验器过一遍当前配置（无错），
+  反向对照里故意写错的键确实被检出。
+- 无法在本机验证的（如实列出）：打包出来的 `app-update.yml` 内容、以及真机上「点更新→装上去」的完整链路；
+  留给下次 CI 打包与真机安装。
+
 ## [1.3.11] - 2026-09-21
 
 **修一条失效了四版的验证信号：CI 的浏览器端 e2e 从 v1.3.7 起一直是红的，而 Release 一路绿，所以没人发现。**

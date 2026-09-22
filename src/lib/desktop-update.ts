@@ -40,8 +40,11 @@ export interface UpdateStatusPayload {
   file?: string
   /**
    * 失败分类：
-   * no-release / no-channel / network / unknown / dev / no-updater / untrusted
+   * no-release / no-channel / upstream / network / unknown / dev / no-updater / untrusted
    * / stalled（45 秒无任何进度，判定网络卡死，可重试）
+   *
+   * `upstream` 是 2026-09-21 加的：更新源（GitHub）瞬时 5xx。以前它落到 `unknown`，
+   * 用户看到的是「更新出错：unknown — 504」—— 既不知道是谁的锅，也不知道能不能重试。
    */
   reason?: string
   /** 面向用户的一句话说明 */

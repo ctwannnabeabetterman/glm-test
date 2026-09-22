@@ -751,6 +751,8 @@ function hintForReason(reason?: string): string | undefined {
       return '这是发布侧的问题：更新源上没有可用的正式 Release（不是本机故障）。'
     case 'no-channel':
       return '更新源缺少 latest.yml，说明上一次发布流程没有跑完。'
+    case 'upstream':
+      return '更新源（GitHub）瞬时故障（HTTP 5xx），不是本机问题 —— 等一两分钟再点「检查更新」通常就过了。若连续失败，多半是网络/代理访问 GitHub 不稳，可用下面的发布页手动下载。'
     case 'network':
       return '请检查网络或代理设置后重试。'
     case 'stalled':

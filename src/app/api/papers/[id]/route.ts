@@ -14,10 +14,56 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
+/**
+ * PUT 的可写字段白名单。
+ *
+ * 原来是 `const data = { ...body }` —— 请求体里有什么就写什么，**连 `id` / `createdAt` 都能改**。
+ * 本机 UI 不会这么干，所以它不是「已发生的故障」，而是一类「等着被踩」的缺陷：
+ * 一次手写 curl、一个同步脚本、或者将来某次重构多传了一个字段，就能把主键/时间戳改成任意值，
+ * 而且**不会有任何报错**（Prisma 照单全收）。
+ *
+ * 改成白名单，其余字段静默忽略（不报 500 —— 把无害的多余字段变成错误会让客户端更难用）。
+ * 字段集合 = Paper 的所有可编辑标量列，去掉 `id` / `createdAt` / `updatedAt` / `dateAdded`
+ * （后三者由数据库与业务逻辑维护，不该由请求体决定）。
+ */
+const WRITABLE_FIELDS = [
+  'title',
+  'authors',
+  'venue',
+  'year',
+  'citations',
+  'relevance',
+  'novelty',
+  'priority',
+  'status',
+  'codeUrl',
+  'pdfUrl',
+  'doi',
+  'zoteroKey',
+  'pdfPath',
+  'abstract',
+  'topicIds',
+  'tags',
+  'category',
+  'notes',
+  'readingProgress',
+  'readingTime',
+  'dateRead',
+] as const
+
+function pickWritable(body: Record<string, unknown>): Record<string, unknown> {
+  const data: Record<string, unknown> = {}
+  for (const key of WRITABLE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) data[key] = body[key]
+  }
+  return data
+}
+
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const body = await request.json()
+    const raw = (await request.json()) as Record<string, unknown>
+    const body = pickWritable(raw)
     const data: Record<string, unknown> = { ...body }
     // Auto set dateRead when status becomes 'read'
     if (body.status === 'read') {
@@ -30,6 +76,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (body.citations !== undefined) data.citations = Number(body.citations)
     if (body.relevance !== undefined) data.relevance = Number(body.relevance)
     if (body.novelty !== undefined) data.novelty = Number(body.novelty)
+    if (body.readingTime !== undefined) data.readingTime = Number(body.readingTime)
 
     const paper = await db.paper.update({ where: { id }, data })
 
@@ -37,7 +84,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     // 不摘的后果是界面会继续显示 AI 徽标，用户会以为自己看到的仍是模型的判断
     // （而实际上已经是他自己改过的值）—— 这类「标记说谎」比不显示标记更糟。
     const touchedScores = ['relevance', 'novelty', 'priority'].some((k) =>
-      Object.prototype.hasOwnProperty.call(body, k),
+      Object.prototype.hasOwnProperty.call(raw, k),
     )
     if (touchedScores) await clearScoredInDb([id])
 

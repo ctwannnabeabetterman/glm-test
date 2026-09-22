@@ -35,6 +35,9 @@ try {
   console.warn('[update] electron-updater 不可用，本次跳过自动更新：', e && e.message ? e.message : e)
 }
 
+// 更新检查的重试策略（纯函数模块，见该文件顶部：为什么「一次 504」不该等于「这版拿不到」）
+const { classifyRetry, retryDelays } = require('./update-retry')
+
 let mainWindow = null
 let serverProc = null
 
@@ -188,6 +191,14 @@ function attachUpdaterLogger(updater) {
  */
 function classifyUpdateError(e) {
   const msg = String((e && (e.message || e.stack)) || e || '')
+  // ⚠️ 5xx 必须在最前面判：实测用户机上的 `HttpError: 504` 以前落到 default 分支，
+  //    用户看到的是「更新出错：unknown — 504」——既不告诉他是谁的锅，也不知道该怎么办。
+  if (/50[0-9]|Gateway Time|Bad Gateway|Service Unavailable/i.test(msg)) {
+    return {
+      reason: 'upstream',
+      message: '更新源（GitHub）瞬时故障（HTTP 5xx），不是本机问题。稍后重试即可。',
+    }
+  }
   if (/406|Cannot parse releases feed|LATEST_VERSION_NOT_FOUND|Unable to find latest version|No published versions/i.test(msg)) {
     return {
       reason: 'no-release',
@@ -201,6 +212,45 @@ function classifyUpdateError(e) {
     return { reason: 'network', message: '网络不可用，连不上更新源。请检查网络后重试。' }
   }
   return { reason: 'unknown', message: msg.split('\n')[0].slice(0, 200) }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * 带退避重试的更新检查 —— 启动静默检查与手动检查共用。
+ *
+ * 为什么要重试（2026-09-21 实测）：更新源用 GitHub provider 时，每次检查都要先拉
+ * `releases.atom`（动态 feed、不吃缓存、偶发 5xx）。而启动检查原来只跑一次、失败只写日志，
+ * 于是「一次 504」就等于「这次启动拿不到新版本」，用户侧的观感就是「客户端不会自动更新」。
+ *
+ * 只重试**瞬时**故障：406/404/版本回退这类重试一百次也一样，白等还会把发布侧的问题
+ * 伪装成网络问题（判据在 `update-retry.js` 里，有单测）。
+ *
+ * @returns {Promise<{ok: boolean, attempts: number, result?: any, reason?: string, message?: string}>}
+ */
+async function checkForUpdatesWithRetry({ label, mode = 'startup' }) {
+  if (!autoUpdater) return { ok: false, attempts: 0, reason: 'no-updater', message: '更新组件缺失' }
+  const delays = retryDelays(mode)
+  let last = { reason: 'unknown', message: '未执行' }
+  for (let i = 0; i < delays.length; i += 1) {
+    if (delays[i] > 0) await sleep(delays[i])
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      if (i > 0) logUpdate(`${label}：第 ${i + 1} 次尝试成功`)
+      return { ok: true, attempts: i + 1, result }
+    } catch (e) {
+      const info = classifyUpdateError(e)
+      const cls = classifyRetry(e)
+      last = info
+      logUpdate(
+        `${label}：第 ${i + 1}/${delays.length} 次失败（${info.reason}${cls.retry ? '，可重试' : '，判定不可重试'}）— ${info.message}`,
+      )
+      if (!cls.retry) return { ok: false, attempts: i + 1, ...info }
+    }
+  }
+  return { ok: false, attempts: delays.length, ...last }
 }
 
 /**
@@ -904,11 +954,19 @@ function setupAutoUpdate() {
     }
   })
 
-  // 延后 6 秒再查，避免与启动阶段的解压/建库抢磁盘 IO
+  // 延后 6 秒再查，避免与启动阶段的解压/建库抢磁盘 IO；失败按退避重试（0s / 30s / 2min）
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((e) => {
-      const info = classifyUpdateError(e)
-      logUpdate(`启动静默检查未成功：${info.reason} — ${info.message}`)
+    void checkForUpdatesWithRetry({ label: '启动静默检查', mode: 'startup' }).then((outcome) => {
+      if (outcome.ok) return
+      // 静默检查失败**不弹窗**（每次开机都被念一遍很烦），但必须**在界面上可见**：
+      // 推一个 error 状态，「设置 → 软件更新」那张卡片会显示失败原因与「可重试」的提示。
+      // 原来这里只 logUpdate，用户侧完全无感 —— 那正是「客户端不会自动更新」观感的来源。
+      sendUpdateStatus({
+        state: 'error',
+        current: app.getVersion(),
+        reason: outcome.reason,
+        message: `自动检查更新失败（已重试 ${outcome.attempts} 次）：${outcome.message}`,
+      })
     })
   }, 6000)
 }
@@ -1074,7 +1132,15 @@ ipcMain.handle('check-for-updates', async (event) => {
   try {
     updateActionInFlight = true
     logUpdate('手动检查更新…')
-    const result = await autoUpdater.checkForUpdates()
+    // 手动检查也走重试（模式不同：节奏更快，3s / 8s —— 人在等着）
+    const outcome = await checkForUpdatesWithRetry({ label: '手动检查', mode: 'manual' })
+    if (!outcome.ok) {
+      updateActionInFlight = false
+      logUpdate(`手动检查失败：${outcome.reason} — ${outcome.message}`)
+      sendUpdateStatus({ state: 'error', reason: outcome.reason, message: outcome.message, current: app.getVersion() })
+      return { ok: false, reason: outcome.reason, error: outcome.message, current: app.getVersion() }
+    }
+    const result = outcome.result
     const latest = result && result.updateInfo ? result.updateInfo.version : null
     const hasUpdate = Boolean(latest && latest !== app.getVersion())
     logUpdate(`手动检查结果：当前 ${app.getVersion()}，更新源 ${latest}，hasUpdate=${hasUpdate}`)

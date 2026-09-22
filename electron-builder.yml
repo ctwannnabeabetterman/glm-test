@@ -47,17 +47,41 @@ asar: true
 #    （目标 Release 发布超过 2 小时、构建出错时 cancelTasks()、token 取消等），同样不影响退出码。
 #    现在 CI 用 `--publish never` 只构建，上传交给 gh CLI（显式创建一次 + 上传，不会产生孪生
 #    Release，且失败必然非 0），见 .github/workflows/release.yml。
+# ⚠️ 2026-09-21：provider 从 `github` 换成 `generic` —— 真因是「一次 504 就整次启动都不更新」。
+#
+# 用 github provider 时，electron-updater 每次检查都要**先拉 `releases.atom`** 判断最新 tag。
+# 那个 feed 动态生成、不吃缓存，会偶发 5xx。实测用户机上的 update.log：
+#   [15:23:58] [updater:error] HttpError: 504  GET .../releases.atom
+# 而启动检查**只跑一次**（失败只写日志）⇒ 用户侧观感就是「客户端不会自动更新」。
+# （同一次故障里，本机请求同一地址是 200 ⇒ GitHub 边缘节点的瞬时问题，不是仓库配置错。）
+#
+# generic provider 把 `latest.yml` 当普通文件取，**不经过 atom feed**：
+#   channelUrl = newUrlFromBase(getChannelFilename('latest'), baseUrl)  → <url>/latest.yml
+#   资产 URL   = resolveFiles(updateInfo)                               → <url>/<latest.yml 里的 path>
+# 而 GitHub 的 `/releases/latest/download/<asset>` 恰好就是「最新正式 Release 的资产」这个语义，
+# 所以两条 URL 都成立。实测（2026-09-21）：
+#   GET .../releases/latest/download/latest.yml → 200，内容 `version: 1.3.11`
+#   （发布核对脚本 .recon/out/release-check-138.py 每一版都在读同一个地址）
+#
+# ⚠️ publish 段本身仍然必须留着：它决定 latest.yml 与 resources/app-update.yml 会不会被生成，
+#    与「谁负责上传」是两件事。CI 依旧 `--publish never` 只构建，上传交给 gh CLI（见 release.yml）。
+# ⚠️ 这个改动**对已经在跑的旧客户端无效** —— 它们按各自那份 app-update.yml（写死的 github provider）
+#    走；所以这次修复必须**先成功更新一次**（旧路径要能过）才会生效。
+#
+# 📌 历史坑（换掉 provider 之前踩过、现在仍然适用的那条）：github provider 的 `releaseType`
+#    默认是 `draft`，而草稿 Release 在 GitHub 上既不是「latest」、匿名也访问不到 ⇒
+#    electron-updater 请求 /releases/latest 期望 JSON、跟随跳转后拿到 406 ⇒
+#    "Cannot parse releases feed"，检查更新永远失败。当时是靠显式写 `releaseType: release` 解决的。
+#    现在 Create/Upload 都交给 CI 的 `gh release create`（**不带 --draft**），
+#    并且每一版都用 `/releases/latest` 复核过它确实指向该 tag（见 .recon/out/release-check-138.py）——
+#    这两条守卫不要去掉。
 publish:
-  - provider: github
-    owner: ctwannnabeabetterman
-    repo: glm-test
-    # ⚠️ 必须显式写成 release。electron-builder 的默认值是 `draft`，
-    # 而草稿 release 在 GitHub 上既不是「latest」、匿名也访问不到：
-    #   · /releases/latest 不再指向某个 tag（页面直接说「没有任何 release」）
-    #   · electron-updater 的 getLatestTagName() 请求 /releases/latest 期望 JSON，
-    #     跟随跳转后拿到 406 → 报 "Cannot parse releases feed" → 检查更新永远失败
-    # 实测这条默认值就是「自动更新一直不生效」的真因：CI 每次都只产出草稿。
-    releaseType: release
+  - provider: generic
+    # 对应仓库：ctwannnabeabetterman/glm-test
+    # （generic provider 不再需要 owner/repo 两个字段 —— 下面 url 的路径里已经含了 owner 与 repo；
+    #   package.json 的 repository 字段也记着同一个地址，别再让这处变成「找不到仓库」的孤岛。）
+    url: https://github.com/ctwannnabeabetterman/glm-test/releases/latest/download
+    channel: latest
 
 extraResources:
   - from: resources/app.zip

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import path from 'node:path'
+
+const nodeRequire = createRequire(import.meta.url)
 
 /**
  * 自动更新链路的契约测试。
@@ -96,6 +99,9 @@ function harness(options: { isPackaged?: boolean; confirmInstall?: boolean } = {
       if (name === 'fs') return fsMock
       if (name === 'path') return path
       if (name === 'electron-updater') return { autoUpdater }
+      // 2026-09-21 起 main.js 会 require 这个模块做退避重试；桩里必须给**真模块**，
+      // 否则 retryDelays 是 undefined，检查更新会以「TypeError」的形式失败（看起来像分类错乱）。
+      if (name === './update-retry') return nodeRequire('../../desktop/update-retry.js')
       if (name === 'child_process') return { spawn: vi.fn(), execFile: vi.fn() }
       return {}
     },
@@ -268,10 +274,18 @@ describe('自动更新：手动检查更新的回传', () => {
 describe('electron-builder 的发布配置', () => {
   // publish 段决定 latest.yml / app-update.yml 会不会生成，与「谁负责上传」无关；
   // 删掉它客户端就再也找不到更新源（曾经按「改用 gh CLI 上传」的直觉删过一次）。
-  it('必须保留 publish 段且 releaseType 为 release', () => {
+  it('必须保留 publish 段，且更新源是 generic（绕开 releases.atom）', () => {
     const yml = readFileSync(path.resolve('electron-builder.yml'), 'utf8')
     expect(yml).toMatch(/^publish:/m)
-    expect(yml).toMatch(/releaseType:\s*release/)
-    expect(yml).toMatch(/provider:\s*github/)
+    // ⚠️ 2026-09-21 从 github 换成 generic：github provider 每次检查都要先拉 `releases.atom`
+    //    （动态 feed、偶发 5xx），实测一次 504 就让整次启动不再检查更新。
+    //    generic 直接取 <url>/latest.yml，资产走 <url>/<latest.yml 里的 path>。
+    expect(yml).toMatch(/provider:\s*generic/)
+    expect(yml).toMatch(
+      /url:\s*https:\/\/github\.com\/ctwannnabeabetterman\/glm-test\/releases\/latest\/download/,
+    )
+    expect(yml).toMatch(/channel:\s*latest/)
+    // 不能再退回 github provider（那正是「先拉 atom」的行为）
+    expect(yml).not.toMatch(/provider:\s*github/)
   })
 })
