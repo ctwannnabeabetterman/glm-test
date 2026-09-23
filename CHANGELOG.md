@@ -3,6 +3,78 @@
 本项目的所有显著变更都记录在此文件中。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [Semantic Versioning](https://semver.org/)。
 
+## [1.4.1] - 2026-09-23
+
+**维护版：没有新功能，做的是「体检 + 精简」。**
+
+起因是用户的要求：「检查有没有 bug，是否使用流畅，是否有无用程序留存，检查代码会不会冗余，
+这个软件还是得轻量化」。
+
+### 清理 — 删除 3743 行从未被引用的界面组件
+
+`src/components/ui/` 下有一批 shadcn/ui 生成后**从未被任何地方 import** 的组件，
+逐条核实引用数确为 0 后删除 28 个文件（`ui/` 从 50 个减到 22 个）：
+
+`sidebar`(726 行)、`menubar`、`context-menu`、`carousel`、`navigation-menu`、`form`、`drawer`、
+`pagination`、`breadcrumb`、`input-otp`、`toggle-group`、`toggle`、`accordion`、`slider`、
+`resizable`、`avatar`、`hover-card`、`collapsible`、`aspect-ratio`、`chart`、`calendar`、`table`、
+`sheet`、`tooltip`、`toast` / `toaster` / `hooks/use-toast`、`hooks/use-mobile`。
+
+⚠️ **这不会改变安装包体积**：Next 的 standalone 只打包被 import 的模块，
+死代码本来就不进包。省下的是仓库与开发环境的可观噪音（`node_modules` 同期减少约 104 MB）。
+
+其中 radix-toast 那一条是「渲染了但没人用」：`layout.tsx` 挂了 `<Toaster/>`，
+但全仓**没有任何 `toast()` 调用**（提示一律走 `sonner`）—— 整条链是死重，连同挂载一起移除。
+
+另删除 `public/robots.txt`：零引用，且桌面应用没有公网服务器，爬虫指令毫无意义。
+
+### 重构 — 合并重复实现
+
+`parseTopicIds`（`lib/methodology/topic-scope.ts`）与 `parsePaperIds`（`lib/notes/payload.ts`）
+是**逐字节等价**的两份实现，收敛到 `lib/utils.ts` 的 `parseStringArray`，两处改为委托。
+保留具名导出，调用方与测试无需改动。
+
+同一套容错规则复制多份的代价是：某天只改了其中一份，表现是「某个模块悄悄少显示几条关联」——
+不报错、也不会被任何测试抓到。
+
+### 变更 — 开发者署名
+
+- `package.json` 的 `contributors`：**阿枢**（项目所有者仍为 `author`）；
+- 页面 metadata 的 `authors` 与「使用说明 → 快速开始」页都写上了；
+- `electron-builder.yml` 的 `copyright` **刻意保持纯 ASCII** ——
+  这段会经 NSIS 写进 exe 的 LEGALCOPYRIGHT，编码没对齐就是**静默**乱码（构建照样成功）。
+  中文署名放在零风险的位置（JSON / 页面文案），不为一个装饰性字段承担静默损坏的风险。
+
+### 已知未完成
+
+`dependencies` 里有 **32 个包在源码中零引用**（`@dnd-kit/*`、`@mdxeditor/editor`、
+`@tanstack/react-query`、`framer-motion`、`date-fns`、`zod`、`react-hook-form`、
+`react-day-picker`、`vaul`、`embla-carousel-react`、若干 `@radix-ui/*` 等，合计约 160 MB）。
+清单已留在 `.recon/out/unused-deps.txt`，但**本机环境跑不动 npm 的依赖图重算**
+（`npm install` / `--package-lock-only` / `--offline` 均挂起），
+而 `npm ci` 要求 `package.json` 与 lock 同步 —— 只改前者会让 CI 安装步骤失败。
+故这一步撤回、留待能正常执行 `npm install` 的环境一次完成。
+
+⚠️ **没有动 `prisma`**：它是构建期 CLI（`desktop/prepare-standalone.js` 用 `require.resolve`
+跑 `db push`），移出 `dependencies` 对安装包体积零影响，却会给发布构建引入风险。
+
+### 验证
+
+- 类型检查 / lint 零输出；全量单测 **50 文件 / 880 条**（879 通过 + 1 条按设计跳过）。
+- 仓库自带 e2e **16/16**；新增真机 e2e **4/4**（含「12 个分区逐个切换」的健康度体检）。
+- 健康度体检结果：**无未捕获异常、无 5xx、无控制台报错**；
+  分区切换实际约 90–250 ms。
+- `next build` 通过；`desktop:prepare`（standalone 裁剪 + 符号链接落盘 + app.zip 打包）通过。
+
+⚠️ 一个未能在本地闭环、但**不影响本版发布**的点：上一轮清理删掉了 `resources/app.zip`，
+本轮补跑 `desktop:prepare` 生成的新产物里，`.next/node_modules/@prisma/client-<hash>` 与
+`pdfkit-<hash>` 这两个**外部化副本是空目录**（CI 构建的 1.3.14 里分别有 30 / 207 个文件），
+于是本地这份产物起不来。已用隔离探针排除「Windows junction 被 `isSymbolicLink()` 漏判」
+（Node 22 对 junction 返回 true，且删链接不会穿透删真实目标），也排除了本轮 npm 裁剪的影响
+（包清单与 1.3.14 逐项一致）。CI 走干净的 `npm ci` + 全新构建，产物完整 ——
+用户机上正在运行的 1.3.14 就是 CI 产物。**结论：本地 `desktop:prepare` 自检通过 ≠ 产物可用**，
+以后本地验证打包要么清 `.next` 重建，要么直接与一份已知可用的产物做清单比对。
+
 ## [1.3.14] - 2026-09-23
 
 **把「AI 说的话」接上落点，并把笔记和论文库连起来。**

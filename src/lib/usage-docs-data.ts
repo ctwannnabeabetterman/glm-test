@@ -45,6 +45,7 @@ const quickStart: DocSection = {
       '侧边栏（或移动端底部导航）可在 9 大模块间切换；按 ⌘K 打开全局命令面板。',
     ] },
     { type: 'note', text: '快捷键：⌘K 全局搜索 · ? 快捷键帮助 · G+字母 快速导航 · ⌘J 主题切换。', variant: 'info' },
+    { type: 'para', text: '开发者：ctwannnabeabetterman · 阿枢（AI 工程搭档） —— 本项目的功能设计、实现与验证由人机协作完成；署名同样写在打包元数据的 contributors 字段里。' },
   ],
 }
 

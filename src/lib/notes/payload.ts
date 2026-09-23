@@ -11,6 +11,8 @@
  * 这里显式列举可写字段，其余**静默忽略**（不报错，避免前端多传一个字段就 500）。
  */
 
+import { parseStringArray } from '@/lib/utils'
+
 /** 允许写入 Note 的字段。`id`/`createdAt`/`updatedAt` 刻意不在其中。 */
 export const NOTE_WRITABLE_FIELDS = [
   'title',
@@ -95,17 +97,11 @@ export function pickWritableNote(body: Record<string, unknown>): Record<string, 
 /**
  * 读取侧的对应实现：解析 `paperIds` JSON 数组。
  *
- * 与 `parseTopicIds`（`lib/methodology/topic-scope.ts`）同形同义 ——
- * **坏数据一律当空数组**。一条脏记录不能让「笔记列表」或「论文详情的相关笔记」
- * 整个打不开；宁可少显示一条关联，也不能让页面白屏。
+ * 与 `parseTopicIds`（`lib/methodology/topic-scope.ts`）**同源** ——
+ * 两者都委托给 `lib/utils.ts` 的 `parseStringArray`，不再各写一份。
+ * 容错策略：**坏数据一律当空数组**。一条脏记录不能让「笔记列表」或
+ * 「论文详情的相关笔记」整个打不开；宁可少显示一条关联，也不能让页面白屏。
  */
 export function parsePaperIds(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === 'string')
-  if (typeof raw !== 'string' || !raw.trim()) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
-  } catch {
-    return []
-  }
+  return parseStringArray(raw)
 }

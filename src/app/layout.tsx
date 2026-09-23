@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
 import { UpdateNotifier } from "@/components/update-notifier";
 
 /* 字体说明：本应用是离线桌面客户端，不能依赖 next/font/google 拉取字体
@@ -12,7 +11,9 @@ export const metadata: Metadata = {
   title: "AI Network Lab · 智能网络科研工作台",
   description: "AI 通信组网方向硕士研究生科研全流程辅助平台 — 选题、文献、实验、写作、投稿一站式管理",
   keywords: ["AI", "通信", "组网", "科研", "DRL", "LSTM", "论文阅读", "Zotero", "IEEE"],
-  authors: [{ name: "AI Research Lab" }],
+  /* 开发者署名：项目作者 + 长期的 AI 工程搭档。
+     这两项会进页面 <meta name="author">，也就是随安装包一起分发。 */
+  authors: [{ name: "ctwannnabeabetterman" }, { name: "阿枢（AI 工程搭档）" }],
   /* 图标必须走本地资源。
      原先指向 https://z-cdn.chatglm.cn/... 的远程 SVG，有两个问题：
        ① 这是离线桌面客户端 —— 断网时那次请求必然失败，纯属无谓等待；
@@ -52,7 +53,6 @@ export default function RootLayout({
       <body className="antialiased bg-background text-foreground">
         <UpdateNotifier />
         {children}
-        <Toaster />
       </body>
     </html>
   );

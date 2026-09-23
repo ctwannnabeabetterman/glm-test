@@ -3,6 +3,11 @@
 # 自包含的 Next standalone 服务与数据库模板经 extraResources 落在 resources/ 下。
 appId: io.github.ctwannnabeabetterman.ai-network-lab
 productName: AI Network Lab
+# 版权/开发者信息（写进 exe 的文件属性与安装器元数据）。
+# ⚠️ 刻意留**纯 ASCII**：这段字符串会被 NSIS 写进 LEGALCOPYRIGHT 版本信息，
+# 一旦编码没对齐就是**静默**的乱码（构建照样成功）。中文署名放在零风险的位置：
+# package.json 的 contributors（随 asar 一起分发）与应用内「使用说明」页。
+copyright: Copyright (c) 2026 ctwannnabeabetterman. Developed with Ashu, AI engineering partner.
 directories:
   output: release
   buildResources: desktop/build

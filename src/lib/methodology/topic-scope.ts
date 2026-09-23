@@ -24,6 +24,8 @@
  * 两者叠加后，**任何一条命中都算命中**，并在返回里标明它是因为哪一级进来的。
  */
 
+import { parseStringArray } from '@/lib/utils'
+
 /** 一条论文/笔记能参与本课题分析的最小信息 */
 export interface ScopeItem {
   id: string
@@ -70,16 +72,15 @@ export interface ScopeResult<T> {
   unmatched: number
 }
 
-/** 解析 `topicIds` JSON 数组；坏数据一律当空数组（不能让一条脏记录带崩整个分析） */
+/**
+ * 解析 `topicIds` JSON 数组；坏数据一律当空数组（不能让一条脏记录带崩整个分析）。
+ *
+ * 实现已收敛到 `lib/utils.ts` 的 `parseStringArray` —— 读取侧的同形字段
+ * （`paperIds` / `links`…）原先各有一份逐字节等价的实现，只改其中一份就会
+ * 让某个模块悄悄少显示几条关联。这里保留具名导出，调用方与测试无需改动。
+ */
 export function parseTopicIds(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === 'string')
-  if (typeof raw !== 'string' || !raw.trim()) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
-  } catch {
-    return []
-  }
+  return parseStringArray(raw)
 }
 
 /**
