@@ -11,11 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Sparkles, Lightbulb, Search, FileText, Copy, Loader2, CheckCircle2, Layers } from 'lucide-react'
+import { Sparkles, Lightbulb, Search, FileText, Loader2, CheckCircle2, Layers } from 'lucide-react'
 import { toast } from 'sonner'
 import { toastAiError } from '@/lib/ai-error'
 import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
+import { AiOutputActions } from '@/components/ai-output-actions'
 
 type AnalysisType = 'gaps' | 'opportunities' | 'literature'
 
@@ -115,11 +116,6 @@ export function AIGapAnalysis() {
     } finally {
       setLoading(null)
     }
-  }
-
-  const copy = (text: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success('已复制到剪贴板')
   }
 
   return (
@@ -225,14 +221,12 @@ export function AIGapAnalysis() {
                         </Badge>
                       )}
                     </div>
-                    {result && (
-                      <button
-                        onClick={() => copy(result.content)}
-                        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                      >
-                        <Copy className="h-2.5 w-2.5" /> 复制
-                      </button>
-                    )}
+                    <AiOutputActions
+                      content={result.content}
+                      noteTitle={`AI ${t.label} · ${result.topicName ?? '全库'}`}
+                      draftTitle={`${t.label}：${result.topicName ?? '全库'}`}
+                      compact
+                    />
                   </div>
                   {loading === t.type ? (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">

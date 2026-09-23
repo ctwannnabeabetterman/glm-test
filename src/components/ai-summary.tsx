@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Sparkles, FileText, Lightbulb, HelpCircle, Network, Copy, Loader2 } from 'lucide-react'
+import { Sparkles, FileText, Lightbulb, HelpCircle, Network, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toastAiError } from '@/lib/ai-error'
 import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
+import { AiOutputActions } from '@/components/ai-output-actions'
 
 interface Paper {
   id: string
@@ -67,11 +68,6 @@ export function AISummary({ paper }: { paper: Paper }) {
     } finally {
       setLoading(null)
     }
-  }
-
-  const copy = (text: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success('已复制到剪贴板')
   }
 
   return (
@@ -150,14 +146,13 @@ export function AISummary({ paper }: { paper: Paper }) {
                     <t.icon className={cn('h-3 w-3', c.text)} />
                     <span className={cn('text-[11px] font-medium', c.text)}>{t.label}</span>
                   </div>
-                  {result && (
-                    <button
-                      onClick={() => copy(result)}
-                      className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                    >
-                      <Copy className="h-2.5 w-2.5" /> 复制
-                    </button>
-                  )}
+                  <AiOutputActions
+                    content={result}
+                    noteTitle={`AI ${t.label} · ${paper.title}`}
+                    paperId={paper.id}
+                    draftTitle={`AI ${t.label}：${paper.title}`}
+                    compact
+                  />
                 </div>
                 {loading === t.type ? (
                   <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-2">

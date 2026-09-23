@@ -72,6 +72,7 @@ import { SectionHeader } from '@/components/section-header'
 import { downloadFromApi } from '@/lib/download'
 import { AISummary } from '@/components/ai-summary'
 import { TopicLinker, TopicBadges } from '@/components/topic-linker'
+import { PaperNotesPanel } from '@/components/paper-notes-panel'
 import { ReadingTimer } from '@/components/reading-timer'
 import { PaperRelations } from '@/components/paper-relations'
 import { CitationTracker } from '@/components/citation-tracker'
@@ -987,6 +988,9 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
             }}
           />
         </div>
+
+        {/* 相关笔记 —— 「笔记 ↔ 论文」的反向入口：笔记侧用「关联文献」挂上来，这里列出来 */}
+        <PaperNotesPanel paperId={paper.id} paperTitle={paper.title} />
 
         {/* Citation generator (§4.3.3 BibTeX) */}
         <CitationGenerator paper={paper} />

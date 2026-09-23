@@ -17,29 +17,35 @@ afterEach(() => {
  *
  * 必须与当前的 Prisma schema 同步增长 —— 一旦新增了模型/列/索引，这里漏掉就会让
  * `migrateDatabase` 判定为「需要迁移」，本文件的版本戳用例会集体误报。
- * ⚠️ 新增**表/索引**现在会自动跟上（下面直接取迁移模块的 newTables/newIndexes）；
- *    新增**列**仍需手工加到上面的清单里（列是逐表 PRAGMA 比对的，没法从 DDL 派生）。
+ *
+ * 现在**表、索引、列全部派生**：表/索引取自 `newTables`/`newIndexes`，
+ * 列取自 `tableColumns`。以前列是手工维护的（注释写着「加字段记得同时改这里」），
+ * 结果每加一列就误报一次 —— 2026-09-22 加 `Activity` 表、
+ * 2026-09-23 加 `Note.paperIds` 各踩了一次。派生之后这类假红不会再出现。
  */
 function makeCleanDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], dbPath: string) {
   const db = new DatabaseSync(dbPath)
+  const { newTables, newIndexes, tableColumns } = require('../../desktop/migrate-database.js') as {
+    newTables: Record<string, string>
+    newIndexes: Record<string, { sql: string }>
+    tableColumns: Record<string, Record<string, string>>
+  }
+  /** 迁移模块声明要为本表补齐的列 */
+  const extraCols = (t: string) => Object.values(tableColumns[t] ?? {})
+  /** 历史基线列 + 补列 = 当前应有的结构 */
+  const table = (name: string, base: string[]) =>
+    `CREATE TABLE ${name} (${[...base, ...extraCols(name)].join(', ')});`
+
   db.exec(`
-    CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, links TEXT, category TEXT, structured TEXT, lastReadAt DATETIME, topicIds TEXT DEFAULT '[]');
-    CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT, abstract TEXT DEFAULT '', topicIds TEXT DEFAULT '[]');
+    ${table('Note', ['id TEXT PRIMARY KEY', 'title TEXT'])}
+    ${table('Paper', ['id TEXT PRIMARY KEY', 'title TEXT'])}
     CREATE TABLE Manuscript (id TEXT PRIMARY KEY, title TEXT, venue TEXT, targetWords INTEGER, sections TEXT, status TEXT, createdAt DATETIME, updatedAt DATETIME);
-    CREATE TABLE Milestone (id TEXT PRIMARY KEY, type TEXT, title TEXT, startDate TEXT, endDate TEXT, progress INTEGER, refType TEXT DEFAULT '', refId TEXT DEFAULT '', autoProgress BOOLEAN DEFAULT false, actualEndDate TEXT DEFAULT '');
+    ${table('Milestone', ['id TEXT PRIMARY KEY', 'type TEXT', 'title TEXT', 'startDate TEXT', 'endDate TEXT', 'progress INTEGER'])}
     CREATE INDEX Milestone_refType_refId_idx ON Milestone(refType, refId);
     CREATE TABLE WeeklyTask (id TEXT PRIMARY KEY, name TEXT, hours INTEGER DEFAULT 2, priority INTEGER DEFAULT 3, done BOOLEAN DEFAULT false, weekStart TEXT DEFAULT '', "order" INTEGER DEFAULT 0, createdAt DATETIME, updatedAt DATETIME);
     CREATE INDEX WeeklyTask_weekStart_idx ON WeeklyTask(weekStart);
     CREATE INDEX WeeklyTask_done_idx ON WeeklyTask(done);
   `)
-  // newTables / newIndexes 直接取自迁移模块：**新增表时这里会自动跟上**。
-  // 以前这份清单是手工维护的，注释里写着「加字段时记得同时改这里」——
-  // 而 2026-09-22 加 Activity 表时就真的忘了改，于是「已经是干净结构」的库
-  // 被判成「需要迁移」，两条版本戳用例集体误报。现在改成派生，这类假红不会再出现。
-  const { newTables, newIndexes } = require('../../desktop/migrate-database.js') as {
-    newTables: Record<string, string>
-    newIndexes: Record<string, { sql: string }>
-  }
   for (const ddl of Object.values(newTables)) db.exec(ddl)
   for (const idx of Object.values(newIndexes)) db.exec(idx.sql)
   db.close()

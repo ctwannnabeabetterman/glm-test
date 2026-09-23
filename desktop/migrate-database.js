@@ -10,6 +10,9 @@ const noteColumns = {
   // 所属课题（JSON 数组）。与 Prisma schema 的 Note.topicIds 必须一致 ——
   // AI 研究分析要按课题筛笔记，缺这一列老库就会 P2022 报错。
   topicIds: "topicIds TEXT DEFAULT '[]'",
+  // 关联文献（JSON 数组，元素是 Paper.id）。与 Prisma schema 的 Note.paperIds 必须一致 ——
+  // 缺这一列，笔记详情的「关联文献」一读就 P2022，整个笔记模块 500。
+  paperIds: "paperIds TEXT DEFAULT '[]'",
 }
 
 const paperColumns = {

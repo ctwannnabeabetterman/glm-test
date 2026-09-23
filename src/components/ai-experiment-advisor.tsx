@@ -6,11 +6,12 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Sparkles, FlaskConical, Layers, Scissors, CheckSquare, Copy, Loader2, CheckCircle2 } from 'lucide-react'
+import { Sparkles, FlaskConical, Layers, Scissors, CheckSquare, Loader2, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toastAiError } from '@/lib/ai-error'
 import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
+import { AiOutputActions } from '@/components/ai-output-actions'
 
 type AdvisorType = 'design' | 'baselines' | 'ablation' | 'checklist'
 
@@ -60,11 +61,6 @@ export function AIExperimentAdvisor() {
     } finally {
       setLoading(null)
     }
-  }
-
-  const copy = (text: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success('已复制到剪贴板')
   }
 
   return (
@@ -152,14 +148,12 @@ export function AIExperimentAdvisor() {
                       <t.icon className={cn('h-3.5 w-3.5', c.text)} />
                       <span className={cn('text-xs font-medium', c.text)}>{t.label}</span>
                     </div>
-                    {result && (
-                      <button
-                        onClick={() => copy(result)}
-                        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                      >
-                        <Copy className="h-2.5 w-2.5" /> 复制
-                      </button>
-                    )}
+                    <AiOutputActions
+                      content={result}
+                      noteTitle={`AI ${t.label} · ${topic || method || '未指定'}`}
+                      draftTitle={`实验建议：${topic || method || '未指定'}`}
+                      compact
+                    />
                   </div>
                   {loading === t.type ? (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">

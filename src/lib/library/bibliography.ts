@@ -305,3 +305,48 @@ export function paperIdentityKey(p: { doi?: string; zoteroKey?: string; title?: 
   if (zk) return `zotero:${zk}`
   return `title:${normalizeTitle(p.title || '')}`
 }
+
+/**
+ * 把「已经是结构化对象」的文献条目归一成 `BibliographyRecord[]`。
+ *
+ * 为什么需要它：`/api/papers/import` 原本只吃 RIS / BibTeX 文本。但有一类来源
+ * 本来就是结构化的 —— 例如 AI 相关论文面板背后的 Crossref 检索结果
+ * （`RetrievedPaper`：title/authors/year/venue/doi/url）。
+ * 让调用方把这些字段拼成 RIS 再让服务端解析回来，是纯浪费：
+ * 中间要处理 RIS 的换行与转义，任何一处没转干净就会**静默丢字段**。
+ * 直接接受对象则没有这层损耗。
+ *
+ * 客户端来的东西一律不可信，所以这里逐个字段做类型与长度收敛：
+ *  - 非对象/无标题的条目直接丢弃（没有标题的文献入库后无法辨认）；
+ *  - 年份只接受有限数字，其余回落 0（由调用方的 schema 默认值兜底）；
+ *  - 字符串字段裁到合理长度，防止把整页 HTML 塞进 tags。
+ */
+export function normalizeRecords(input: unknown): BibliographyRecord[] {
+  if (!Array.isArray(input)) return []
+  const str = (v: unknown, max = 2000): string => {
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v)
+    if (typeof v !== 'string') return ''
+    return v.trim().slice(0, max)
+  }
+  const out: BibliographyRecord[] = []
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue
+    const r = raw as Record<string, unknown>
+    const title = str(r.title, 500)
+    if (!title) continue
+    const yearNum = Number(r.year)
+    out.push({
+      title,
+      authors: str(r.authors, 500),
+      venue: str(r.venue, 300),
+      year: Number.isFinite(yearNum) && yearNum > 0 ? Math.trunc(yearNum) : 0,
+      doi: str(r.doi, 200),
+      tags: str(r.tags, 500),
+      notes: str(r.notes, 4000),
+      abstract: str(r.abstract, 8000),
+      url: str(r.url, 1000),
+      zoteroKey: str(r.zoteroKey, 100),
+    })
+  }
+  return out
+}

@@ -7,11 +7,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Sparkles, Copy, Loader2, FileText, Wand2 } from 'lucide-react'
+import { Sparkles, Loader2, FileText, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toastAiError } from '@/lib/ai-error'
 import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
+import { AiOutputActions } from '@/components/ai-output-actions'
 
 export function AIAbstractGenerator() {
   const [loading, setLoading] = useState(false)
@@ -50,12 +51,6 @@ export function AIAbstractGenerator() {
     } finally {
       setLoading(false)
     }
-  }
-
-  const copy = () => {
-    if (!result) return
-    navigator.clipboard.writeText(result)
-    toast.success('已复制到剪贴板')
   }
 
   return (
@@ -158,12 +153,12 @@ export function AIAbstractGenerator() {
                 <FileText className="h-3.5 w-3.5 text-primary" />
                 <span className="text-xs font-medium text-primary">AI 生成结果</span>
               </div>
-              <button
-                onClick={copy}
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-              >
-                <Copy className="h-2.5 w-2.5" /> 复制
-              </button>
+              <AiOutputActions
+                content={result}
+                noteTitle={`AI 摘要草稿 · ${form.title || '未命名'}`}
+                draftTitle={`摘要：${form.title || '未命名'}`}
+                compact
+              />
             </div>
             <AiMarkdown content={result} size="default" />
           </div>

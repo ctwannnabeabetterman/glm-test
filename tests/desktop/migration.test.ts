@@ -20,6 +20,21 @@ function objectNames(db: { prepare: (sql: string) => { all: () => unknown[] } })
   return (db.prepare('SELECT name FROM sqlite_master').all() as { name: string }[]).map((r) => r.name)
 }
 
+/**
+ * 「历史基线列 + 迁移模块声明的补列」拼出的建表语句（= 当前应有结构）。
+ *
+ * 补列取自迁移模块的 `tableColumns`，所以**以后新增列会自动跟上**。
+ * 这里原本是手工维护的，每次加列都会让「已经是干净结构」的用例误报一次
+ * —— 2026-09-22 加 `Activity` 表、2026-09-23 加 `Note.paperIds` 各踩了一次。
+ */
+function cleanTable(name: 'Note' | 'Paper' | 'Milestone', base: string[]): string {
+  const { tableColumns } = require('../../desktop/migrate-database.js') as {
+    tableColumns: Record<string, Record<string, string>>
+  }
+  const cols = [...base, ...Object.values(tableColumns[name] ?? {})]
+  return `CREATE TABLE ${name} (${cols.join(', ')});`
+}
+
 function makeLegacyDb(DatabaseSync: NonNullable<typeof sqlite>['DatabaseSync'], dbPath: string) {
   const db = new DatabaseSync(dbPath)
   db.exec(`
@@ -71,6 +86,9 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
       const noteCols = columnNames(upgraded, 'Note')
       expect(noteCols).toContain('structured')
       expect(noteCols).toContain('lastReadAt')
+      // 关联文献列：老库升级后必须补上，否则笔记详情一读就 P2022（整个笔记模块 500）
+      expect(noteCols).toContain('topicIds')
+      expect(noteCols).toContain('paperIds')
       const paperCols = columnNames(upgraded, 'Paper')
       expect(paperCols).toContain('zoteroKey')
       expect(paperCols).toContain('pdfPath')
@@ -156,18 +174,18 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
 
     const db = new sqlite!.DatabaseSync(dbPath)
     db.exec(`
-      CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, links TEXT, category TEXT, structured TEXT, lastReadAt DATETIME, topicIds TEXT DEFAULT '[]');
-      CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT, abstract TEXT DEFAULT '', topicIds TEXT DEFAULT '[]');
+      ${cleanTable('Note', ['id TEXT PRIMARY KEY', 'title TEXT'])}
+      ${cleanTable('Paper', ['id TEXT PRIMARY KEY', 'title TEXT'])}
       CREATE TABLE Manuscript (id TEXT PRIMARY KEY, title TEXT, venue TEXT, targetWords INTEGER, sections TEXT, status TEXT, createdAt DATETIME, updatedAt DATETIME);
-      CREATE TABLE Milestone (id TEXT PRIMARY KEY, type TEXT, title TEXT, startDate TEXT, endDate TEXT, progress INTEGER, refType TEXT DEFAULT '', refId TEXT DEFAULT '', autoProgress BOOLEAN DEFAULT false, actualEndDate TEXT DEFAULT '');
+      ${cleanTable('Milestone', ['id TEXT PRIMARY KEY', 'type TEXT', 'title TEXT', 'startDate TEXT', 'endDate TEXT', 'progress INTEGER'])}
       CREATE INDEX Milestone_refType_refId_idx ON Milestone(refType, refId);
       CREATE TABLE WeeklyTask (id TEXT PRIMARY KEY, name TEXT, hours INTEGER DEFAULT 2, priority INTEGER DEFAULT 3, done BOOLEAN DEFAULT false, weekStart TEXT DEFAULT '', "order" INTEGER DEFAULT 0, createdAt DATETIME, updatedAt DATETIME);
       CREATE INDEX WeeklyTask_weekStart_idx ON WeeklyTask(weekStart);
       CREATE INDEX WeeklyTask_done_idx ON WeeklyTask(done);
     `)
-    // newTables / newIndexes 直接取自迁移模块：**新增表时这里自动跟上**。
-    // 以前这份清单是手工维护的，2026-09-22 加 Activity 表时忘了同步，
-    // 于是「已经是干净结构」的库被判成「需要迁移」，这条用例就红了。
+    // 表/索引/列全部从迁移模块派生：表→newTables、索引→newIndexes、列→tableColumns。
+    // 以前这三样都是手工维护的，每加一个就要误报一次（2026-09-22 加 Activity 表、
+    // 2026-09-23 加 Note.paperIds 各一次）。派生之后这类假红不会再出现。
     const { newTables, newIndexes } = require('../../desktop/migrate-database.js') as {
       newTables: Record<string, string>
       newIndexes: Record<string, { sql: string }>
@@ -190,8 +208,8 @@ describe.skipIf(!sqlite)('desktop database upgrade', () => {
     const db = new sqlite!.DatabaseSync(dbPath)
     // 一个刻意不含 Milestone 的库：补列/建索引都必须被安全跳过
     db.exec(`
-      CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, links TEXT, category TEXT, structured TEXT, lastReadAt DATETIME, topicIds TEXT DEFAULT '[]');
-      CREATE TABLE Paper (id TEXT PRIMARY KEY, title TEXT, doi TEXT, zoteroKey TEXT, pdfPath TEXT, abstract TEXT DEFAULT '', topicIds TEXT DEFAULT '[]');
+      ${cleanTable('Note', ['id TEXT PRIMARY KEY', 'title TEXT'])}
+      ${cleanTable('Paper', ['id TEXT PRIMARY KEY', 'title TEXT'])}
     `)
     db.close()
 

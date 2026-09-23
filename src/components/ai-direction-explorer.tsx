@@ -4,10 +4,11 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
-import { Sparkles, Search, Loader2, Copy } from 'lucide-react'
+import { Sparkles, Search, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toastAiError } from '@/lib/ai-error'
 import { AiMarkdown } from '@/components/ai-markdown'
+import { AiOutputActions } from '@/components/ai-output-actions'
 
 export function AIDirectionExplorer() {
   const [candidate, setCandidate] = useState('')
@@ -65,12 +66,12 @@ export function AIDirectionExplorer() {
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="mb-2 flex items-center justify-between text-xs font-medium">
               分析结果
-              <button
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                onClick={() => { void navigator.clipboard.writeText(result); toast.success('已复制') }}
-              >
-                <Copy className="h-3 w-3" />复制
-              </button>
+              <AiOutputActions
+                content={result}
+                noteTitle={`AI 方向探索 · ${candidate}`}
+                draftTitle={`方向探索：${candidate}`}
+                compact
+              />
             </div>
             <div className="max-h-[520px] overflow-auto">
               <AiMarkdown content={result} size="default" />

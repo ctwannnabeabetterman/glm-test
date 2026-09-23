@@ -158,6 +158,13 @@ model Note {
   // 笔记同样会喂给 AI 研究分析，不区分课题时「最近 10 条」里混着不相干的思考，
   // 模型容易顺着噪声跑偏（用户原话：「课题多了以后互相干扰」）。
   topicIds   String    @default("[]")
+  // 关联文献（JSON 字符串数组，元素是 Paper.id）。语义与 topicIds 一致，不另建关联表。
+  // 为什么需要它：在这之前笔记与论文库**没有任何字段级通路** ——
+  // 一条「文献阅读思考」笔记到底写的是哪篇论文，只能靠标题模糊匹配去猜，
+  // 而实测库里的笔记标题与论文库没有稳定对应关系，猜错就会把作者填成别人
+  // （见 KNOWN_ISSUES「笔记导出不做按标题模糊兜底」）。有了这一列，
+  // 「笔记 → 论文」与「论文 → 相关笔记」才是可验证的事实而不是推测。
+  paperIds   String    @default("[]")
   // 文献阅读思考模板（category=literature 时使用）：JSON 存储结构字段
   //   { author, journal, terms, refs, method, object, framework, innovation, limitation, inspiration }
   structured String   @default("{}")

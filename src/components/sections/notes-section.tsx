@@ -50,6 +50,7 @@ import {
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { TopicLinker, TopicBadges } from '@/components/topic-linker'
+import { PaperLinker, PaperBadges } from '@/components/paper-linker'
 
 interface Note {
   id: string
@@ -61,6 +62,8 @@ interface Note {
   structured?: Record<string, string>
   /** 所属课题（JSON 字符串数组）—— 决定 AI 研究分析会不会用到这条笔记 */
   topicIds?: string
+  /** 关联文献（JSON 字符串数组）—— 决定论文详情里能不能看到这条笔记 */
+  paperIds?: string
   lastReadAt?: string | null
   createdAt: string
   updatedAt: string
@@ -350,6 +353,7 @@ function NoteDetail({ note, onUpdate, onDelete }: {
                 {CATEGORY_LABELS[note.category]?.label}
               </Badge>
               <TopicBadges topicIds={note.topicIds || '[]'} />
+              <PaperBadges paperIds={note.paperIds || '[]'} />
               <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5" />
                 更新于 {new Date(note.updatedAt).toLocaleString('zh-CN')}
@@ -412,6 +416,17 @@ function NoteDetail({ note, onUpdate, onDelete }: {
                 onSave={async (json) => {
                   await api.put(`/api/notes/${note.id}`, { topicIds: json })
                   onUpdate({ ...note, topicIds: json })
+                }}
+              />
+            </div>
+            {/* 关联文献：与所属课题同一套交互。挂上之后，论文详情里就能看到这条笔记，
+                笔记导出也不必再靠标题猜作者（猜错会把作者填成别人）。 */}
+            <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+              <PaperLinker
+                paperIds={note.paperIds || '[]'}
+                onSave={async (json) => {
+                  await api.put(`/api/notes/${note.id}`, { paperIds: json })
+                  onUpdate({ ...note, paperIds: json })
                 }}
               />
             </div>
