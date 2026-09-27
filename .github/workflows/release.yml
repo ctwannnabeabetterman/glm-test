@@ -311,23 +311,39 @@ jobs:
             $publishedVersion = [version]$Matches[1]
             $candidateVersion = [version]((Get-Content package.json | ConvertFrom-Json).version)
             if ($publishedVersion -ge $candidateVersion) {
-              throw "latest 已是 $($latest.tag_name)，拒绝把 $tag 公开成旧版本"
+              Write-Error "latest 已是 $($latest.tag_name)，拒绝把 $tag 公开成旧版本"
+              exit 1
             }
           }
           if (-not $existing) {
             gh release create $tag --repo $repo --title "$tag" --generate-notes --verify-tag --draft
-            if ($LASTEXITCODE -ne 0) { throw "创建草稿 Release $tag 失败" }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "创建草稿 Release $tag 失败（gh exit=$LASTEXITCODE）"
+              exit 1
+            }
           }
           $files = @(Get-ChildItem -Path release/*.exe, release/*.exe.blockmap, release/latest.yml -ErrorAction Stop |
                      ForEach-Object { $_.FullName })
+          Write-Warning "待上传 $($files.Count) 个文件：$($files -join ', ')"
+          $uploaded = $false
           for ($i = 1; $i -le 3; $i++) {
             gh release upload $tag @files --repo $repo --clobber
-            if ($LASTEXITCODE -eq 0) { break }
-            if ($i -eq 3) { throw "上传草稿资产失败（重试 3 次）" }
+            if ($LASTEXITCODE -eq 0) { $uploaded = $true; break }
+            if ($i -eq 3) { break }
             Start-Sleep -Seconds 8
           }
+          if (-not $uploaded) {
+            Write-Error "上传草稿资产失败（重试 3 次）"
+            exit 1
+          }
+          # 上传后立刻回读一次草稿的资产列表 —— 以 warning 形式输出，
+          # 这样即使后面的「草稿验收」失败，远端也能从 annotation 看到上传到底落了几个资产。
+          $after = @(Invoke-RestMethod -Uri "$api/releases?per_page=100" -Headers $headers |
+                     Where-Object { $_.tag_name -eq $tag })
+          $assetNames = @($after[0].assets | ForEach-Object { $_.name })
+          Write-Warning "上传后草稿 $tag 的资产数=$($assetNames.Count)：[$($assetNames -join ', ')]"
 
-      # ---------- 草稿验收：Release 里必须真的有安装包、latest.yml，且字节数对得上 ----------
+        # ---------- 草稿验收：Release 里必须真的有安装包、latest.yml，且字节数对得上 ----------
       # 为什么必须有这一步：v1.3.0 的发布 job **全程绿灯**，但 GitHub Release 里
       # 只有一个 `.exe.blockmap` —— 既没有 `.exe`，也没有 `latest.yml`。
       # 后果是静默的：用户点下载什么也拿不到；electron-updater 找不到更新清单，
@@ -362,32 +378,52 @@ jobs:
 
           $expectedNames = @('latest.yml', $declaredPath, "$declaredPath.blockmap")
           $names = @()
-          for ($i = 1; $i -le 5; $i++) {
+          $lastDiag = ''
+          for ($i = 1; $i -le 10; $i++) {
             # 草稿不能靠 /releases/tags/<tag> 查找；list releases 包含草稿。
             $allReleases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers $headers)
-            if ($allReleases.Count -eq 100) { throw 'Release 超过单页容量，拒绝未经完整枚举的发布' }
+            if ($allReleases.Count -eq 100) {
+              Write-Error "Release 总数达 $($allReleases.Count)，超出单页容量，拒绝未经完整枚举的发布"
+              exit 1
+            }
             $sameTag = @($allReleases | Where-Object { $_.tag_name -eq $tag })
-            if ($sameTag.Count -ne 1) { throw "$tag 存在 $($sameTag.Count) 个 Release，拒绝公开" }
+            if ($sameTag.Count -ne 1) {
+              # ⚠️ 这里必须用 Write-Error 而不是 throw：`throw` 的文案**不会进 GitHub 的 annotation**，
+              #    远端只能看到「Process completed with exit code 1」，等于没写。Write-Error 会带上文案。
+              Write-Error "$tag 存在 $($sameTag.Count) 个 Release（期望恰好 1 个：草稿）；本次共枚举到 $($allReleases.Count) 个 Release"
+              exit 1
+            }
             $release = $sameTag[0]
-            if (-not $release.draft) { throw "$tag 已公开，尚未验收不能继续" }
+            if (-not $release.draft) {
+              Write-Error "$tag 已公开，尚未验收不能继续"
+              exit 1
+            }
             $names = @($release.assets | ForEach-Object { $_.name })
             $exeAsset = @($release.assets | Where-Object { $_.name -eq $declaredPath })
             $hasYml = $names -contains 'latest.yml'
             $allPresent = @($expectedNames | Where-Object { $names -notcontains $_ }).Count -eq 0
             $sizeMatches = $exeAsset.Count -eq 1 -and [int64]$exeAsset[0].size -eq $declaredSize
+            # 诊断以 warning 形式输出 —— warning 也会进 annotation，而我在远端**只能**读到 annotation。
+            $lastDiag = "第 $i/10 次：draft=$($release.draft) 资产数=$($names.Count) 实际资产=[$($names -join ', ')] 期望=[$($expectedNames -join ', ')] exe大小=$($exeAsset[0].size)/$declaredSize"
+            Write-Warning $lastDiag
             if ($allPresent -and $names.Count -eq 3 -and $sizeMatches) {
               foreach ($name in $expectedNames) {
                 $asset = @($release.assets | Where-Object { $_.name -eq $name })[0]
                 $local = Get-Item (Join-Path release $name)
                 if ($asset.state -ne 'uploaded' -or [int64]$asset.size -ne $local.Length) {
-                  throw "草稿资产 $name 未完整上传"
+                  Write-Error "草稿资产 $name 未完整上传：state=$($asset.state) 远端大小=$($asset.size) 本地大小=$($local.Length)"
+                  exit 1
                 }
                 # GitHub 提供 digest 时还要比对内容；旧 API 返回 null 时仍需大小校验。
                 if ($asset.digest) {
                   $hash = [regex]::Match($asset.digest, '^sha256:([0-9a-fA-F]{64})$')
-                  if (-not $hash.Success) { throw "草稿资产 $name 的 digest 格式无法验证" }
+                  if (-not $hash.Success) {
+                    Write-Error "草稿资产 $name 的 digest 格式无法验证：$($asset.digest)"
+                    exit 1
+                  }
                   if ((Get-FileHash $local.FullName -Algorithm SHA256).Hash -ne $hash.Groups[1].Value) {
-                    throw "草稿资产 $name 的 SHA256 校验失败"
+                    Write-Error "草稿资产 $name 的 SHA256 校验失败（远端 $($hash.Groups[1].Value)）"
+                    exit 1
                   }
                 }
               }
@@ -406,9 +442,9 @@ jobs:
             Start-Sleep -Seconds 3
           }
 
-          throw ("草稿验收失败：$tag 的资产只有 [$($names -join ', ')]，" +
-            "期望 [$($expectedNames -join ', ')]，安装包应为 $declaredSize 字节。" +
-            "草稿保持不可见，后续备份工件仍会尝试上传。")
+          Write-Error ("草稿验收失败：$tag 的资产只有 [$($names -join ', ')]，" +
+            "期望 [$($expectedNames -join ', ')]，安装包应为 $declaredSize 字节。最后一次诊断：$lastDiag")
+          exit 1
 
       # 备份失败也不能公开：要保留一条可恢复路径，验收未通过时仍会尝试备份。
       - name: Upload artifacts (backup)
@@ -439,18 +475,26 @@ jobs:
           try {
             $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
           } catch {
-            if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+            if ([int]$_.Exception.Response.StatusCode -ne 404) {
+              Write-Error "查询 /releases/latest 失败：$($_.Exception.Message)"
+              exit 1
+            }
           }
           if ($latest -and $latest.tag_name -match '^v(\d+\.\d+\.\d+)$') {
             if ([version]$Matches[1] -ge [version]((Get-Content package.json | ConvertFrom-Json).version)) {
-              throw "已有更新的正式版本 $($latest.tag_name)，拒绝公开 $tag"
+              Write-Error "已有更新的正式版本 $($latest.tag_name)，拒绝公开 $tag"
+              exit 1
             }
           }
           # 此前所有步骤（含完整性校验与备份）成功才会公开；失败时草稿保持不可见。
           gh release edit $tag --repo $repo --draft=false --latest
-          if ($LASTEXITCODE -ne 0) { throw "公开 $tag 失败，草稿保留待检查" }
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "公开 $tag 失败（gh exit=$LASTEXITCODE），草稿保留待检查"
+            exit 1
+          }
           $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" -Headers $headers
           $currentLatest = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
           if ($release.draft -or $release.tag_name -ne $tag -or $currentLatest.id -ne $release.id) {
-            throw "公开后核查失败：$tag 未成为已验收的 latest Release"
+            Write-Error "公开后核查失败：draft=$($release.draft) tag=$($release.tag_name) latestId=$($currentLatest.id) releaseId=$($release.id)"
+            exit 1
           }

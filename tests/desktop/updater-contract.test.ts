@@ -453,8 +453,22 @@ describe('发行流水线门禁与更新通道', () => {
     expect(uploadScript).toMatch(/publishedVersion -ge \$candidateVersion/)
     const publishScript = stepScript(job, 'Publish verified draft')
     expect(publishScript).toMatch(/--draft=false/)
-    // 公开必须排在验收之后：验收脚本失败会抛错，公开步骤拿不到执行机会。
-    expect(stepScript(job, 'Verify draft assets')).toMatch(/throw/)
+    // 公开必须排在验收之后：验收脚本失败会中止这一步，公开步骤拿不到执行机会。
+    // ⚠️ 断言「用 Write-Error 而不是 throw」是**可诊断性**要求，不是风格问题：
+    //    `throw` 的文案不会进 GitHub 的 annotation，远端只能看到
+    //    「Process completed with exit code 1」—— 2026-09-27 就因为这一点
+    //    完全查不出草稿验收为什么失败，白烧了一轮。Write-Error 会带上文案。
+    const verifyScript = stepScript(job, 'Verify draft assets')
+    expect(verifyScript, '验收失败必须带文案（Write-Error），不能只是 throw').toMatch(/Write-Error/)
+    // ⚠️ 断言前必须**剥掉注释行**：说明「为什么不用 throw」的注释本身就含这个词，
+    //    直接对整段做子串匹配会把自己写死 —— 这与「门禁只查字符串」是同一类错误。
+    const verifyCode = verifyScript
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .join('\n')
+    expect(verifyCode, '验收失败不允许只用裸 throw（远端读不到原因）').not.toMatch(/\bthrow\b/)
+    // 每次重试都要把资产状态打出来，否则远端无从判断差在哪
+    expect(verifyScript).toMatch(/Write-Warning/)
   })
 
   it('cleanup 把未信任 tag 经环境变量传入并逐条校验，且权限错误不得伪装成「资源不存在」', () => {
