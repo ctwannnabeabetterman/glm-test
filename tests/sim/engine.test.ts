@@ -52,10 +52,39 @@ describe('engine：离散事件仿真内核', () => {
     expect(loose.droppedByReason['queue-full']).toBeLessThan(tight.droppedByReason['queue-full'])
   })
 
-  it('【故障收敛】注入链路故障后 convergenceTimeMs 非空且为正', () => {
-    const m = runSingle0({ ...base, seed: 7, failureAtMs: 500, detectionDelayMs: 40 }).runs[0].metrics
+  it('【故障收敛】只统计受故障影响、检测后发出的业务交付；故障太晚时为 null', () => {
+    const m = runSingle0({ ...base, seed: 7, failureAtMs: 300, detectionDelayMs: 40, queueCapacityPackets: 64 }).runs[0].metrics
     expect(m.convergenceTimeMs).not.toBeNull()
-    expect(m.convergenceTimeMs!).toBeGreaterThan(0)
+    expect(m.convergenceTimeMs!).toBeGreaterThan(40)
+    const late = runSingle0({ ...base, failureAtMs: 4900, queueCapacityPackets: 64 }).runs[0].metrics
+    expect(late.convergenceTimeMs).toBeNull()
+  })
+
+  it('受影响业务断边后不可达时，不把无关业务的交付误报成收敛', () => {
+    // Spine-Leaf 的 H0 只有一条接入链路；其余从 S0 发出的业务仍可交付。
+    const m = runSingle0({ ...base, topology: 'spineleaf', failureAtMs: 1, detectionDelayMs: 0, queueCapacityPackets: 64 }).runs[0].metrics
+    expect(m.flowMetrics[0].delivered).toBe(0)
+    expect(m.flowMetrics[1].delivered).toBeGreaterThan(0)
+    expect(m.droppedByReason['no-route']).toBeGreaterThan(0)
+    expect(m.convergenceTimeMs).toBeNull()
+  })
+
+  it.each(['dijkstra', 'loadaware', 'qlearning'] as const)('检测后 %s 真实绕过主流断边并稳定可复现', (algorithm) => {
+    // 故障在首个主流发包前已检测；断掉的边是原始主流路径的第一跳（Q 策略可能不走弦）。
+    const params = { ...base, algorithm, source: 'R0', destination: 'R4', failureAtMs: 1, detectionDelayMs: 0, queueCapacityPackets: 64 }
+    const withFault = runSingle0(params).runs[0].metrics
+    const withoutFault = runSingle0({ ...params, failureAtMs: 0 }).runs[0].metrics
+    const [source, failedNextHop] = withoutFault.flowMetrics[0].path
+    expect(failedNextHop).toBeDefined()
+    expect(withFault.flowMetrics[0].path.length).toBeGreaterThan(2)
+    expect(withFault.flowMetrics[0].path.some((node, i, path) =>
+      i + 1 < path.length && ((node === source && path[i + 1] === failedNextHop)
+        || (node === failedNextHop && path[i + 1] === source)))).toBe(false)
+    expect(withFault.flowMetrics[0].delivered).toBeGreaterThan(0)
+    expect(withFault.convergenceTimeMs).not.toBeNull()
+    expect(withFault.convergenceTimeMs).toBeGreaterThanOrEqual(0)
+    expect(withFault.droppedByReason['no-route']).toBeLessThanOrEqual(withoutFault.droppedByReason['no-route'])
+    expect(snapshot(params)).toBe(snapshot(params))
   })
 
   it('指标体系形状完整：分位数有序、Jain 指数 ∈ [0,1]、丢包原因分解齐全', () => {

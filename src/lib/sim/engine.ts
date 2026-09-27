@@ -121,6 +121,7 @@ export function runSingle(params: ExperimentParams, seed: number): SingleRunResu
   // ---- 状态 ----
   const failedPhysical = new Set<string>() // 物理故障（丢包 link-failure）
   const removedFromRouting = new Set<string>() // 检测后从路由图移除
+  const affectedFlows = new Set<number>() // 故障前会经过该边的业务，用于收敛指标
   const queues = new Map<string, EdgeQueueState>()
   const packets = new Map<string, Packet>()
   const edgeById = new Map(topo.edges.map((e) => [e.id, e]))
@@ -182,6 +183,12 @@ export function runSingle(params: ExperimentParams, seed: number): SingleRunResu
     const pre = routePath(primary.source, primary.destination)
     failureEdgeId = pre.length > 1 ? firstEdgeOnPath(pre) : topo.edges[0].id
     if (failureEdgeId) {
+      flows.forEach((f, fi) => {
+        const path = routePath(f.source, f.destination)
+        if (path.some((node, i) => i + 1 < path.length && firstEdgeOnPath([node, path[i + 1]]) === failureEdgeId)) {
+          affectedFlows.add(fi)
+        }
+      })
       pushEvent({ time: params.failureAtMs, rank: 0, type: 'fault' })
       pushEvent({ time: params.failureAtMs + (params.detectionDelayMs ?? 40), rank: 1, type: 'detect' })
     }
@@ -199,11 +206,13 @@ export function runSingle(params: ExperimentParams, seed: number): SingleRunResu
     if (src === dst) return [src]
     if (algorithm === 'qlearning' && router) {
       const p = router.greedyPath(src, dst)
-      if (p.length > 1) return p
-      // 学习失败 → 回退（会在训练报告里如实标注）
-      return dijkstra(adj, src, dst, edgeLoads, congestionWeight).path
+      const pathAvailable = p.length > 1 && p.every((node, i) =>
+        i + 1 === p.length || !removedFromRouting.has(firstEdgeOnPath([node, p[i + 1]]) ?? ''),
+      )
+      if (pathAvailable) return p
+      // 学习失败或已检测到 Q 策略上的断边 → 用当前可用图回退最短路。
     }
-    return dijkstra(adj, src, dst, edgeLoads, congestionWeight).path
+    return dijkstra(adj, src, dst, edgeLoads, congestionWeight, removedFromRouting).path
   }
 
   /** 路由图中的边是否可用（检测到的故障已移除） */
@@ -308,7 +317,7 @@ export function runSingle(params: ExperimentParams, seed: number): SingleRunResu
   }
 
   // ---- 主循环 ----
-  let firstDeliveryAfterDetect: number | null = null
+  let firstAffectedDeliveryAfterDetect: number | null = null
   let detectTime: number | null = null
   const maxEvents = flows.reduce((a, f) => a + f.packetCount, 0) * (1 + 2 * topo.nodes.length * 2) + 64
   let processed = 0
@@ -326,7 +335,24 @@ export function runSingle(params: ExperimentParams, seed: number): SingleRunResu
       continue
     }
     if (ev.type === 'detect') {
-      if (failureEdgeId) removedFromRouting.add(failureEdgeId)
+      if (failureEdgeId) {
+        removedFromRouting.add(failureEdgeId)
+        // 已在断边等候的包尚未开始传输：从当前节点重选路，不再让它们沿旧边排队。
+        for (const [key, q] of queues) {
+          if (directedEdge.get(key)?.id !== failureEdgeId) continue
+          const from = key.split('>')[0]
+          for (const pid of q.queue.splice(0)) {
+            const packet = packets.get(pid)
+            if (!packet || packet.dropped) continue
+            packet.queueDelayMs += ev.time - packet.lastEnqueueTime
+            const suffix = routePath(from, packet.path[packet.path.length - 1])
+            packet.path = packet.path.slice(0, packet.pathIdx).concat(suffix)
+            const nextHop = packet.path[packet.pathIdx + 1]
+            if (nextHop) enqueuePacket(packet, from, nextHop, ev.time, (r) => (packet.dropped = r))
+            else packet.dropped = 'no-route'
+          }
+        }
+      }
       detectTime = ev.time
       continue
     }
@@ -377,11 +403,19 @@ export function runSingle(params: ExperimentParams, seed: number): SingleRunResu
         if (to === packet.path[packet.path.length - 1]) {
           packet.delivered = true
           packet.arrivalTime = hopArrival
-          if (detectTime !== null && hopArrival >= detectTime && firstDeliveryAfterDetect === null) {
-            firstDeliveryAfterDetect = hopArrival
+          // 只量测受断边影响、检测后才发出的业务；不把旧路上的在途包或无关流算作收敛。
+          if (detectTime !== null && packet.emitTime >= detectTime && affectedFlows.has(packet.flowIdx)
+            && firstAffectedDeliveryAfterDetect === null) {
+            firstAffectedDeliveryAfterDetect = hopArrival
           }
         } else {
-          const nextHop = packet.path[packet.pathIdx + 1]
+          let nextHop = packet.path[packet.pathIdx + 1]
+          if (nextHop && removedFromRouting.has(firstEdgeOnPath([to, nextHop]) ?? '')) {
+            // 检测时已有包在途：到达下一节点后从当前位置重新选路，而不是按旧路径丢弃。
+            const suffix = routePath(to, packet.path[packet.path.length - 1])
+            packet.path = packet.path.slice(0, packet.pathIdx).concat(suffix)
+            nextHop = packet.path[packet.pathIdx + 1]
+          }
           if (nextHop) {
             enqueuePacket(packet, to, nextHop, hopArrival, (r) => (packet.dropped = r))
           } else {
@@ -469,7 +503,8 @@ export function runSingle(params: ExperimentParams, seed: number): SingleRunResu
     linkLoadJainIndex: r1(jainIndex(edgeLoadsFinal) * 1000) / 1000,
     droppedByReason: dropBy,
     convergenceTimeMs:
-      firstDeliveryAfterDetect !== null && detectTime !== null ? r1(firstDeliveryAfterDetect - (detectTime - (params.detectionDelayMs ?? 40))) : null,
+      firstAffectedDeliveryAfterDetect !== null && params.failureAtMs
+        ? r1(firstAffectedDeliveryAfterDetect - params.failureAtMs) : null,
     maxEdgeLoad: r1(maxEdgeLoad * 100) / 100,
     flowMetrics,
   }

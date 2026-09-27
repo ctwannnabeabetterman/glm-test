@@ -50,6 +50,7 @@ async function packStandalone() {
   assertNoBrokenLinks(dereferenceSymlinks())
   // ⚠️ 必须排在 dereference 之后：符号链接目录里的废料只有落成真实副本才看得见
   pruneLinkedDeps()
+  assertNoEmptyDependencyDirs()
   // electron-builder 对 extraResources 中名为 node_modules 的目录会做依赖收集式过滤，
   // 导致 standalone 的依赖层丢失；因此压成单文件随包携带，由桌面壳层首次启动时自解压。
   const dir = path.join(ROOT, 'resources')
@@ -557,6 +558,67 @@ function assertNoBrokenLinks({ broken }) {
   process.exit(1)
 }
 
+/**
+ * 打包前置的硬闸门：`.next/node_modules` 下**不允许存在空目录**。
+ *
+ * 为什么需要它（2026-09-27 实测踩到，且只在这一条路径上出现）：
+ * 在**已存在的 `.next`** 上重复跑 `next build` 后，Next 为外部化依赖准备的
+ * `.next/node_modules/<pkg>-<hash>` 会退化成**空目录**（既不是符号链接、也不是真实副本）。
+ * 此时 `dereferenceSymlinks()` 只会报「替换 0 个符号链接」，`findSymlinkEntries()`
+ * 也查不出任何链接 —— **每一步都自报成功**，打出来的 app.zip 却缺了
+ * `@prisma/client-<hash>` 与 `pdfkit-<hash>` 的全部文件，用户装上是
+ * `Cannot find module` / 启动超时。
+ *
+ * 干净重建 `.next` 后 `dereference` 会正常替换（实测「替换 2 个符号链接」，
+ * 两个包分别有 21 / 153 个文件）。所以判据很简单：**这些目录不许是空的**。
+ * 顺带一提，CI 侧还有「解压 app.zip 真启动一次」的成品冒烟兜底；
+ * 这条的价值是让**本地**打包也能在第一时间失败，而不是等到装机才发现。
+ */
+function assertNoEmptyDependencyDirs(rootDir = STANDALONE) {
+  const root = path.join(rootDir, '.next', 'node_modules')
+  if (!fs.existsSync(root)) return
+  const empty = []
+  const walk = (dir) => {
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    const files = entries.filter((e) => e.isFile())
+    const dirs = entries.filter((e) => e.isDirectory())
+    if (entries.length > 0 && files.length === 0 && dirs.length === 0) return
+    if (entries.length === 0) {
+      empty.push(path.relative(rootDir, dir) || dir)
+      return
+    }
+    for (const d of dirs) walk(path.join(dir, d.name))
+  }
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue
+    const first = path.join(root, e.name)
+    // @scope 目录本身通常只有子目录，逐层进去看；叶子目录为空就是问题。
+    let children = []
+    try {
+      children = fs.readdirSync(first, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    if (e.name.startsWith('@')) {
+      for (const c of children) if (c.isDirectory()) walk(path.join(first, c.name))
+    } else {
+      walk(first)
+    }
+  }
+  if (!empty.length) return
+  console.error(`[desktop] .next/node_modules 下有 ${empty.length} 个依赖目录是空的：`)
+  empty.slice(0, 10).forEach((p) => console.error('   ' + p))
+  console.error('[desktop] 这通常意味着在**已存在的 .next** 上重复构建 —— Next 没有把外部化依赖')
+  console.error('[desktop] 落成真实副本，而 dereference 与符号链接检查都发现不了。')
+  console.error('[desktop] 修法：删掉 .next 后重新 next build，再跑本脚本。拒绝出包。')
+  process.exit(1)
+}
+
 /** 列出 zip 的详细条目（bsdtar -tvf）。失败即视为打包不可信。 */
 function listZip(zip) {
   const tarExe = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
@@ -597,6 +659,7 @@ if (require.main === module) {
 module.exports = {
   dereferenceSymlinks,
   assertNoBrokenLinks,
+  assertNoEmptyDependencyDirs,
   findSymlinkEntries,
   listZip,
   pruneStandalone,

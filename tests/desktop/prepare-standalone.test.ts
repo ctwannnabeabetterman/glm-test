@@ -36,6 +36,7 @@ const nodeRequire = createRequire(import.meta.url)
 const ps = nodeRequire('../../desktop/prepare-standalone.js') as {
   dereferenceSymlinks: (root?: string) => { replaced: number; broken: string[] }
   assertNoBrokenLinks: (r: { broken: string[] }) => void
+  assertNoEmptyDependencyDirs: (root?: string) => void
   findSymlinkEntries: (listing: string) => string[]
   listZip: (zip: string) => string
   pruneLinkedDeps: (root?: string) => { removed: number; freed: number }
@@ -176,6 +177,68 @@ describe('assertNoBrokenLinks：断链一律拒绝出包', () => {
   it('无断链时放行', () => {
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
     expect(() => ps.assertNoBrokenLinks({ broken: [] })).not.toThrow()
+    expect(exit).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 2026-09-27 实测踩到的坑：在**已存在的 `.next`** 上重复 `next build` 后，
+ * Next 给外部化依赖准备的 `.next/node_modules/<pkg>-<hash>` 会退化成**空目录** ——
+ * 既不是符号链接、也不是真实副本。此时 `dereferenceSymlinks()` 报「替换 0 个」、
+ * `findSymlinkEntries()` 一个链接都查不出，**每一步都自报成功**，
+ * 但打出来的 app.zip 里 `@prisma/client-<hash>` 与 `pdfkit-<hash>` 一个文件都没有。
+ * 干净重建后 `dereference` 正常替换（实测 2 个），两个包分别有 21 / 153 个文件。
+ */
+describe('assertNoEmptyDependencyDirs：外部化依赖不许是空目录', () => {
+  const makeRoot = (build: (root: string) => void) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'anl-emptydep-'))
+    tmpDirs.push(root)
+    build(root)
+    return root
+  }
+
+  it('空的外部化依赖目录必须拒绝出包（否则用户装上是 Cannot find module）', () => {
+    const root = makeRoot((r) => {
+      fs.mkdirSync(path.join(r, '.next', 'node_modules', 'pdfkit-abcdef'), { recursive: true })
+    })
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('__process_exit__')
+    }) as never)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(() => ps.assertNoEmptyDependencyDirs(root)).toThrow('__process_exit__')
+    expect(exit).toHaveBeenCalledWith(1)
+  })
+
+  it('@scope 下的空包也要抓到（@prisma/client-<hash> 这一层）', () => {
+    const root = makeRoot((r) => {
+      fs.mkdirSync(path.join(r, '.next', 'node_modules', '@prisma', 'client-abcdef'), { recursive: true })
+    })
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('__process_exit__')
+    }) as never)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(() => ps.assertNoEmptyDependencyDirs(root)).toThrow('__process_exit__')
+    expect(exit).toHaveBeenCalledWith(1)
+  })
+
+  it('目录里有文件就放行（不能把正常产物误判成坏包）', () => {
+    const root = makeRoot((r) => {
+      fs.mkdirSync(path.join(r, '.next', 'node_modules', '@prisma', 'client-abcdef', 'runtime'), { recursive: true })
+      fs.writeFileSync(path.join(r, '.next', 'node_modules', '@prisma', 'client-abcdef', 'runtime', 'library.js'), 'x')
+      fs.mkdirSync(path.join(r, '.next', 'node_modules', 'pdfkit-abcdef'), { recursive: true })
+      fs.writeFileSync(path.join(r, '.next', 'node_modules', 'pdfkit-abcdef', 'package.json'), '{}')
+    })
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    expect(() => ps.assertNoEmptyDependencyDirs(root)).not.toThrow()
+    expect(exit).not.toHaveBeenCalled()
+  })
+
+  it('没有 .next/node_modules 时是空操作（本地未构建过的项目不该因此失败）', () => {
+    const root = makeRoot(() => {})
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    expect(() => ps.assertNoEmptyDependencyDirs(root)).not.toThrow()
     expect(exit).not.toHaveBeenCalled()
   })
 })

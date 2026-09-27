@@ -521,7 +521,7 @@ function DataManagement() {
   const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
-  const [importData, setImportData] = useState<{ data: unknown; meta: Record<string, number> } | null>(null)
+  const [importData, setImportData] = useState<{ version: 1 | 2; data: unknown; attachments?: unknown; meta: Record<string, number> } | null>(null)
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge')
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -530,14 +530,15 @@ function DataManagement() {
     try {
       const res = await fetch('/api/backup')
       const data = await res.json()
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      if (!res.ok) throw new Error(data.error || '导出失败')
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = `ai-research-backup-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
-      toast.success(`已导出 ${data.meta.papers + data.meta.topics + data.meta.experiments} 条数据`)
+      toast.success(`已导出 ${Object.values(data.meta as Record<string, number>).reduce((sum, count) => sum + count, 0)} 条记录和 ${data.attachments.length} 份 PDF`)
     } catch {
       toast.error('导出失败')
     } finally {
@@ -552,11 +553,12 @@ function DataManagement() {
     reader.onload = (ev) => {
       try {
         const parsed = JSON.parse(ev.target?.result as string)
-        if (!parsed.data) {
+        if (![1, 2].includes(parsed.version) || !parsed.data || typeof parsed.data !== 'object') {
           toast.error('无效的备份文件格式')
           return
         }
-        setImportData({ data: parsed.data, meta: parsed.meta || {} })
+        setImportMode('merge')
+        setImportData({ version: parsed.version, data: parsed.data, attachments: parsed.attachments, meta: parsed.meta || {} })
         setImportOpen(true)
       } catch {
         toast.error('文件解析失败')
@@ -574,7 +576,7 @@ function DataManagement() {
       const res = await fetch('/api/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: importData.data, mode: importMode }),
+        body: JSON.stringify({ version: importData.version, data: importData.data, attachments: importData.attachments, mode: importMode }),
       })
       const result = await res.json()
       if (result.success) {
@@ -584,7 +586,7 @@ function DataManagement() {
         // Reload to refresh data
         setTimeout(() => window.location.reload(), 1000)
       } else {
-        toast.error('导入失败')
+        toast.error(result.error || '导入失败')
       }
     } catch {
       toast.error('导入失败')
@@ -600,7 +602,7 @@ function DataManagement() {
           <DatabaseIcon className="h-4 w-4 text-primary" />
           数据管理
         </CardTitle>
-        <CardDescription className="text-xs">导出/导入 JSON 备份，跨设备同步科研数据</CardDescription>
+        <CardDescription className="text-xs">导出/导入含 PDF 的科研数据备份；API Key 等敏感设置不会导出</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -613,7 +615,7 @@ function DataManagement() {
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium">导出备份</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  将所有论文、课题、实验、里程碑、笔记、检索记录导出为 JSON 文件
+                  导出科研记录、稿件、仿真数据和 PDF；不包含 API Key
                 </div>
                 <Button
                   size="sm"
@@ -702,16 +704,17 @@ function DataManagement() {
                     </button>
                     <button
                       onClick={() => setImportMode('replace')}
+                      disabled={importData.version !== 2}
                       className={cn(
                         'rounded-md border p-2 text-left transition-all',
                         importMode === 'replace'
                           ? 'border-red-500 bg-red-500/10 ring-1 ring-red-500/30'
-                          : 'border-border hover:border-red-500/40'
+                          : 'border-border hover:border-red-500/40 disabled:opacity-50 disabled:cursor-not-allowed'
                       )}
                     >
                       <div className="text-xs font-medium text-red-600">替换模式</div>
                       <div className="text-[11px] text-muted-foreground mt-0.5">
-                        ⚠️ 清空所有现有数据后导入
+                        {importData.version === 1 ? '旧版备份不完整，禁止替换' : '原子替换现有科研记录'}
                       </div>
                     </button>
                   </div>
@@ -721,7 +724,7 @@ function DataManagement() {
                   <div className="rounded-md bg-red-500/10 border border-red-500/30 p-2 flex items-start gap-2">
                     <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0 mt-0.5" />
                     <div className="text-[11px] text-red-700 dark:text-red-400">
-                      替换模式将<strong>永久删除</strong>所有现有数据，然后导入备份内容。此操作不可撤销！
+                      替换会用备份中的科研记录覆盖当前记录，但保留本机 API Key 和旧 PDF 文件。请先导出并妥善保存现有备份；导入失败会回滚数据库改动。
                     </div>
                   </div>
                 )}

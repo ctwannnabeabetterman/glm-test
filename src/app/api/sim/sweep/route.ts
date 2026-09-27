@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { runExperiment } from '@/lib/sim'
-import { isAlgorithm, parseExperimentParams } from '@/lib/sim/params'
+import { checkQTrainingBudget, isAlgorithm, parseExperimentParams } from '@/lib/sim/params'
 import {
   SWEEP_METRICS,
   buildSweepPlan,
@@ -36,7 +36,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '请求无效: ' + (e as Error).message }, { status: 400 })
   }
 
-  const base: ExperimentParams = parseExperimentParams(body)
+  let base: ExperimentParams
+  try {
+    base = parseExperimentParams(body)
+  } catch (e) {
+    return NextResponse.json({ error: '请求无效: ' + (e as Error).message }, { status: 400 })
+  }
   const algorithms: Algorithm[] = Array.isArray(body.algorithms)
     ? (body.algorithms.filter(isAlgorithm) as Algorithm[])
     : [base.algorithm]
@@ -55,6 +60,8 @@ export async function POST(request: NextRequest) {
   if (plan.error) {
     return NextResponse.json({ error: plan.error, plan: { values: plan.values, cells: plan.cells, totalRuns: plan.totalRuns } }, { status: 400 })
   }
+  const budgetError = checkQTrainingBudget(base.qlearning?.episodes, plan.algorithms.includes('qlearning') ? plan.values.length * plan.seedRuns : 0)
+  if (budgetError) return NextResponse.json({ error: budgetError }, { status: 400 })
 
   const started = Date.now()
   const cells: SweepCell[] = []

@@ -273,8 +273,8 @@ export function parseBibtex(text: string): BibliographyRecord[] {
     rec.notes = field('note')
     rec.abstract = field('abstract')
     rec.url = field('url')
-    const keyMatch = chunk.match(/@\w+\s*\{([^,]+),/)
-    if (keyMatch) rec.zoteroKey = clean(keyMatch[1])
+    // @article{...} 的 citation key 是本地引用标签，不是 Zotero item key。
+    // 不把它当作强身份写库；有 DOI 时仍可凭 DOI 去重。
     if (rec.title) records.push(rec)
   }
   return records

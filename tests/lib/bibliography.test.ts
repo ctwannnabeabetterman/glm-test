@@ -38,6 +38,13 @@ ER  -
     expect(recs[0].title).toBe('A Survey of Semantic Communications')
     expect(recs[0].authors).toContain('Chen, Li')
     expect(recs[0].year).toBe(2023)
+    expect(recs[0].zoteroKey).toBe('') // citation key != Zotero item key
+  })
+
+  it('never turns a BibTeX citation key into a Zotero identity', () => {
+    const [item] = parseBibtex('@article{ABC123, title={Different Work}, year={2022}}')
+    expect(item.zoteroKey).toBe('')
+    expect(paperIdentityKey(item)).toBe('title:different work')
   })
 
   it('returns empty on unknown text instead of inventing papers', () => {

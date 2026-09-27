@@ -128,6 +128,7 @@ function loadMain(failures: Array<Error | null>) {
           rmSync: vi.fn(),
         }
       if (name === 'electron-updater') return { autoUpdater }
+      if (name === 'builder-util-runtime') return nodeRequire('builder-util-runtime')
       if (name === './migrate-database')
         return { migrateDatabase: vi.fn(), readDatabaseVersion: () => 0, encodeVersion: () => 0, formatVersion: () => '' }
       if (name === './instance-guard') return { findForeignLabInstances: async () => [], buildConflictDetail: () => '' }

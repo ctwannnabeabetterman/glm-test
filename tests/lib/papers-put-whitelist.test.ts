@@ -82,7 +82,8 @@ describe('白名单：只透传允许修改的列', () => {
     const { PUT } = await import('@/app/api/papers/[id]/route')
     const { req, ctx } = put({ year: '2023', citations: '120', relevance: '8', novelty: '7', readingTime: '3600' })
     await PUT(req, ctx)
-    expect(updateData()).toEqual({ year: 2023, citations: 120, relevance: 8, novelty: 7, readingTime: 3600 })
+    // 阅读累计只有会话事务可递增；旧客户端的绝对值不能覆写它。
+    expect(updateData()).toEqual({ year: 2023, citations: 120, relevance: 8, novelty: 7 })
   })
 })
 

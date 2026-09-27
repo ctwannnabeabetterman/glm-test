@@ -3,6 +3,12 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import path from 'node:path'
+// ⚠️ js-yaml 目前是**传递依赖**（由运行时依赖 electron-updater 的 ^4.1.0 引入，
+//    见 package-lock.json），因此生产和 CI 里必然存在。用它而不是子串匹配，
+//    是因为「门禁测试」如果只查字符串，改个同义词就红、语义变了却照样绿 ——
+//    那等于没有门禁。若将来 electron-updater 不再依赖它，把 js-yaml 显式加进
+//    devDependencies 即可（本机 npm 跑不动依赖重算，故先沿用现成的）。
+import yaml from 'js-yaml'
 
 const nodeRequire = createRequire(import.meta.url)
 
@@ -26,9 +32,10 @@ const nodeRequire = createRequire(import.meta.url)
  * 这两条都无法用类型或行为在 CI 里自然覆盖（需要真 Electron），所以这里用 vm
  * 把 main.js 载入受控上下文，直接对 IPC handler 断言。
  */
-function harness(options: { isPackaged?: boolean; confirmInstall?: boolean } = {}) {
+function harness(options: { isPackaged?: boolean; confirmInstall?: boolean; migrationError?: Error; missingUpdater?: boolean } = {}) {
   const handlers: Record<string, (...args: any[]) => Promise<any>> = {}
   const appendedLines: string[] = []
+  const migrateDatabase = vi.fn(() => { if (options.migrationError) throw options.migrationError })
   const killSpy = vi.fn()
   /** 被推迟执行的「守护定时器」回调；测试里手动触发，避免真等 5 秒 */
   const deferred: Array<() => void> = []
@@ -40,7 +47,7 @@ function harness(options: { isPackaged?: boolean; confirmInstall?: boolean } = {
     on: vi.fn(),
     quitAndInstall: vi.fn(),
     checkForUpdates: vi.fn(async () => ({ updateInfo: { version: '1.3.3' } })),
-    downloadUpdate: vi.fn(async () => undefined),
+    downloadUpdate: vi.fn(async (_token?: { cancelled: boolean; cancel: () => void }): Promise<undefined> => undefined),
   }
 
   const fsMock = {
@@ -54,7 +61,7 @@ function harness(options: { isPackaged?: boolean; confirmInstall?: boolean } = {
     appendFileSync: vi.fn((_file: string, line: string) => {
       appendedLines.push(line)
     }),
-    existsSync: vi.fn(() => false),
+    existsSync: vi.fn(() => true),
   }
 
   const electron = {
@@ -98,10 +105,20 @@ function harness(options: { isPackaged?: boolean; confirmInstall?: boolean } = {
       if (name === 'electron') return electron
       if (name === 'fs') return fsMock
       if (name === 'path') return path
-      if (name === 'electron-updater') return { autoUpdater }
+      if (name === 'electron-updater') {
+        if (options.missingUpdater) throw new Error('updater missing')
+        return { autoUpdater }
+      }
+      if (name === 'builder-util-runtime') return nodeRequire('builder-util-runtime')
       // 2026-09-21 起 main.js 会 require 这个模块做退避重试；桩里必须给**真模块**，
       // 否则 retryDelays 是 undefined，检查更新会以「TypeError」的形式失败（看起来像分类错乱）。
       if (name === './update-retry') return nodeRequire('../../desktop/update-retry.js')
+      if (name === './migrate-database') return {
+        migrateDatabase,
+        readDatabaseVersion: () => 0,
+        encodeVersion: () => 10204,
+        formatVersion: () => '',
+      }
       if (name === 'child_process') return { spawn: vi.fn(), execFile: vi.fn() }
       return {}
     },
@@ -148,8 +165,16 @@ function harness(options: { isPackaged?: boolean; confirmInstall?: boolean } = {
     appendedLines,
     killSpy,
     sent,
-    /** 触发「安装没启动」守护定时器 */
-    fireDeferred: () => deferred.forEach((fn) => fn()),
+    migrateDatabase,
+    ensureDatabase: () => vm.runInContext('ensureDatabase()', context) as string,
+    setupAutoUpdate: () => vm.runInContext('setupAutoUpdate()', context),
+    /** 触发「安装没启动」或「下载停滞」守护定时器 */
+    fireDeferred: () => deferred.splice(0).forEach((fn) => fn()),
+    emitUpdater: (event: string, data: unknown) => {
+      for (const [name, fn] of autoUpdater.on.mock.calls) {
+        if (name === event) (fn as (data: unknown) => void)(data)
+      }
+    },
     dialog: electron.dialog,
     call: (channel: string) => {
       const fn = handlers[channel]
@@ -268,6 +293,189 @@ describe('自动更新：手动检查更新的回传', () => {
     expect(r.ok).toBe(false)
     expect(r.reason).toBe('no-release')
     expect(h.appendedLines.join('\n')).toContain('no-release')
+  })
+})
+
+describe('启动数据库闸门', () => {
+  it('迁移失败时不返回数据库路径，禁止启动服务写入半迁移库', () => {
+    const h = harness({ migrationError: new Error('DDL failed') })
+    expect(h.ensureDatabase).toThrow('DDL failed')
+    expect(h.migrateDatabase).toHaveBeenCalledOnce()
+  })
+})
+
+describe('自动更新：更新组件缺失', () => {
+  it('启动时记录可恢复错误并通知界面，而不是静默成为无更新能力', () => {
+    const h = harness({ missingUpdater: true })
+    h.setupAutoUpdate()
+    expect(h.sent.at(-1)?.p).toMatchObject({
+      state: 'error', reason: 'no-updater', current: '1.2.4',
+    })
+    expect(h.sent.at(-1)?.p.message).toContain('更新组件缺失')
+  })
+})
+
+describe('自动更新：下载停滞取消', () => {
+  it('停滞时取消底层请求，在 Promise 结束前拒绝复用，并且不会二次报错', async () => {
+    const h = harness()
+    const tokens: Array<{ cancelled: boolean; cancel: () => void }> = []
+    let rejectFirst!: (error: Error) => void
+    h.autoUpdater.downloadUpdate.mockImplementationOnce((token) => {
+      tokens.push(token!)
+      return new Promise<undefined>((_resolve, reject) => { rejectFirst = reject })
+    })
+    expect(await h.call('download-update')).toEqual({ ok: true })
+    expect(h.autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1)
+    h.fireDeferred() // 45s 看门狗
+    expect(tokens[0]?.cancelled).toBe(true)
+    expect(h.sent.at(-1)?.p).toMatchObject({ state: 'error', reason: 'stalled' })
+    expect((await h.call('download-update')).ok).toBe(false)
+    expect(h.autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1)
+    h.emitUpdater('download-progress', { percent: 75 })
+    expect(h.sent.at(-1)?.p.reason).toBe('stalled')
+    rejectFirst(new Error('cancelled'))
+    await vi.waitFor(() => expect(h.appendedLines.join('\n')).toContain('已取消停滞下载'))
+    expect(h.dialog.showErrorBox).not.toHaveBeenCalled()
+    expect(await h.call('download-update')).toEqual({ ok: true })
+    expect(h.autoUpdater.downloadUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it('取消后底层 Promise 不兑现时，宽限期一到就强制清锁，把「重试下载」还给用户', async () => {
+    // 这条守的是「更新一直不来」里最难查的一种：cancel() 之后 downloadPromise
+    // **永不 settle**，于是 activeDownload 永不为空，用户点「重试下载」永远收到
+    // 「上一次下载尚未结束」，而他只看到「没有更新」。
+    const h = harness()
+    const tokens: Array<{ cancelled: boolean; cancel: () => void }> = []
+    h.autoUpdater.downloadUpdate.mockImplementationOnce((token) => {
+      tokens.push(token!)
+      // 刻意的永不 settle：既不给 resolve 也不给 reject 的引用
+      return new Promise<undefined>(() => {})
+    })
+    expect(await h.call('download-update')).toEqual({ ok: true })
+    h.fireDeferred() // 45s 停滞看门狗 → 取消底层请求
+    expect(tokens[0]?.cancelled).toBe(true)
+
+    // 取消已发出，但 Promise 没结束 ⇒ 此刻重试必须仍被挡住（不能复用未结束的任务）
+    expect((await h.call('download-update')).ok).toBe(false)
+    expect(h.autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1)
+
+    h.fireDeferred() // 20s 宽限期到 → 强制清锁
+    expect(h.appendedLines.join('\n')).toContain('强制清除下载锁')
+    expect(await h.call('download-update')).toEqual({ ok: true })
+    expect(h.autoUpdater.downloadUpdate).toHaveBeenCalledTimes(2)
+  })
+})
+
+/**
+ * 把工作流里某个 step 的 `run` 脚本取出来（按 step 的 name 精确匹配）。
+ * 断言「脚本里做了什么」比断言「整个 YAML 里出现过某个词」可靠得多。
+ */
+type WorkflowStep = { name?: string; uses?: string; run?: string; with?: Record<string, unknown>; if?: string }
+type WorkflowJob = { needs?: string | string[]; if?: string; steps?: WorkflowStep[]; permissions?: Record<string, unknown>; name?: string }
+type Workflow = { concurrency?: { group?: string }; jobs?: Record<string, WorkflowJob> }
+
+const loadWorkflow = (file: string): Workflow =>
+  yaml.load(readFileSync(path.resolve('.github/workflows', file), 'utf8')) as Workflow
+
+const stepScript = (job: WorkflowJob | undefined, namePart: string): string => {
+  const step = (job?.steps ?? []).find((s) => (s.name ?? '').includes(namePart))
+  expect(step, `工作流里找不到名字包含「${namePart}」的步骤`).toBeTruthy()
+  return step!.run ?? ''
+}
+
+const stepIndex = (job: WorkflowJob | undefined, namePart: string): number =>
+  (job?.steps ?? []).findIndex((s) => (s.name ?? '').includes(namePart))
+
+describe('发行流水线门禁与更新通道', () => {
+  it('发布必须串行且与清理共享同一互斥组（generic 的 latest 是全仓库共享指针）', () => {
+    for (const file of ['release.yml', 'release-cleanup.yml']) {
+      const wf = loadWorkflow(file)
+      expect(wf.concurrency?.group, `${file} 的并发组必须是固定值`).toBe('release-publication')
+      // 按 ref 分组会让不同 tag 同时改同一个 latest 通道（P1-13 点名的问题）。
+      expect(wf.concurrency?.group).not.toContain('github.ref')
+    }
+  })
+
+  it('发布前必须等同一提交的 main push CI 通过，且要求 verify(20/22) 与 e2e 都成功', () => {
+    const wf = loadWorkflow('release.yml')
+    const gate = wf.jobs?.['ci-gate']
+    expect(gate, '缺少 ci-gate 作业').toBeTruthy()
+    // 发布作业必须依赖门禁，且门禁失败时不发布（workflow_dispatch 手动试产除外）。
+    expect(wf.jobs?.release?.needs).toEqual('ci-gate')
+    expect(wf.jobs?.release?.if).toContain('needs.ci-gate.result')
+
+    const script = stepScript(gate, 'Wait for successful')
+    // 只看**同一提交**的 main push 事件 —— PR merge ref 或相邻提交都不能代替。
+    expect(script).toContain('head_sha=$sha')
+    expect(script).toContain('event == "push"')
+    expect(script).toContain('head_branch == "main"')
+    // E2E 与两个 Node 版本的 verify 必须逐个断言成功，而不是只判总状态。
+    for (const job of ['verify (node 20)', 'verify (node 22)', 'e2e (playwright)']) {
+      expect(script, `门禁没有校验 ${job}`).toContain(job)
+    }
+    expect(script).toContain('conclusion == "success"')
+    // 等不到就必须失败，不能静默放行。
+    expect(script).toMatch(/exit 1/)
+    // 门禁自己不需要写权限。
+    expect(gate?.permissions?.contents).toBe('read')
+  })
+
+  it('打包产物必须真启动一次（解压 app.zip → 起服务 → 打接口），而非只看文件在不在', () => {
+    const wf = loadWorkflow('release.yml')
+    // ⚠️ 这条门禁的意义：v1.4.1 之前出现过「解压后外部化依赖是空目录，
+    //    app.zip 的静态自检全过但服务起不来」。只有真起一次才拦得住。
+    const idx = stepIndex(wf.jobs?.release, 'Smoke test packaged standalone')
+    expect(idx, '缺少成品冒烟步骤').toBeGreaterThan(-1)
+    const script = stepScript(wf.jobs?.release, 'Smoke test packaged standalone')
+    expect(script, '冒烟必须先解压真实 app.zip').toContain('resources/app.zip')
+    expect(script, '冒烟必须真的启动 server.js').toContain('server.js')
+    expect(script, '冒烟必须打一个真实接口').toContain('/api/backup')
+    // 必须在打包 NSIS 之前 —— 冒烟不过就不该产出安装包。
+    expect(idx).toBeLessThan(stepIndex(wf.jobs?.release, 'Package Windows installer'))
+  })
+
+  it('资产流程必须是「先建草稿 → 上传 → 验收 → 才公开」，公开前对客户端不可见', () => {
+    const wf = loadWorkflow('release.yml')
+    const job = wf.jobs?.release
+    const draft = stepIndex(job, 'Create draft and upload assets')
+    const verify = stepIndex(job, 'Verify draft assets')
+    const publish = stepIndex(job, 'Publish verified draft')
+    expect(draft).toBeGreaterThan(-1)
+    expect(verify).toBeGreaterThan(draft)
+    expect(publish).toBeGreaterThan(verify)
+
+    expect(stepScript(job, 'Create draft and upload assets')).toContain('--draft')
+    // 只允许 clobber 尚未公开的草稿：已公开的 Release 可能正被旧客户端下载。
+    const uploadScript = stepScript(job, 'Create draft and upload assets')
+    expect(uploadScript).toContain('$existing.draft')
+    expect(uploadScript).toMatch(/拒绝覆盖/)
+    // 不能把比当前 latest 更旧的版本公开出去。
+    expect(uploadScript).toMatch(/publishedVersion -ge \$candidateVersion/)
+    const publishScript = stepScript(job, 'Publish verified draft')
+    expect(publishScript).toMatch(/--draft=false/)
+    // 公开必须排在验收之后：验收脚本失败会抛错，公开步骤拿不到执行机会。
+    expect(stepScript(job, 'Verify draft assets')).toMatch(/throw/)
+  })
+
+  it('cleanup 把未信任 tag 经环境变量传入并逐条校验，且权限错误不得伪装成「资源不存在」', () => {
+    const cleanup = readFileSync(path.resolve('.github/workflows/release-cleanup.yml'), 'utf8')
+    const wf = loadWorkflow('release-cleanup.yml')
+    expect(cleanup).toContain('TAGS: ${{ inputs.tags }}')
+    // 直接插进单引号表达式会被 tag 里的特殊字符逃逸出去。
+    expect(cleanup).not.toContain("'${{ inputs.tags }}'")
+    // 先收集「已通过校验」的 tag，再统一删除。
+    expect(cleanup).toContain('validated+=("$t")')
+    expect(cleanup.indexOf('validated+=("$t")')).toBeLessThan(cleanup.indexOf('gh release delete "$t"'))
+    // 必须用固定互斥组，避免与发布同时动 Releases。
+    expect(wf.concurrency?.group).toBe('release-publication')
+  })
+
+  it('generic provider 的相对 URL 会跟随 latest 浮动；保持旧客户端兼容，不误认为已固定版本', () => {
+    const { GenericProvider } = nodeRequire('electron-updater/out/providers/GenericProvider')
+    const base = 'https://github.com/ctwannnabeabetterman/glm-test/releases/latest/download'
+    const provider = new GenericProvider({ url: base, channel: 'latest' }, {}, { platform: 'win32', executor: {} })
+    expect(provider.resolveFiles({ files: [{ url: 'AI-Network-Lab-Setup-1.4.2.exe', sha512: 'digest' }] })[0].url.href)
+      .toBe(`${base}/AI-Network-Lab-Setup-1.4.2.exe`)
   })
 })
 

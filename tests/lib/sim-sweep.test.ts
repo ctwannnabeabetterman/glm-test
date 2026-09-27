@@ -17,6 +17,7 @@ import {
   type SweepSeries,
 } from '@/lib/sim/sweep'
 import { csvEscape } from '@/lib/library/paper-notes'
+import { buildTopology } from '@/lib/sim/topology'
 import type { Algorithm, SimMetrics } from '@/lib/sim/types'
 
 const NODES = getSweepVarMeta('nodeCount')!
@@ -49,6 +50,15 @@ describe('扫参的轴：取值点怎么取', () => {
     expect(r.error).toMatch(/步长改大或范围缩小/)
   })
 
+  it('极小正步长在分配轴点前被拒绝，小数舍入不能造成重复标签', () => {
+    expect(buildSweepAxis(QUEUE, 4, 512, Number.MIN_VALUE).error).toMatch(/整数/)
+    expect(buildSweepAxis(QUEUE, 4, 512, 1).error).toMatch(/超过上限/)
+    expect(buildSweepAxis(QUEUE, 4.4, 9, 1).error).toMatch(/整数/)
+    expect(buildSweepAxis(QUEUE, 4, 9.4, 1).error).toMatch(/整数/)
+    expect(buildSweepAxis(QUEUE, 4, 9, 0.49).values).toEqual([])
+    expect(buildSweepAxis(QUEUE, 4, 9, 5).values).toEqual([4, 9])
+  })
+
   it('非数字输入不会算出 NaN 轴', () => {
     expect(buildSweepAxis(NODES, Number.NaN, 24, 4).error).toMatch(/必须是数字/)
     expect(buildSweepAxis(NODES, 8, 24, Number.POSITIVE_INFINITY).error).toMatch(/必须是数字/)
@@ -59,9 +69,9 @@ describe('扫参计划：预计跑多少次', () => {
   const base = {
     topology: 'ring' as const,
     sweepVar: 'nodeCount',
-    from: 8,
-    to: 24,
-    step: 8,
+    from: 6,
+    to: 12,
+    step: 3,
     // 用可变的 Algorithm[]（而不是 as const 的字面量元组）：后者是 readonly，不能传给 SweepPlanInput
     algorithms: ['dijkstra', 'qlearning'] as Algorithm[],
     seedRuns: 3,
@@ -69,7 +79,7 @@ describe('扫参计划：预计跑多少次', () => {
 
   it('格数 = 轴点数 × 算法数，总运行数 = 格数 × 种子数', () => {
     const plan = buildSweepPlan({ ...base, algorithms: [...base.algorithms] })
-    expect(plan.values).toEqual([8, 16, 24])
+    expect(plan.values).toEqual([6, 9, 12])
     expect(plan.cells).toBe(6)
     expect(plan.totalRuns).toBe(18)
     expect(plan.error).toBeUndefined()
@@ -88,6 +98,18 @@ describe('扫参计划：预计跑多少次', () => {
     expect(plan.error).toMatch(/减少取值点/)
   })
 
+  it('按拓扑构图范围校验节点轴，每个标签对应实际节点数', () => {
+    for (const [topology, from, to] of [['ring', 6, 12], ['mesh', 8, 24]] as const) {
+      const plan = buildSweepPlan({ ...base, topology, from, to, step: topology === 'ring' ? 3 : 4 })
+      expect(plan.error).toBeUndefined()
+      expect(new Set(plan.values).size).toBe(plan.values.length)
+      for (const value of plan.values) expect(buildTopology(topology, { seed: 1, nodeCount: value }).nodes).toHaveLength(value)
+    }
+    expect(buildSweepPlan({ ...base, from: 8, to: 16 }).error).toMatch(/取值范围.*6 ~ 12/)
+    expect(buildSweepPlan({ ...base, topology: 'mesh', from: 6, to: 12 }).error).toMatch(/取值范围.*8 ~ 24/)
+    expect(buildSweepPlan({ ...base, topology: 'mesh', from: 8, to: 25 }).error).toMatch(/取值范围.*8 ~ 24/)
+  })
+
   it('Spine-Leaf + 节点数轴 → 直接拒绝（该拓扑的规模由 spine/leaf 决定，不吃这个参数）', () => {
     const plan = buildSweepPlan({ ...base, topology: 'spineleaf', algorithms: [...base.algorithms] })
     expect(plan.error).toMatch(/Spine-Leaf/)
@@ -104,9 +126,10 @@ describe('扫参计划：预计跑多少次', () => {
     expect(buildSweepPlan({ ...base, algorithms: ['dijkstra'], from: 8, to: 12, step: 4, seedRuns: 0 }).seedRuns).toBe(1)
   })
 
-  it('只认已知算法（脏值被过滤掉，不会变成「跑了个不存在的算法」）', () => {
-    const plan = buildSweepPlan({ ...base, algorithms: ['dijkstra', 'bogus'] as never })
+  it('只认已知且不重复的算法（避免同轴点多次落库）', () => {
+    const plan = buildSweepPlan({ ...base, algorithms: ['dijkstra', 'bogus', 'dijkstra'] as never })
     expect(plan.algorithms).toEqual(['dijkstra'])
+    expect(plan.cells).toBe(plan.values.length)
   })
 
   it('每根轴都带元数据（界面直接用）', () => {

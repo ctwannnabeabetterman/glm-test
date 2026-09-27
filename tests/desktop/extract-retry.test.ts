@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import vm from 'node:vm'
+
+const nodeRequire = createRequire(import.meta.url)
 
 /**
  * 内置服务包解压（extractZip）的重试契约。
@@ -25,14 +28,18 @@ import vm from 'node:vm'
  */
 const MAIN_JS = readFileSync(path.join(process.cwd(), 'desktop', 'main.js'), 'utf8')
 
-function loadMain(failFirstN: number) {
+function loadMain(failFirstN: number, options: { oldServer?: boolean; zipExists?: boolean; unreadableZip?: boolean } = {}) {
   const execFile = vi.fn(
     (
       file: string,
       args: string[],
       _options: unknown,
-      cb: (err: Error | null) => void,
+      cb: (err: Error | null, stdout?: string) => void,
     ) => {
+      if (args[0] === '-xOf') {
+        cb(options.unreadableZip ? new Error('unreadable zip') : null, options.unreadableZip ? '' : 'new-build-id')
+        return
+      }
       if (failFirstN > 0) {
         failFirstN -= 1
         cb(
@@ -55,7 +62,7 @@ function loadMain(failFirstN: number) {
   const fsMock = {
     rmSync,
     mkdirSync,
-    existsSync: vi.fn(() => false),
+    existsSync: vi.fn((file: string) => options.oldServer && file.endsWith('server.js') ? true : options.zipExists && file.endsWith('app.zip') ? true : false),
     writeFileSync: vi.fn(),
     readFileSync: vi.fn(() => ''),
     statSync: vi.fn(() => {
@@ -96,13 +103,14 @@ function loadMain(failFirstN: number) {
       if (name === './instance-guard')
         return { findForeignLabInstances: async () => [], buildConflictDetail: () => '' }
       if (name === 'electron-updater') return { autoUpdater: { on: vi.fn(), logger: null } }
+      if (name === 'builder-util-runtime') return nodeRequire('builder-util-runtime')
       return {}
     },
     Buffer,
     ArrayBuffer,
     URL,
     console,
-    process,
+    process: Object.assign(Object.create(process), { resourcesPath: 'C:/install/resources' }),
     // 定时器同步化：delay(1500 * n) 不会真的睡
     setTimeout: (fn: () => void) => {
       fn()
@@ -162,5 +170,18 @@ describe('内置服务包解压的重试', () => {
 
     expect(execFile).toHaveBeenCalledTimes(1)
     expect(rmSync).not.toHaveBeenCalled()
+  })
+
+  it('升级包不可读但存在旧服务时也拒绝新版壳启动旧服务', async () => {
+    const { context } = loadMain(0, { oldServer: true, zipExists: true, unreadableZip: true })
+    await expect((context as unknown as { ensureAppExtracted: () => Promise<void> }).ensureAppExtracted())
+      .rejects.toThrow('app.zip 无法读取')
+  })
+
+  it('升级包解压反复失败时保留旧服务目录但拒绝继续启动', async () => {
+    const { context, rmSync } = loadMain(3, { oldServer: true, zipExists: true })
+    await expect((context as unknown as { ensureAppExtracted: () => Promise<void> }).ensureAppExtracted())
+      .rejects.toThrow('内置服务解压失败')
+    expect(rmSync).not.toHaveBeenCalledWith('C:/install/resources/app', expect.anything())
   })
 })

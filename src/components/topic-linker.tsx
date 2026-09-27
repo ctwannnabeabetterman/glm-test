@@ -150,11 +150,10 @@ export function TopicLinker({ topicIds, onSave, compact = false, className }: To
 }
 
 /** 只读展示：列表行里显示「已挂 N 个课题」的小徽章 */
-export function TopicBadges({ topicIds }: { topicIds: string }) {
+export function TopicBadges({ topicIds, topics }: { topicIds: string; topics: readonly TopicOption[] }) {
   const ids = parseTopicIds(topicIds)
-  const { data: topics } = useFetch<TopicOption[]>('/api/topics')
   if (ids.length === 0) return null
-  const names = ids.map((id) => (topics ?? []).find((t) => t.id === id)?.name ?? '已删课题')
+  const names = ids.map((id) => topics.find((t) => t.id === id)?.name ?? '已删课题')
   return (
     <>
       {names.map((n) => (

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { runExperiment } from '@/lib/sim'
-import { parseExperimentParams } from '@/lib/sim/params'
+import { checkQTrainingBudget, parseExperimentParams } from '@/lib/sim/params'
 import type { ExperimentParams } from '@/lib/sim/types'
 import { recordActivity } from '@/lib/activity'
 
@@ -11,6 +11,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     // 参数解析统一走 lib/sim/params.ts —— 参数扫描那条路由共用同一份默认值与兜底规则
     const params: ExperimentParams = parseExperimentParams(body)
+    const budgetError = checkQTrainingBudget(params.qlearning?.episodes, params.algorithm === 'qlearning' ? params.runs ?? 1 : 0)
+    if (budgetError) return NextResponse.json({ error: budgetError }, { status: 400 })
 
     let result
     try {

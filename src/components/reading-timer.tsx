@@ -9,87 +9,143 @@ import { cn } from '@/lib/utils'
 
 interface ReadingTimerProps {
   paperId: string
-  initialTime?: number // seconds
-  onTimeUpdate?: (totalSeconds: number) => Promise<void>
+  initialTime?: number
 }
 
-export function ReadingTimer({ paperId, initialTime = 0, onTimeUpdate }: ReadingTimerProps) {
+type Segment = { id: string; paperId: string; duration: number }
+const segmentKey = (id: string) => `reading-segment-${id}`
+
+export function ReadingTimer({ paperId, initialTime = 0 }: ReadingTimerProps) {
+  // Switching papers remounts the timer after its previous cleanup flushes that paper.
+  return <PaperTimer key={paperId} paperId={paperId} initialTime={initialTime} />
+}
+
+function PaperTimer({ paperId, initialTime }: { paperId: string; initialTime: number }) {
   const [isRunning, setIsRunning] = useState(false)
-  // Initialize from localStorage if available, otherwise use initialTime
-  const [elapsed, setElapsed] = useState(() => {
-    if (typeof window === 'undefined') return initialTime
-    const saved = localStorage.getItem(`reading-time-${paperId}`)
-    if (saved) {
-      const parsed = parseInt(saved, 10)
-      if (!isNaN(parsed) && parsed > initialTime) return parsed
-    }
-    return initialTime
-  })
-  const [sessionTime, setSessionTime] = useState(0) // current session seconds
+  const [elapsed, setElapsed] = useState(initialTime)
+  const [sessionTime, setSessionTime] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined)
-  const lastSaveRef = useRef<number>(0)
+  const unsavedRef = useRef(0)
+  const queueRef = useRef<Segment[]>([])
+  const sendingRef = useRef(false)
 
-  // Save on unmount or stop
-  const saveTime = useCallback(async (totalSeconds: number) => {
-    localStorage.setItem(`reading-time-${paperId}`, String(totalSeconds))
-    if (onTimeUpdate) {
-      try {
-        await onTimeUpdate(totalSeconds)
-      } catch (e) {
-        console.error('Failed to save reading time', e)
+  // Persist the identity *before* sending; a failed/aborted request is retried with the
+  // same id, never counted twice. Only the server's atomic session+increment changes totals.
+  const sendQueued = useCallback(async () => {
+    if (sendingRef.current) return
+    sendingRef.current = true
+    try {
+      while (queueRef.current.length) {
+        const segment = queueRef.current[0]
+        try {
+          const response = await fetch('/api/reading-sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(segment),
+          })
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          const saved = await response.json() as { totalSeconds: number | null }
+          queueRef.current.shift()
+          try { localStorage.removeItem(segmentKey(segment.id)) } catch { /* storage unavailable */ }
+          const total = saved.totalSeconds
+          if (segment.paperId === paperId && typeof total === 'number') {
+            const pending = queueRef.current.filter((item) => item.paperId === segment.paperId)
+              .reduce((sum, item) => sum + item.duration, 0)
+            setElapsed(total + unsavedRef.current + pending)
+          }
+        } catch (error) {
+          console.error('Failed to save reading segment', error)
+          toast.error('阅读时长未同步，将在下次打开或操作计时器时重试')
+          break
+        }
       }
+    } finally {
+      sendingRef.current = false
     }
-  }, [paperId, onTimeUpdate])
+  }, [paperId])
 
-  // Timer tick
+  const flush = useCallback(() => {
+    if (unsavedRef.current > 0) {
+      const segment: Segment = { id: crypto.randomUUID(), paperId, duration: unsavedRef.current }
+      unsavedRef.current = 0
+      try { localStorage.setItem(segmentKey(segment.id), JSON.stringify(segment)) } catch { /* storage unavailable */ }
+      queueRef.current.push(segment)
+    }
+    void sendQueued()
+  }, [paperId, sendQueued])
+
+  // Restore unacknowledged segments after a tab close, including a request that succeeded
+  // but whose acknowledgement never reached this tab. Do not trust old absolute localStorage time.
+  useEffect(() => {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (!key?.startsWith('reading-segment-')) continue
+        const segment = JSON.parse(localStorage.getItem(key) || 'null') as Segment | null
+        if (segment?.paperId === paperId && segmentKey(segment.id) === key &&
+            Number.isSafeInteger(segment.duration) && segment.duration > 0 &&
+            !queueRef.current.some((item) => item.id === segment.id)) {
+          queueRef.current.push(segment)
+        }
+      }
+    } catch { /* storage unavailable */ }
+    void sendQueued()
+    const onLeave = () => flush() // fetch only; no sendBeacon or unauthenticated endpoint
+    document.addEventListener('visibilitychange', onLeave)
+    window.addEventListener('pagehide', onLeave)
+    return () => {
+      document.removeEventListener('visibilitychange', onLeave)
+      window.removeEventListener('pagehide', onLeave)
+      flush()
+    }
+  }, [paperId, flush, sendQueued])
+
+  // Parent details may be stale when this timer remounts; read the server's cumulative
+  // value rather than resurrecting the former localStorage absolute value.
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const response = await fetch(`/api/papers/${encodeURIComponent(paperId)}`)
+        if (!response.ok) return
+        const paper = await response.json() as { readingTime: number }
+        if (active && Number.isSafeInteger(paper.readingTime)) {
+          setElapsed((current) => Math.max(current, paper.readingTime))
+        }
+      } catch { /* next successful segment also refreshes the cumulative total */ }
+    })()
+    return () => { active = false }
+  }, [paperId])
+
   useEffect(() => {
     if (isRunning) {
       intervalRef.current = setInterval(() => {
+        unsavedRef.current += 1
         setSessionTime((s) => s + 1)
         setElapsed((e) => e + 1)
+        if (unsavedRef.current >= 30) flush()
       }, 1000)
       return () => {
         if (intervalRef.current) clearInterval(intervalRef.current)
       }
     }
-  }, [isRunning])
-
-  // Auto-save every 30 seconds while running
-  useEffect(() => {
-    if (isRunning && sessionTime > 0 && sessionTime - lastSaveRef.current >= 30) {
-      lastSaveRef.current = sessionTime
-      saveTime(elapsed)
-    }
-  }, [sessionTime, isRunning, elapsed, saveTime])
+  }, [isRunning, flush])
 
   const handleStart = () => {
+    void sendQueued()
     setIsRunning(true)
-    lastSaveRef.current = sessionTime
   }
 
-  const handlePause = async () => {
+  const handlePause = () => {
     setIsRunning(false)
-    await saveTime(elapsed)
+    flush()
   }
 
-  const handleStop = async () => {
+  const handleStop = () => {
     setIsRunning(false)
-    if (sessionTime > 0) {
-      toast.success(`本次阅读 ${formatTime(sessionTime)}，累计 ${formatTime(elapsed)}`)
-      // Record session to API
-      try {
-        await fetch('/api/reading-sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paperId, duration: sessionTime }),
-        })
-      } catch {
-        // Silent fail - session tracking is non-critical
-      }
-    }
+    flush()
+    if (sessionTime > 0) toast.success(`本次阅读 ${formatTime(sessionTime)}，累计 ${formatTime(elapsed)}`)
     setSessionTime(0)
-    lastSaveRef.current = 0
-    await saveTime(elapsed)
   }
 
   const formatTime = (seconds: number) => {

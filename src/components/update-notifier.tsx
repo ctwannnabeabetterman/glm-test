@@ -8,10 +8,12 @@ import { cn } from '@/lib/utils'
 import { clampPercent, describeDownloadDetail } from '@/lib/update-progress'
 import {
   downloadUpdate,
+  getAppInfo,
   installUpdate,
   onUpdateStatus,
   type UpdateStatusPayload,
 } from '@/lib/desktop-update'
+import { useAppStore } from '@/lib/store'
 
 /**
  * 全局更新提醒。
@@ -39,26 +41,39 @@ export function UpdateNotifier() {
   const [status, setStatus] = useState<UpdateStatusPayload | null>(null)
   const [dismissed, setDismissed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const setSection = useAppStore((state) => state.setSection)
 
   useEffect(() => {
-    return onUpdateStatus((payload) => {
+    let mounted = true
+    let receivedEvent = false
+    const off = onUpdateStatus((payload) => {
+      receivedEvent = true
       setStatus(payload)
       if (payload.state === 'available') {
-        // 新的一轮提醒：把上次的「忽略」重置掉
         setDismissed(false)
         toast.info(payload.message || '发现新版本', { duration: 8000 })
       }
-      // 下载完成是个「需要用户动手」的节点，必须重新出现（哪怕之前点过忽略）
       if (payload.state === 'downloaded') {
         setDismissed(false)
         toast.success(payload.message || '更新已下载完成', { duration: 10000 })
       }
-      // 多版本冲突：必须让用户第一眼看到，所以重置忽略态并补一个 toast
       if (payload.state === 'conflict') {
         setDismissed(false)
         toast.warning(payload.message || '检测到另一个版本正在运行', { duration: 10000 })
       }
+      if (payload.state === 'error') {
+        setDismissed(false)
+        toast.warning(payload.message || '自动检查更新失败', { duration: 10000 })
+      }
     })
+    void getAppInfo().then((info) => {
+      if (!mounted || receivedEvent || !info?.ok || !info.updateStatus) return
+      setStatus(info.updateStatus)
+    })
+    return () => {
+      mounted = false
+      off()
+    }
   }, [])
 
   const visible =
@@ -67,6 +82,7 @@ export function UpdateNotifier() {
     (status.state === 'available' ||
       status.state === 'downloading' ||
       status.state === 'downloaded' ||
+      status.state === 'error' ||
       status.state === 'conflict')
 
   if (!visible || !status) return null
@@ -96,14 +112,14 @@ export function UpdateNotifier() {
       <div
         className={cn(
           'pointer-events-auto flex w-full max-w-md flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-4 py-3 text-sm shadow-lg',
-          status.state === 'conflict'
+          status.state === 'conflict' || status.state === 'error'
             ? 'border-destructive/50 bg-destructive/10 text-foreground'
             : 'border-primary/40 bg-card text-card-foreground',
         )}
         role="status"
         aria-live="polite"
       >
-        {status.state === 'conflict' ? (
+        {status.state === 'conflict' || status.state === 'error' ? (
           <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
         ) : status.state === 'downloading' ? (
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
@@ -123,12 +139,18 @@ export function UpdateNotifier() {
               </span>
             </>
           )}
+          {status.state === 'error' && (
+            <>
+              <span className="font-medium">更新未完成</span>
+              <span className="text-muted-foreground"> · {status.message || '更新检查或下载失败，可在设置中重试'}</span>
+            </>
+          )}
           {status.state === 'available' && (
             <>
               <span className="font-medium">发现新版本 {status.version}</span>
               <span className="text-muted-foreground">
                 {' '}
-                · 当前 {status.current}，可以现在就下载，也可以退出时自动安装
+                · 当前 {status.current}，下载完成后可立即安装或退出时安装
               </span>
             </>
           )}
@@ -182,6 +204,11 @@ export function UpdateNotifier() {
         )}
         {status.state === 'downloading' && (
           <span className="tabular-nums shrink-0 font-medium text-primary">{pct}%</span>
+        )}
+        {status.state === 'error' && (
+          <Button size="sm" variant="outline" onClick={() => setSection('settings')}>
+            查看并重试
+          </Button>
         )}
 
         <Button

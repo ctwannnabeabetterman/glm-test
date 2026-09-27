@@ -126,6 +126,7 @@ export interface SimMetrics {
   /** 各链路最终负载的 Jain 公平指数（负载均衡质量） */
   linkLoadJainIndex: number
   droppedByReason: Record<DropReason, number>
+  /** 故障发生到受影响业务检测后新发包首次交付；无此样本时为 null（包含检测/传输时延） */
   convergenceTimeMs: number | null
   maxEdgeLoad: number
   flowMetrics: FlowMetrics[]

@@ -64,7 +64,12 @@ asar: true
 #   channelUrl = newUrlFromBase(getChannelFilename('latest'), baseUrl)  → <url>/latest.yml
 #   资产 URL   = resolveFiles(updateInfo)                               → <url>/<latest.yml 里的 path>
 # 而 GitHub 的 `/releases/latest/download/<asset>` 恰好就是「最新正式 Release 的资产」这个语义，
-# 所以两条 URL 都成立。实测（2026-09-21）：
+# 所以两条 URL 都成立。注意：GenericProvider.resolveFiles 会把 latest.yml 里的相对文件名
+# 拼接到这个浮动地址。若用户读完清单、尚未下载安装包时又发布了新版本，旧文件名可能 404。
+# release.yml 的跨 tag 串行、草稿验收后公开只能避免发布阶段的半成品，不能消除这个
+# 跨版本读/下载竞态。不能直接把清单改为绝对版本 URL：旧版 github provider 仍读取同一份
+# latest.yml，并会用自己的 base URL 重写下载路径；迁移更新通道前需兼容性验证。
+# 实测（2026-09-21）：
 #   GET .../releases/latest/download/latest.yml → 200，内容 `version: 1.3.11`
 #   （发布核对脚本 .recon/out/release-check-138.py 每一版都在读同一个地址）
 #
@@ -77,9 +82,9 @@ asar: true
 #    默认是 `draft`，而草稿 Release 在 GitHub 上既不是「latest」、匿名也访问不到 ⇒
 #    electron-updater 请求 /releases/latest 期望 JSON、跟随跳转后拿到 406 ⇒
 #    "Cannot parse releases feed"，检查更新永远失败。当时是靠显式写 `releaseType: release` 解决的。
-#    现在 Create/Upload 都交给 CI 的 `gh release create`（**不带 --draft**），
-#    并且每一版都用 `/releases/latest` 复核过它确实指向该 tag（见 .recon/out/release-check-138.py）——
-#    这两条守卫不要去掉。
+#    现在 CI 先用 `gh release create --draft` 创建不可见草稿、上传并验收资产，
+#    最后才 `gh release edit --draft=false --latest` 公开（见 release.yml）；
+#    必须保持 /releases/latest 指向一个已验收的正式版本，旧版客户端仍依赖它。
 publish:
   - provider: generic
     # 对应仓库：ctwannnabeabetterman/glm-test

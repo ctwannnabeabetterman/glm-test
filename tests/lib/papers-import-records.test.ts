@@ -18,7 +18,7 @@ const mergeMock = vi.hoisted(() => ({
   // 显式声明入参类型：否则 `mock.calls[0][0]` 会被收成 never，断言反而看不出问题
   mergeBibliography: vi.fn(async (records: unknown[]) => {
     void records
-    return { created: 3, updated: 0, skipped: 0, abstracts: 0 }
+    return { created: 3, updated: 0, skipped: 0, abstracts: 0, conflicts: [] as { title: string; reason: string }[] }
   }),
 }))
 
@@ -43,7 +43,7 @@ const mergedRecords = () => mergeMock.mergeBibliography.mock.calls[0][0] as unkn
 
 beforeEach(() => {
   mergeMock.mergeBibliography.mockClear()
-  mergeMock.mergeBibliography.mockResolvedValue({ created: 3, updated: 0, skipped: 0, abstracts: 0 })
+  mergeMock.mergeBibliography.mockResolvedValue({ created: 3, updated: 0, skipped: 0, abstracts: 0, conflicts: [] })
   activityMock.recordActivity.mockClear()
 })
 
@@ -111,7 +111,7 @@ describe('normalizeRecords：客户端来的东西一律不可信', () => {
 describe('POST /api/papers/import：接受结构化 records', () => {
   it('records 走 mergeBibliography，并把统计原样回给前端', async () => {
     const { POST } = await import('@/app/api/papers/import/route')
-    mergeMock.mergeBibliography.mockResolvedValue({ created: 5, updated: 1, skipped: 2, abstracts: 3 })
+    mergeMock.mergeBibliography.mockResolvedValue({ created: 5, updated: 1, skipped: 2, abstracts: 3, conflicts: [] })
     const res = await POST(
       post({ records: [{ title: 'A' }, { title: 'B' }, { title: 'C' }, { title: 'D' }, { title: 'E' }] }),
     )
@@ -153,8 +153,25 @@ describe('POST /api/papers/import：接受结构化 records', () => {
 
     activityMock.recordActivity.mockClear()
     // 命中已有条目走的是 updated（合并元数据）而不是 created —— 这种「重复导入」不该刷埋点
-    mergeMock.mergeBibliography.mockResolvedValue({ created: 0, updated: 3, skipped: 0, abstracts: 0 })
+    mergeMock.mergeBibliography.mockResolvedValue({ created: 0, updated: 3, skipped: 0, abstracts: 0, conflicts: [] })
     await POST(post({ records: [{ title: 'A' }] }))
     expect(activityMock.recordActivity).not.toHaveBeenCalled()
+  })
+
+  it('身份冲突必须原样回给前端（否则 UI 没得可提示，用户只会看到「导入了却没出现」）', async () => {
+    const { POST } = await import('@/app/api/papers/import/route')
+    mergeMock.mergeBibliography.mockResolvedValue({
+      created: 1,
+      updated: 0,
+      skipped: 1,
+      abstracts: 0,
+      conflicts: [{ title: 'Shared Title', reason: '库中已存在同名文献，但 DOI / Zotero 标识不同 —— 未自动合并，请人工确认是否同一篇' }],
+    })
+    const res = await POST(post({ records: [{ title: 'A' }, { title: 'Shared Title' }] }))
+    const json = await res.json()
+    expect(res.status).toBe(200)
+    expect(json.conflicts).toHaveLength(1)
+    expect(json.conflicts[0].title).toBe('Shared Title')
+    expect(json.conflicts[0].reason).toContain('同名文献')
   })
 })

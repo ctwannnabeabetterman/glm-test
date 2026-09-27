@@ -6,11 +6,15 @@ import { db } from '@/lib/db'
 // Edges: topic->paper (by tag matching), note->paper (by tag matching), paper->paper (same category)
 export async function GET() {
   try {
-    const [papers, topics, notes] = await Promise.all([
-      db.paper.findMany(),
-      db.topic.findMany(),
-      db.note.findMany(),
+    const [paperRows, topicRows, noteRows] = await Promise.all([
+      db.paper.findMany({ take: 101, orderBy: { updatedAt: 'desc' }, select: { id: true, title: true, year: true, venue: true, relevance: true, novelty: true, authors: true, tags: true, category: true } }),
+      db.topic.findMany({ take: 21, orderBy: { updatedAt: 'desc' }, select: { id: true, name: true, totalScore: true, direction: true } }),
+      db.note.findMany({ take: 61, orderBy: { updatedAt: 'desc' }, select: { id: true, title: true, category: true, content: true, tags: true } }),
     ])
+    const truncated = paperRows.length > 100 || topicRows.length > 20 || noteRows.length > 60
+    const papers = paperRows.slice(0, 100)
+    const topics = topicRows.slice(0, 20)
+    const notes = noteRows.slice(0, 60)
 
     type Node = {
       id: string
@@ -99,31 +103,18 @@ export async function GET() {
       }
     }
 
-    // Build edges: paper -> paper (same category or shared tags)
+    // 限定每篇论文的相似邻居，避免同分类时输出 N² 条边压垮布局计算。
+    const paperTags = papers.map((paper) => new Set((paper.tags || '').split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean)))
     for (let i = 0; i < papers.length; i++) {
-      for (let j = i + 1; j < papers.length; j++) {
-        const p1 = papers[i]
-        const p2 = papers[j]
-        // Same category
-        if (p1.category && p1.category === p2.category) {
-          edges.push({
-            source: `paper-${p1.id}`,
-            target: `paper-${p2.id}`,
-            type: 'same-category',
-            weight: 0.5,
-          })
-        }
-        // Shared tags
-        const tags1 = (p1.tags || '').split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
-        const tags2 = (p2.tags || '').split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
-        const sharedTags = tags1.filter((t) => tags2.includes(t))
-        if (sharedTags.length > 0) {
-          edges.push({
-            source: `paper-${p1.id}`,
-            target: `paper-${p2.id}`,
-            type: 'shared-tag',
-            weight: sharedTags.length,
-          })
+      let neighbors = 0
+      for (let j = i + 1; j < papers.length && neighbors < 5; j++) {
+        const sharedTags = [...paperTags[i]].filter((tag) => paperTags[j].has(tag))
+        if (sharedTags.length) {
+          edges.push({ source: `paper-${papers[i].id}`, target: `paper-${papers[j].id}`, type: 'shared-tag', weight: sharedTags.length })
+          neighbors++
+        } else if (papers[i].category && papers[i].category === papers[j].category) {
+          edges.push({ source: `paper-${papers[i].id}`, target: `paper-${papers[j].id}`, type: 'same-category', weight: 0.5 })
+          neighbors++
         }
       }
     }
@@ -132,6 +123,7 @@ export async function GET() {
       nodes,
       edges,
       stats: {
+        truncated,
         totalNodes: nodes.length,
         totalEdges: edges.length,
         papers: papers.length,

@@ -72,7 +72,7 @@ beforeEach(() => {
   }
 })
 
-const PLAN = { topology: 'ring', sweepVar: 'nodeCount', from: 8, to: 16, step: 8, algorithms: ['dijkstra', 'qlearning'], seedRuns: 2 }
+const PLAN = { topology: 'ring', sweepVar: 'nodeCount', from: 8, to: 12, step: 4, algorithms: ['dijkstra', 'qlearning'], seedRuns: 2 }
 
 describe('POST /api/sim/sweep', () => {
   it('正常扫描：格数 = 轴点 × 算法，且**每格都落库**', async () => {
@@ -81,7 +81,7 @@ describe('POST /api/sim/sweep', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
 
-    expect(body.axis.values).toEqual([8, 16])
+    expect(body.axis.values).toEqual([8, 12])
     expect(body.cells).toBe(4)
     expect(body.totalRuns).toBe(8) // 2 点 × 2 算法 × 2 种子
     expect(body.failures).toBe(0)
@@ -92,8 +92,17 @@ describe('POST /api/sim/sweep', () => {
     for (const s of body.series) expect(s.points).toHaveLength(2)
     // 被扫的轴确实覆盖进了引擎参数
     const calls = vi.mocked(runExperiment).mock.calls.map((c) => c[0])
-    expect(calls.map((c) => c.nodeCount)).toEqual([8, 8, 16, 16])
+    expect(calls.map((c) => c.nodeCount)).toEqual([8, 8, 12, 12])
     expect(calls.every((c) => c.runs === 2)).toBe(true)
+  })
+
+  it('Mesh 节点轴每个标注值都作为构图参数传入，重复算法只运行一次', async () => {
+    const { POST } = await import('@/app/api/sim/sweep/route')
+    const res = await POST(post({ ...PLAN, topology: 'mesh', from: 8, to: 24, step: 8, algorithms: ['dijkstra', 'dijkstra'] }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).axis.values).toEqual([8, 16, 24])
+    expect(vi.mocked(runExperiment).mock.calls.map(([p]) => p.nodeCount)).toEqual([8, 16, 24])
+    expect(dbMock.get('simRun').create).toHaveBeenCalledTimes(3)
   })
 
   it('落库时带上「扫描」前缀与复现参数（历史与近 7 天都靠它识别）', async () => {
@@ -129,6 +138,20 @@ describe('POST /api/sim/sweep', () => {
     expect(runExperiment).not.toHaveBeenCalled()
   })
 
+  it('ring 超实际 12 节点、极小步长及过高 Q 训练预算均在运行/落库前拒绝', async () => {
+    const { POST } = await import('@/app/api/sim/sweep/route')
+    for (const input of [
+      { ...PLAN, to: 16 },
+      { ...PLAN, sweepVar: 'queueCapacityPackets', from: 4, to: 512, step: Number.MIN_VALUE },
+      { ...PLAN, from: 8, to: 12, step: 4, seedRuns: 10, qlearning: { episodes: 2000 } },
+    ]) {
+      const res = await POST(post(input))
+      expect(res.status).toBe(400)
+    }
+    expect(runExperiment).not.toHaveBeenCalled()
+    expect(dbMock.get('simRun').create).not.toHaveBeenCalled()
+  })
+
   it('Spine-Leaf + 节点数轴 → 400（该拓扑不吃这个参数）', async () => {
     const { POST } = await import('@/app/api/sim/sweep/route')
     const res = await POST(post({ ...PLAN, topology: 'spineleaf' }))
@@ -155,6 +178,30 @@ describe('POST /api/sim/sweep', () => {
     const failedRow = rows.find((r) => r.status === 'failed')!
     expect(String(failedRow.error)).toMatch(/拓扑构建失败/)
     expect(JSON.parse(String(failedRow.metrics))).toEqual({}) // 没有样本就不编造指标
+  })
+})
+
+describe('POST /api/sim/run', () => {
+  it('高开销 Q 批量在运行与落库前拒绝', async () => {
+    const { POST } = await import('@/app/api/sim/run/route')
+    const res = await POST(post({ topology: 'ring', algorithm: 'qlearning', runs: 20, qlearning: { episodes: 999999 } }, 'http://localhost/api/sim/run'))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/episodes/)
+    expect(runExperiment).not.toHaveBeenCalled()
+    expect(dbMock.get('simRun').create).not.toHaveBeenCalled()
+  })
+
+  it('正常 Q 请求的非法嵌套参数经过服务端规范化，不传递原始训练对象', async () => {
+    const { POST } = await import('@/app/api/sim/run/route')
+    const res = await POST(post({ topology: 'ring', algorithm: 'qlearning', runs: 1, queueCapacityPackets: -1,
+      red: { maxDropProbability: 42 }, qlearning: { episodes: 999999, alpha: 'bogus', epsilon: 12, epsilonDecay: -3, extraneous: 'ignored' },
+    }, 'http://localhost/api/sim/run'))
+    expect(res.status).toBe(200)
+    const p = vi.mocked(runExperiment).mock.calls[0][0]
+    expect(p.queueCapacityPackets).toBe(1)
+    expect(p.qlearning).toEqual({ episodes: 2000, alpha: undefined, gamma: undefined, epsilon: 1, epsilonMin: undefined, epsilonDecay: 0 })
+    expect(p.red?.maxDropProbability).toBe(1)
+    expect(dbMock.get('simRun').create).toHaveBeenCalledTimes(1)
   })
 })
 

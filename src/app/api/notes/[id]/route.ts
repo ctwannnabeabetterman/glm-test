@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { recordActivity } from '@/lib/activity'
 import { pickWritableNote } from '@/lib/notes/payload'
+import { parseStringArray } from '@/lib/utils'
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -30,9 +31,21 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const removed = await db.note.findUnique({ where: { id }, select: { title: true } })
-    await db.note.delete({ where: { id } })
-    void recordActivity({ module: 'note', action: 'delete', title: `删除了笔记「${removed?.title ?? id}」`, refId: id })
+    const result = await db.$transaction(async (tx) => {
+      const removed = await tx.note.findUnique({ where: { id }, select: { title: true } })
+      if (!removed) return { status: 404 as const }
+      const notes = await tx.note.findMany({ select: { id: true, links: true } })
+      if (notes.some((note) => note.id !== id && parseStringArray(note.links).includes(id))) {
+        return { status: 409 as const }
+      }
+      await tx.note.delete({ where: { id } })
+      return { status: 200 as const, title: removed.title }
+    })
+    if (result.status === 404) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (result.status === 409) {
+      return NextResponse.json({ error: '笔记仍被其他笔记链接，请先解除链接后再删除' }, { status: 409 })
+    }
+    void recordActivity({ module: 'note', action: 'delete', title: `删除了笔记「${result.title}」`, refId: id })
     return NextResponse.json({ success: true })
   } catch (e) {
     console.error('DELETE note error', e)

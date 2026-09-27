@@ -79,6 +79,7 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
 
 export function NotesSection() {
   const { data: notes, refetch, loading } = useFetch<Note[]>('/api/notes')
+  const { data: topics } = useFetch<Array<{ id: string; name: string; direction: string }>>('/api/topics')
   const api = useApi()
   const [selected, setSelected] = useState<Note | null>(null)
   const [search, setSearch] = useState('')
@@ -271,6 +272,7 @@ export function NotesSection() {
             <NoteDetail
               key={selected.id}
               note={selected}
+              topics={topics ?? []}
               onUpdate={(u) => { setSelected(u); refetch() }}
               onDelete={() => handleDelete(selected)}
             />
@@ -301,8 +303,9 @@ export function NotesSection() {
   )
 }
 
-function NoteDetail({ note, onUpdate, onDelete }: {
+function NoteDetail({ note, topics, onUpdate, onDelete }: {
   note: Note
+  topics: ReadonlyArray<{ id: string; name: string; direction: string }>
   onUpdate: (n: Note) => void
   onDelete: () => void
 }) {
@@ -332,6 +335,7 @@ function NoteDetail({ note, onUpdate, onDelete }: {
       <ReadingNoteEditor
         key={note.id}
         note={note}
+        topics={topics}
         onUpdate={(updated) => onUpdate(updated as Note)}
         onDelete={onDelete}
       />
@@ -352,7 +356,7 @@ function NoteDetail({ note, onUpdate, onDelete }: {
               <Badge variant="secondary" className={cn('text-[11px]', CATEGORY_LABELS[note.category]?.color)}>
                 {CATEGORY_LABELS[note.category]?.label}
               </Badge>
-              <TopicBadges topicIds={note.topicIds || '[]'} />
+              <TopicBadges topicIds={note.topicIds || '[]'} topics={topics} />
               <PaperBadges paperIds={note.paperIds || '[]'} />
               <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5" />

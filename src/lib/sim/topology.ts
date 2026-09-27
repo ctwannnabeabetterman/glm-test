@@ -12,6 +12,9 @@ export const TOPOLOGY_META: { id: TopologyId; name: string; description: string;
   { id: 'mesh', name: '自组织 Mesh 网络', description: '无线多跳自组网，链路质量异构，考察 Q-Learning 自适应路由', recommended: ['qlearning', 'loadaware'] },
 ]
 
+/** nodeCount 的实际构图范围；扫参必须与构图使用同一份边界。 */
+export const NODE_COUNT_LIMITS = { ring: { min: 6, max: 12 }, mesh: { min: 8, max: 24 } } as const
+
 function edgeId(from: string, to: string): string {
   return `${from}>${to}`
 }
@@ -150,11 +153,11 @@ function buildMesh(n: number, seed: number): Topology {
 export function buildTopology(id: TopologyId, params: { seed: number; nodeCount?: number; spineCount?: number; leafCount?: number }): Topology {
   switch (id) {
     case 'ring':
-      return buildRing(clampInt(params.nodeCount ?? 8, 6, 12), params.seed)
+      return buildRing(clampInt(params.nodeCount ?? 8, NODE_COUNT_LIMITS.ring.min, NODE_COUNT_LIMITS.ring.max), params.seed)
     case 'spineleaf':
       return buildSpineLeaf(clampInt(params.spineCount ?? 4, 2, 8), clampInt(params.leafCount ?? 6, 2, 16))
     case 'mesh':
-      return buildMesh(clampInt(params.nodeCount ?? 12, 8, 24), params.seed)
+      return buildMesh(clampInt(params.nodeCount ?? 12, NODE_COUNT_LIMITS.mesh.min, NODE_COUNT_LIMITS.mesh.max), params.seed)
   }
 }
 

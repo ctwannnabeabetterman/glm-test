@@ -18,6 +18,17 @@ describe('routing：Dijkstra / BFS 最小跳数', () => {
     expect(Number.isFinite(res.cost)).toBe(true)
   })
 
+  it('排除物理断边的两个方向后重算可达路径；若隔断目的地则返回不可达', () => {
+    const adj = ring()
+    expect(dijkstra(adj, 'R0', 'R4', emptyLoads, 0).path).toEqual(['R0', 'R4'])
+    const detour = dijkstra(adj, 'R0', 'R4', emptyLoads, 0, new Set(['R0>R4']))
+    expect(detour.path.length).toBeGreaterThan(2)
+    expect(detour.path.slice(0, 2)).not.toEqual(['R0', 'R4'])
+    expect(dijkstra(adj, 'R4', 'R0', emptyLoads, 0, new Set(['R0>R4'])).path).not.toEqual(['R4', 'R0'])
+    const isolated = new Set(adj.out[0].map(({ edge }) => edge.id))
+    expect(dijkstra(adj, 'R0', 'R4', emptyLoads, 0, isolated).path).toEqual([])
+  })
+
   it('源宿相同 ⇒ 单节点路径', () => {
     const adj = ring()
     const res = dijkstra(adj, 'R3', 'R3', emptyLoads, 0)

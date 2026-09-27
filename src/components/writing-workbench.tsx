@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -59,6 +59,7 @@ import {
   type ResolvedReference,
 } from '@/lib/writing/draft'
 import type { ManuscriptDto } from '@/lib/writing/dto'
+import { manuscriptAutosave, type SaveState } from '@/lib/writing/autosave'
 
 interface PaperOption {
   id: string
@@ -68,10 +69,6 @@ interface PaperOption {
   year: number
 }
 
-type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-
-const AUTOSAVE_DELAY = 800
-
 export function WritingWorkbench() {
   const [items, setItems] = useState<ManuscriptDto[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -80,9 +77,10 @@ export function WritingWorkbench() {
   const [refs, setRefs] = useState<ResolvedReference[]>([])
   const [missing, setMissing] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
-  const [saveState, setSaveState] = useState<SaveState>('idle')
-  const [savedAt, setSavedAt] = useState('')
   const [query, setQuery] = useState('')
+  useSyncExternalStore(manuscriptAutosave.subscribe, manuscriptAutosave.getRevision, manuscriptAutosave.getRevision)
+  const { state: saveState, savedAt } = manuscriptAutosave.getStatus(activeId)
+  const failedIds = manuscriptAutosave.getFailedIds()
 
   // 引文样式是**全局偏好**（不是每篇稿件一个字段）：换样式只是换渲染，
   // 不涉及数据，因此不需要给 Manuscript 加列、不需要迁移库 —— 升级零风险。
@@ -93,8 +91,6 @@ export function WritingWorkbench() {
   const stylePreset = findCitationStylePreset(citationStyle)
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pending = useRef<{ id: string; payload: Record<string, unknown> } | null>(null)
 
   const active = useMemo(() => items.find((i) => i.id === activeId) ?? null, [items, activeId])
   const sections = useMemo<DraftSection[]>(() => active?.sections ?? [], [active])
@@ -107,60 +103,25 @@ export function WritingWorkbench() {
   const citationKey = citationIds.join('|')
   const activeSectionWords = countWords(activeSection?.content)
 
-  // ---------- 保存（防抖 + 合并同一稿件的多次修改） ----------
-  const flush = useCallback(async () => {
-    const job = pending.current
-    if (!job) return
-    pending.current = null
-    setSaveState('saving')
-    try {
-      const res = await fetch(`/api/writing/manuscripts/${job.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(job.payload),
-      })
-      if (!res.ok) throw new Error('save failed')
-      setSaveState('saved')
-      setSavedAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
-    } catch {
-      setSaveState('error')
-      // 失败时把 payload 放回去，用户可以按 Ctrl+S 重试，不至于白写
-      if (!pending.current) pending.current = job
-    }
+  // The queue outlives this component so an unmount cannot strand a failed PUT in a dead ref.
+  const scheduleSave = useCallback((id: string, payload: Record<string, unknown>) => {
+    manuscriptAutosave.schedule(id, payload)
   }, [])
 
-  const scheduleSave = useCallback(
-    (id: string, payload: Record<string, unknown>) => {
-      const prev = pending.current
-      pending.current = {
-        id,
-        payload: prev && prev.id === id ? { ...prev.payload, ...payload } : { ...payload },
-      }
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-      saveTimer.current = setTimeout(() => void flush(), AUTOSAVE_DELAY)
-    },
-    [flush],
-  )
-
-  // 切走前把没落盘的改动写下去，避免"看着在、其实没存"
   useEffect(() => {
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-      void flush()
-    }
-  }, [flush])
+    return () => { void manuscriptAutosave.flushAll() }
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        if (saveTimer.current) clearTimeout(saveTimer.current)
-        void flush()
+        void manuscriptAutosave.flushAll()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [flush])
+  }, [])
 
   // ---------- 数据加载 ----------
   useEffect(() => {
@@ -171,9 +132,18 @@ export function WritingWorkbench() {
         const data = await res.json()
         const list: ManuscriptDto[] = Array.isArray(data) ? data : []
         if (cancelled) return
-        setItems(list)
-        setActiveId(list[0]?.id ?? null)
-        setActiveSectionId(list[0]?.sections?.[0]?.id ?? null)
+        // A GET can finish while an old editor's PUT is still in flight (or has failed).
+        const restored = list.map((item) => {
+          const local = manuscriptAutosave.getUnpersisted(item.id)
+          return {
+            ...item,
+            ...local,
+            words: Array.isArray(local.sections) ? totalWords(local.sections as DraftSection[]) : item.words,
+          } as ManuscriptDto
+        })
+        setItems(restored)
+        setActiveId(restored[0]?.id ?? null)
+        setActiveSectionId(restored[0]?.sections?.[0]?.id ?? null)
       } catch {
         toast.error('稿件加载失败')
       } finally {
@@ -352,6 +322,7 @@ export function WritingWorkbench() {
       })
       const created = await res.json()
       if (!res.ok || !created?.id) throw new Error('create failed')
+      if (activeId) void manuscriptAutosave.flush(activeId)
       setItems((prev) => [created, ...prev])
       setActiveId(created.id)
       setActiveSectionId(created.sections?.[0]?.id ?? null)
@@ -359,25 +330,26 @@ export function WritingWorkbench() {
     } catch {
       toast.error('新建稿件失败')
     }
-  }, [])
+  }, [activeId])
 
   const deleteManuscript = useCallback(
     async (id: string) => {
       try {
-        const res = await fetch(`/api/writing/manuscripts/${id}`, { method: 'DELETE' })
-        if (!res.ok) throw new Error('delete failed')
-        setItems((prev) => {
-          const next = prev.filter((i) => i.id !== id)
-          setActiveId(next[0]?.id ?? null)
-          setActiveSectionId(next[0]?.sections?.[0]?.id ?? null)
-          return next
+        await manuscriptAutosave.delete(id, async () => {
+          const res = await fetch(`/api/writing/manuscripts/${id}`, { method: 'DELETE' })
+          if (!res.ok) throw new Error('delete failed')
         })
+        // The DELETE may have waited on a PUT while another manuscript was edited.
+        setItems((prev) => prev.filter((i) => i.id !== id))
+        const next = items.find((i) => i.id !== id)
+        setActiveId((current) => current === id ? next?.id ?? null : current)
+        // activeSection falls back to the first section if the old selection is gone.
         toast.success('稿件已删除')
       } catch {
         toast.error('删除失败')
       }
     },
-    [],
+    [items],
   )
 
   const downloadExport = useCallback(
@@ -432,6 +404,12 @@ export function WritingWorkbench() {
             <FilePlus2 className="h-4 w-4 mr-2" />
             新建稿件
           </Button>
+          {failedIds.length > 0 && (
+            <button type="button" className="block mx-auto text-xs text-destructive hover:underline"
+              onClick={() => void manuscriptAutosave.flushAll()}>
+              有 {failedIds.length} 篇稿件保存失败，点击重试
+            </button>
+          )}
         </CardContent>
       </Card>
     )
@@ -447,6 +425,7 @@ export function WritingWorkbench() {
               value={active.id}
               onChange={(e) => {
                 const next = items.find((i) => i.id === e.target.value)
+                if (activeId && activeId !== e.target.value) void manuscriptAutosave.flush(activeId)
                 setActiveId(e.target.value)
                 setActiveSectionId(next?.sections?.[0]?.id ?? null)
               }}
@@ -486,7 +465,15 @@ export function WritingWorkbench() {
             </AlertDialog>
 
             <div className="ml-auto flex items-center gap-2">
-              <SaveIndicator state={saveState} savedAt={savedAt} onRetry={() => void flush()} />
+              <SaveIndicator state={saveState}
+                savedAt={savedAt ? new Date(savedAt).toLocaleTimeString('zh-CN', { hour12: false }) : ''}
+                onRetry={() => activeId && void manuscriptAutosave.flush(activeId)} />
+              {failedIds.some((id) => id !== activeId) && (
+                <button type="button" className="text-[11px] text-destructive hover:underline"
+                  onClick={() => void manuscriptAutosave.flushAll()}>
+                  其他 {failedIds.filter((id) => id !== activeId).length} 篇保存失败，重试
+                </button>
+              )}
               <Badge variant="outline" className="text-[10px]" title={`导出会按 ${stylePreset.name} 著录参考文献`}>
                 {stylePreset.name}
               </Badge>
@@ -834,6 +821,9 @@ function SaveIndicator({
         保存中
       </span>
     )
+  }
+  if (state === 'pending') {
+    return <span className="text-[11px] text-muted-foreground">待保存</span>
   }
   if (state === 'error') {
     return (

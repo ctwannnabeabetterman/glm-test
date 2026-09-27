@@ -10,6 +10,7 @@
  */
 
 import type { Algorithm, ExperimentParams, SimMetrics, TopologyId } from './types'
+import { NODE_COUNT_LIMITS } from './topology'
 
 /** 可扫的参数轴 —— 只用 `ExperimentParams` 里真实存在、且对结果有单调影响意图的旋钮 */
 export type SweepVar = 'nodeCount' | 'queueCapacityPackets' | 'failureAtMs' | 'detectionDelayMs'
@@ -34,12 +35,12 @@ export const SWEEP_VARS: readonly SweepVarMeta[] = [
     label: '拓扑节点数',
     unit: '个',
     min: 6,
-    max: 64,
+    max: 24,
     defaultFrom: 8,
-    defaultTo: 24,
+    defaultTo: 12,
     defaultStep: 4,
     exceptTopology: ['spineleaf'],
-    hint: '环形 / Mesh 的规模轴。Spine-Leaf 由 spine/leaf 数决定，不吃这个轴。',
+    hint: '环形支持 6~12 节点，Mesh 支持 8~24 节点；Spine-Leaf 由 spine/leaf 数决定。',
   },
   {
     id: 'queueCapacityPackets',
@@ -93,8 +94,8 @@ export interface SweepAxis {
 /**
  * 生成轴上的取值：**含端点**（科研图习惯：from 与 to 都在图上），步长必须为正。
  *
- * 取整策略按轴不同：节点数/包数/时延都是整数语义，统一用整数步进；
- * 用 `Math.round` 避免浮点误差把 24 算成 23.999999。
+ * 各轴都是整数语义；拒绝小数而非舍入生成重复标签（或悄悄改变用户的端点）。
+ * 先计算点数上界，再分配数组，避免极小正步长制造海量轴点。
  */
 export function buildSweepAxis(
   meta: SweepVarMeta,
@@ -110,17 +111,20 @@ export function buildSweepAxis(
   if (from < meta.min || to > meta.max) {
     return { values: [], error: `取值范围需在 ${meta.min} ~ ${meta.max} ${meta.unit} 之内` }
   }
-
-  const values: number[] = []
-  const n = Math.floor((to - from) / step)
-  for (let i = 0; i <= n; i += 1) values.push(Math.round(from + i * step))
-  // 端点没被步长整除时补上终点：否则用户填 8→23 步长 4 会「静默丢掉 23」
-  if (values.length > 0 && values[values.length - 1] !== Math.round(to)) values.push(Math.round(to))
-
-  if (values.length < 2) return { values, error: '至少要有两个取值点，否则画不出趋势（把步长改小或范围拉大）' }
-  if (values.length > MAX_AXIS_POINTS) {
-    return { values: [], error: `取值点 ${values.length} 个，超过上限 ${MAX_AXIS_POINTS}（把步长改大或范围缩小）` }
+  if (![from, to, step].every(Number.isSafeInteger)) {
+    return { values: [], error: '起点 / 终点 / 步长必须是整数（小数舍入会产生重复取值点）' }
   }
+
+  const n = Math.floor((to - from) / step)
+  const last = from + n * step
+  const count = n + 1 + (last !== to ? 1 : 0)
+  if (count > MAX_AXIS_POINTS) {
+    return { values: [], error: `取值点 ${count} 个，超过上限 ${MAX_AXIS_POINTS}（把步长改大或范围缩小）` }
+  }
+  const values = Array.from({ length: n + 1 }, (_, i) => from + i * step)
+  // 端点没被步长整除时补上终点：否则用户填 8→23 步长 4 会「静默丢掉 23」
+  if (last !== to) values.push(to)
+  if (values.length < 2) return { values, error: '至少要有两个取值点，否则画不出趋势（把步长改小或范围拉大）' }
   return { values }
 }
 
@@ -151,8 +155,8 @@ const ALGORITHMS: readonly Algorithm[] = ['dijkstra', 'loadaware', 'qlearning']
 
 export function buildSweepPlan(input: SweepPlanInput): SweepPlan {
   const meta = getSweepVarMeta(input.sweepVar)
-  const seedRuns = Math.min(10, Math.max(1, Math.round(input.seedRuns || 1)))
-  const algorithms = input.algorithms.filter((a) => (ALGORITHMS as readonly string[]).includes(a))
+  const seedRuns = Number.isFinite(input.seedRuns) ? Math.min(10, Math.max(1, Math.round(input.seedRuns))) : 1
+  const algorithms = [...new Set(input.algorithms.filter((a) => (ALGORITHMS as readonly string[]).includes(a)))]
   const base: SweepPlan = {
     meta: meta ?? SWEEP_VARS[0],
     values: [],
@@ -170,7 +174,9 @@ export function buildSweepPlan(input: SweepPlanInput): SweepPlan {
     }
   }
 
-  const axis = buildSweepAxis(meta, input.from, input.to, input.step)
+  const limits = meta.id === 'nodeCount' && input.topology !== 'spineleaf' ? NODE_COUNT_LIMITS[input.topology] : null
+  // Mesh 的默认起点与 ring 相同；终点必须按实际构图范围校验，绝不能钳制后仍标原 x 值。
+  const axis = buildSweepAxis(limits ? { ...meta, ...limits } : meta, input.from, input.to, input.step)
   if (axis.error) return { ...base, values: axis.values, error: axis.error }
 
   const cells = axis.values.length * algorithms.length

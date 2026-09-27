@@ -17,13 +17,15 @@ on:
         description: '要删除 Release 的 tag，逗号分隔（例如 v1.3.0,v1.3.1）'
         required: true
         type: string
-        # 预填当前确认为「空壳」的版本（只有 GitHub 自动生成的源码包，或只有 .exe.blockmap）
-        # —— 2026-09-17 实测：v1.3.2 之前的每一个 Release 都没有可下载的安装包。
-        # 只删 Release、保留 tag；不想要的从输入框里删掉即可。
-        default: 'v1.0.0,v1.2.0,v1.2.1,v1.2.2,v1.3.0,v1.3.1'
+        # 不预填真实版本：删除必须由操作者明确选择目标；只删 Release、保留 tag。
 
 permissions:
   contents: write
+
+# 不允许在发布流程正上传/验收草稿时清理同一份 Release。
+concurrency:
+  group: release-publication
+  cancel-in-progress: false
 
 jobs:
   cleanup:
@@ -33,16 +35,33 @@ jobs:
       - name: Delete releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ inputs.tags }}
         run: |
-          set -u
-          for t in $(echo '${{ inputs.tags }}' | tr ',' ' '); do
-            t=$(echo "$t" | tr -d '[:space:]')
-            [ -z "$t" ] && continue
-            echo "→ 删除 Release：$t"
-            # --yes 免确认；不加 --cleanup-tag，tag 保留
-            gh release delete "$t" --yes --repo "${{ github.repository }}" \
-              && echo "  已删除" \
-              || echo "  （该 tag 没有 Release，跳过）"
+          set -euo pipefail
+          IFS=',' read -r -a tags <<< "$TAGS"
+          validated=()
+          for t in "${tags[@]}"; do
+            t="${t//[[:space:]]/}"
+            [[ -z "$t" ]] && continue
+            if [[ ! "$t" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              printf '无效的 tag：%s\n' "$t" >&2
+              exit 1
+            fi
+            validated+=("$t")
           done
-          echo "完成。剩余 Release："
-          gh release list --repo "${{ github.repository }}" --limit 10
+          if (( ${#validated[@]} == 0 )); then
+            printf '没有有效的 tag\n' >&2
+            exit 1
+          fi
+          # 先核查所有目标是否真的残缺，避免删完一半才发现列表里混入正常版本。
+          for t in "${validated[@]}"; do
+            release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$t")"
+            if jq -e '(.assets | map(.name) | any(. == "latest.yml")) and (.assets | map(.name) | any(endswith(".exe"))) and (.assets | map(.name) | any(endswith(".exe.blockmap")))' <<< "$release" >/dev/null; then
+              printf 'Release %s 的三项核心资产齐全，拒绝作为残缺版本删除\n' "$t" >&2
+              exit 1
+            fi
+          done
+          for t in "${validated[@]}"; do
+            gh release delete "$t" --yes --repo "$GITHUB_REPOSITORY"
+          done
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 10

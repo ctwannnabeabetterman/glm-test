@@ -14,7 +14,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000',
     trace: 'retain-on-failure',
     locale: 'zh-CN',
   },
@@ -26,5 +26,5 @@ export default defineConfig({
         reuseExistingServer: false,
       }
     : undefined,
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], ...(process.env.E2E_USE_EDGE ? { channel: 'msedge' } : {}) } }],
 })

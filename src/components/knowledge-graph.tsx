@@ -30,7 +30,7 @@ interface GraphEdge {
 interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
-  stats: { totalNodes: number; totalEdges: number; papers: number; topics: number; notes: number }
+  stats: { totalNodes: number; totalEdges: number; papers: number; topics: number; notes: number; truncated?: boolean }
 }
 
 const TYPE_CONFIG = {
@@ -203,6 +203,7 @@ export function KnowledgeGraph() {
         <CardContent className="p-3 text-xs text-muted-foreground">
           🕸️ <strong className="text-blue-700 dark:text-blue-400">知识图谱</strong>
           （方法论 §2.2.3 Obsidian 双向链接）—— 可视化论文、课题、笔记之间的关联关系
+          {graph.stats.truncated && '；当前仅展示最近 100 篇论文、20 个课题与 60 篇笔记'}
         </CardContent>
       </Card>
 

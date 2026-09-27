@@ -62,6 +62,7 @@ const STRUCT_FIELDS: {
 
 interface ReadingNoteEditorProps {
   note: ReadingNoteNote
+  topics?: ReadonlyArray<{ id: string; name: string; direction: string }>
   onUpdate: (n: ReadingNoteNote) => void
   /** 删除当前笔记。由父组件负责二次确认与刷新列表。 */
   onDelete?: () => void
@@ -74,7 +75,7 @@ interface ReadingNoteEditorProps {
  * 否则会出现「点了切不动」以及「拿 A 篇的草稿保存进 B 篇」的串写事故。
  * 调用方请写 `<ReadingNoteEditor key={note.id} … />`。
  */
-export function ReadingNoteEditor({ note, onUpdate, onDelete }: ReadingNoteEditorProps) {
+export function ReadingNoteEditor({ note, topics, onUpdate, onDelete }: ReadingNoteEditorProps) {
   const api = useApi()
   const structured = note.structured ?? {}
   const [author, setAuthor] = useState(structured.author || '')
@@ -161,7 +162,7 @@ export function ReadingNoteEditor({ note, onUpdate, onDelete }: ReadingNoteEdito
             最近阅读：
             {note.lastReadAt ? new Date(note.lastReadAt).toLocaleDateString('zh-CN') : '未记录'}
           </Badge>
-          <TopicBadges topicIds={note.topicIds || '[]'} />
+          <TopicBadges topicIds={note.topicIds || '[]'} topics={topics ?? []} />
           <div className="ml-auto flex gap-1.5">
             <NotesExport note={note} compact />
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={exportExcel}>

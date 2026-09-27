@@ -1,7 +1,7 @@
 name: Release
 
-# 发布链路：打 tag 即自动产出 Windows 安装包并上传到 GitHub Release。
-# 客户端（electron-updater）正是从这个 Release 读 latest.yml 来判断/下载更新。
+# 发布链路：打 tag 后先验证同 SHA 的 CI，构建并验收草稿资产，再公开 Release。
+# 客户端（electron-updater）从正式 Release 读 latest.yml 来判断/下载更新。
 #
 # 触发方式：
 #   git tag v1.2.1 && git push origin v1.2.1
@@ -22,19 +22,76 @@ on:
 permissions:
   contents: write
 
-# 同一个 tag 的发布不允许重叠执行。两次 publish 并发跑会互相覆盖 Release 资产，
-# 表现是「Release 里只剩一部分文件」但仍然报成功（v1.3.0 实测踩过）。
+# 不同 tag 与 release-cleanup 都要共用一个组：不能同时更改 GitHub Releases。
+# generic 更新源的 /releases/latest/download/latest.yml 是全仓库共享指针。
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-publication
   cancel-in-progress: false
 
 jobs:
+  ci-gate:
+    name: Require same-commit CI (including E2E)
+    runs-on: ubuntu-latest
+    timeout-minutes: 32
+    permissions:
+      contents: read
+      actions: read
+    # 手动试产不需要 tag 发布门禁，仍会跑 Windows 构建与测试。
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Wait for successful main push CI on this exact commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          # 不能预先要求 tag 已在 main：tag push 可能先于 main push；只认最终同 SHA 的 main push CI。
+          # PR 的 merge ref 或相邻提交不能代替 tag 指向的 SHA。
+          for attempt in {1..90}; do
+            runs="$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f "head_sha=$sha" -f event=push -f branch=main -f per_page=100)"
+            # 按最近一次同 SHA 的 main push CI 验证，不能用其他提交或只跑了 unit 的 workflow。
+            run="$(jq -c --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha and .event == "push" and .head_branch == "main")] | sort_by(.created_at, .run_attempt) | last // empty' <<< "$runs")"
+            if [[ -n "$run" ]]; then
+              id="$(jq -r .id <<< "$run")"
+              status="$(jq -r .status <<< "$run")"
+              if [[ "$status" == completed ]]; then
+                conclusion="$(jq -r .conclusion <<< "$run")"
+                [[ "$conclusion" == success ]] || { printf '同 SHA CI run %s: %s\n' "$id" "$conclusion" >&2; exit 1; }
+                run_attempt="$(jq -r .run_attempt <<< "$run")"
+                jobs="$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/runs/$id/attempts/$run_attempt/jobs" -f per_page=100)"
+                jq -e '
+                  [.jobs[] | select(.name == "verify (node 20)" and .conclusion == "success")] | length == 1
+                ' <<< "$jobs" >/dev/null
+                jq -e '
+                  [.jobs[] | select(.name == "verify (node 22)" and .conclusion == "success")] | length == 1
+                ' <<< "$jobs" >/dev/null
+                jq -e '
+                  [.jobs[] | select(.name == "e2e (playwright)" and .conclusion == "success")] | length == 1
+                ' <<< "$jobs" >/dev/null
+                printf '同 SHA CI %s: verify 20/22 和 e2e 均通过\n' "$id"
+                exit 0
+              fi
+            fi
+            printf '等待 main push CI 完成（%s/90）：%s\n' "$attempt" "${run:-尚未出现}"
+            sleep 20
+          done
+          printf '同 SHA main push CI 未能在 30 分钟内完成；拒绝发布\n' >&2
+          exit 1
+
   release:
     name: Build & Publish (Windows NSIS)
+    # 不依赖 tag 与 main push 触发顺序；等待 CI 对相同 commit 的 verify + e2e。
+    needs: ci-gate
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.ci-gate.result == 'success')
     runs-on: windows-latest
     # 兜底超时：本项目出现过「测试全绿但进程不退出」的挂起（见 vitest.config.ts 的 pool 说明）。
     # 没有这个上限，一旦复发整个 job 会一直挂到 GitHub 默认的 6 小时上限，白烧额度还看不到失败原因。
-    timeout-minutes: 45
+    timeout-minutes: 75
 
     env:
       # Prisma Client 在模块导入时实例化，构建期只需一个合法的 SQLite 占位 DSN
@@ -89,12 +146,15 @@ jobs:
         shell: pwsh
         run: |
           $pkgVersion = (Get-Content package.json | ConvertFrom-Json).version
-          $tagName = "${{ github.ref_name }}"
+          $tagName = $env:GITHUB_REF_NAME
           Write-Host "package.json version = $pkgVersion"
           Write-Host "git tag              = $tagName"
           if ($tagName -ne "v$pkgVersion") {
             Write-Error "版本不一致：tag '$tagName' 与 package.json 'v$pkgVersion' 不匹配。请先 bump package.json 再打 tag。"
             exit 1
+          }
+          if ($tagName -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "只允许正式 semver tag 发布：$tagName"
           }
           Write-Host "版本校验通过 ✓"
 
@@ -108,6 +168,47 @@ jobs:
       - name: Build desktop bundle (Next standalone + prune + app.zip)
         run: npm run desktop:build
 
+      - name: Smoke test packaged standalone service
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'lab-standalone-probe'
+          New-Item -ItemType Directory -Path $probe -Force | Out-Null
+          $tar = Join-Path $env:WINDIR 'System32/tar.exe'
+          & $tar -xf resources/app.zip -C $probe
+          if ($LASTEXITCODE -ne 0) { throw '无法解压实际打包的 app.zip' }
+          $server = Join-Path $probe 'server.js'
+          if (-not (Test-Path $server)) { throw 'app.zip 缺少 server.js' }
+          $database = Join-Path $probe 'probe.db'
+          Copy-Item resources/db-template/custom.db $database
+          $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $listener.Start()
+          $port = $listener.LocalEndpoint.Port
+          $listener.Stop()
+          $env:DATABASE_URL = 'file:' + $database.Replace('\', '/')
+          $env:HOSTNAME = '127.0.0.1'
+          $env:PORT = [string]$port
+          $stdout = Join-Path $probe 'service.log'
+          $stderr = Join-Path $probe 'service-error.log'
+          $service = Start-Process -FilePath node -ArgumentList $server -WorkingDirectory $probe -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              if ($service.HasExited) { break }
+              try {
+                $response = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/backup" -TimeoutSec 3
+                if ($response.version -eq 2 -and $response.data.papers -is [array]) {
+                  $ready = $true
+                  break
+                }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw '已裁剪的 app.zip 无法启动并读取隔离数据库' }
+            Write-Host '安装包内置服务与数据库模板冒烟通过'
+          } finally {
+            if (-not $service.HasExited) { Stop-Process -Id $service.Id -Force }
+            Get-Content $stdout, $stderr -ErrorAction SilentlyContinue | Select-Object -Last 25
+          }
+
       # ---------- 打包 NSIS：只产出本地产物，不上传 ----------
       # ⚠️ 为什么不用 `--publish always`（v1.3.0 / v1.3.1 连续两次踩坑后彻底弃用）：
       #   electron-publish 在多种情况下会**静默不上传**，只打一条 log.warn，进程照样 exit 0：
@@ -117,7 +218,7 @@ jobs:
       #   结果是「job 绿灯 + Release 里只有 .exe.blockmap」——安装包和 latest.yml 都没上去，
       #   用户点下载什么也拿不到，客户端「检查更新」永远失败。发版链路最不能忍的就是亮着绿灯失败。
       # 现在分工明确：electron-builder 只负责构建（它照样会生成 latest.yml / app-update.yml），
-      # 上传交给 gh CLI —— 失败必然非 0 退出，且 --clobber 天然幂等（同 tag 重跑不会因资产已存在而失败）。
+      # gh CLI 只上传草稿；只允许 clobber 尚未公开的同 tag 草稿，公开版本绝不重写资产。
       - name: Package Windows installer (build only)
         run: npx electron-builder --win --publish never
 
@@ -129,56 +230,79 @@ jobs:
         shell: pwsh
         run: |
           $exe = @(Get-ChildItem -Path release/*.exe -ErrorAction SilentlyContinue)
-          $hasYml = Test-Path release/latest.yml
-          if ($exe.Count -eq 0 -or -not $hasYml) {
-            Write-Error "本地产物不完整：release/*.exe = $($exe.Count) 个，latest.yml = $hasYml。electron-builder 没产出可发布的东西。"
-            exit 1
+          $blockmap = @(Get-ChildItem -Path release/*.exe.blockmap -ErrorAction SilentlyContinue)
+          if ($exe.Count -ne 1 -or $blockmap.Count -ne 1 -or -not (Test-Path release/latest.yml)) {
+            throw "本地产物不完整：exe=$($exe.Count) blockmap=$($blockmap.Count) latest.yml=$(Test-Path release/latest.yml)"
           }
-          $exe | ForEach-Object { Write-Host ("产物：{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB)) }
-          Write-Host "本地产物自检通过 ✓"
+          $manifest = Get-Content release/latest.yml -Raw
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $name = "AI-Network-Lab-Setup-$version.exe"
+          $pathValue = ([regex]::Match($manifest, '(?m)^path:\s*(.+?)\s*$')).Groups[1].Value
+          $fileValue = ([regex]::Match($manifest, '(?m)^\s+- url:\s*(.+?)\s*$')).Groups[1].Value
+          $sizeValue = ([regex]::Match($manifest, '(?m)^\s+size:\s*(\d+)')).Groups[1].Value
+          $shaValue = ([regex]::Match($manifest, '(?m)^\s+sha512:\s*(\S+)')).Groups[1].Value
+          if (-not $shaValue -or -not $sizeValue) { throw 'latest.yml 缺少大小或校验和' }
+          if ($exe[0].Name -ne $name -or $blockmap[0].Name -ne "$name.blockmap" -or
+              $pathValue -ne $name -or $fileValue -ne $name -or
+              [string]$exe[0].Length -ne $sizeValue -or
+              (Get-FileHash $exe[0].FullName -Algorithm SHA512).Hash -ne [Convert]::ToHexString([Convert]::FromBase64String($shaValue))) {
+            throw "latest.yml 的文件名、大小或 SHA512 与安装包不一致：$name"
+          }
+          Write-Host "本地产物与清单匹配：$name ($sizeValue bytes)"
 
-      # ---------- 上传到 GitHub Release（发布只在 tag 上执行） ----------
-      - name: Publish assets to GitHub Release
+      # 草稿对匿名客户端不可见；只有资产完整验收后才公开。
+      - name: Create draft and upload assets
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
-          # ⚠️ GitHub 的 pwsh shell 默认 $ErrorActionPreference='stop' 且
-          # $PSNativeCommandUseErrorActionPreference=$true —— 原生命令一旦非 0 就抛异常，
-          # 下面的重试逻辑还没来得及读 $LASTEXITCODE 就挂了。这里显式关掉，改为手动判码。
-          $ErrorActionPreference = 'Continue'
+          $ErrorActionPreference = 'Stop'
+          # GitHub 的 pwsh 默认让原生命令非 0 立即抛错；上传重试要手动读取 LASTEXITCODE。
           if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
             $PSNativeCommandUseErrorActionPreference = $false
           }
-
-          $tag  = "${{ github.ref_name }}"
-          $repo = "${{ github.repository }}"
-
-          gh release view $tag --repo $repo *> $null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Release $tag 不存在，创建…"
-            # --generate-notes 让 Release 带上自动生成的变更列表；gh 默认会把它设为 latest，
-            # 而 electron-updater 的 getLatestTagName() 正是请求 /releases/latest。
-            # --verify-tag：tag 不存在就直接失败，绝不「顺手新建一个同名 tag」
-            gh release create $tag --repo $repo --title "$tag" --generate-notes --verify-tag
-            if ($LASTEXITCODE -ne 0) { Write-Error "创建 Release $tag 失败"; exit 1 }
+          $tag = $env:GITHUB_REF_NAME
+          $repo = $env:GITHUB_REPOSITORY
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'User-Agent' = 'release-preflight'
           }
-
-          $files = @(Get-ChildItem -Path release/*.exe, release/*.blockmap, release/latest.yml -ErrorAction SilentlyContinue |
+          $api = "https://api.github.com/repos/$repo"
+          # /releases/tags/<tag> 不保证返回草稿；从包含草稿的列表检查重跑与孪生对象。
+          $releases = @(Invoke-RestMethod -Uri "$api/releases?per_page=100" -Headers $headers)
+          if ($releases.Count -eq 100) { throw 'Release 超过单页容量，拒绝未经完整枚举的发布' }
+          $matches = @($releases | Where-Object { $_.tag_name -eq $tag })
+          if ($matches.Count -gt 1) { throw "$tag 存在重复 Release，拒绝上传" }
+          $existing = if ($matches.Count -eq 1) { $matches[0] } else { $null }
+          # 已公开的 Release 不能 clobber：旧客户端此时可能正从 latest.yml 下载资产。
+          if ($existing -and -not $existing.draft) { throw "Release $tag 已公开，拒绝覆盖；请人工核查" }
+          $latest = $null
+          try {
+            $latest = Invoke-RestMethod -Uri "$api/releases/latest" -Headers $headers
+          } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+          }
+          if ($latest -and $latest.tag_name -match '^v(\d+\.\d+\.\d+)$') {
+            $publishedVersion = [version]$Matches[1]
+            $candidateVersion = [version]((Get-Content package.json | ConvertFrom-Json).version)
+            if ($publishedVersion -ge $candidateVersion) {
+              throw "latest 已是 $($latest.tag_name)，拒绝把 $tag 公开成旧版本"
+            }
+          }
+          if (-not $existing) {
+            gh release create $tag --repo $repo --title "$tag" --generate-notes --verify-tag --draft
+            if ($LASTEXITCODE -ne 0) { throw "创建草稿 Release $tag 失败" }
+          }
+          $files = @(Get-ChildItem -Path release/*.exe, release/*.exe.blockmap, release/latest.yml -ErrorAction Stop |
                      ForEach-Object { $_.FullName })
-          Write-Host "待上传 $($files.Count) 个文件："
-          $files | ForEach-Object { Write-Host "  - $_" }
-
-          $uploaded = $false
           for ($i = 1; $i -le 3; $i++) {
             gh release upload $tag @files --repo $repo --clobber
-            if ($LASTEXITCODE -eq 0) { $uploaded = $true; break }
-            Write-Host "第 $i 次上传失败（exit=$LASTEXITCODE），8 秒后重试…"
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($i -eq 3) { throw "上传草稿资产失败（重试 3 次）" }
             Start-Sleep -Seconds 8
           }
-          if (-not $uploaded) { Write-Error "上传失败：重试 3 次仍未成功"; exit 1 }
-          Write-Host "资产上传完成 ✓"
 
-      # ---------- 发布后自检：Release 里必须真的有安装包、latest.yml，且字节数对得上 ----------
+      # ---------- 草稿验收：Release 里必须真的有安装包、latest.yml，且字节数对得上 ----------
       # 为什么必须有这一步：v1.3.0 的发布 job **全程绿灯**，但 GitHub Release 里
       # 只有一个 `.exe.blockmap` —— 既没有 `.exe`，也没有 `latest.yml`。
       # 后果是静默的：用户点下载什么也拿不到；electron-updater 找不到更新清单，
@@ -188,17 +312,13 @@ jobs:
       #    不是上传失败 —— 见下面循环里对「孪生 Release」的断言。
       # 放在上传备份工件**之前**：这样自检失败时，完整的 release/ 仍会作为
       # windows-installer 工件留下，可以手动补挂到该 Release，不必重新构建。
-      - name: Verify release assets (installer + latest.yml + size match)
+      - name: Verify draft assets (installer + latest.yml + size match)
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
-            $PSNativeCommandUseErrorActionPreference = $false
-          }
-
-          $tag  = "${{ github.ref_name }}"
-          $repo = "${{ github.repository }}"
+          $ErrorActionPreference = 'Stop'
+          $tag  = $env:GITHUB_REF_NAME
+          $repo = $env:GITHUB_REPOSITORY
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept        = 'application/vnd.github+json'
@@ -215,40 +335,57 @@ jobs:
           }
           Write-Host "latest.yml 声明：path=$declaredPath  size=$declaredSize"
 
+          $expectedNames = @('latest.yml', $declaredPath, "$declaredPath.blockmap")
           $names = @()
           for ($i = 1; $i -le 5; $i++) {
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" -Headers $headers
-            $names   = @($release.assets | ForEach-Object { $_.name })
-            $exeAsset = $release.assets | Where-Object { $_.name -eq $declaredPath }
-            $hasYml   = $names -contains 'latest.yml'
-            if ($exeAsset -ne $null -and $hasYml -and [int64]$exeAsset.size -eq $declaredSize) {
+            # 草稿不能靠 /releases/tags/<tag> 查找；list releases 包含草稿。
+            $allReleases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers $headers)
+            if ($allReleases.Count -eq 100) { throw 'Release 超过单页容量，拒绝未经完整枚举的发布' }
+            $sameTag = @($allReleases | Where-Object { $_.tag_name -eq $tag })
+            if ($sameTag.Count -ne 1) { throw "$tag 存在 $($sameTag.Count) 个 Release，拒绝公开" }
+            $release = $sameTag[0]
+            if (-not $release.draft) { throw "$tag 已公开，尚未验收不能继续" }
+            $names = @($release.assets | ForEach-Object { $_.name })
+            $exeAsset = @($release.assets | Where-Object { $_.name -eq $declaredPath })
+            $hasYml = $names -contains 'latest.yml'
+            $allPresent = @($expectedNames | Where-Object { $names -notcontains $_ }).Count -eq 0
+            $sizeMatches = $exeAsset.Count -eq 1 -and [int64]$exeAsset[0].size -eq $declaredSize
+            if ($allPresent -and $names.Count -eq 3 -and $sizeMatches) {
+              foreach ($name in $expectedNames) {
+                $asset = @($release.assets | Where-Object { $_.name -eq $name })[0]
+                $local = Get-Item (Join-Path release $name)
+                if ($asset.state -ne 'uploaded' -or [int64]$asset.size -ne $local.Length) {
+                  throw "草稿资产 $name 未完整上传"
+                }
+                # GitHub 提供 digest 时还要比对内容；旧 API 返回 null 时仍需大小校验。
+                if ($asset.digest) {
+                  $hash = [regex]::Match($asset.digest, '^sha256:([0-9a-fA-F]{64})$')
+                  if (-not $hash.Success) { throw "草稿资产 $name 的 digest 格式无法验证" }
+                  if ((Get-FileHash $local.FullName -Algorithm SHA256).Hash -ne $hash.Groups[1].Value) {
+                    throw "草稿资产 $name 的 SHA256 校验失败"
+                  }
+                }
+              }
               # ⚠️ 孪生 Release 断言（v1.3.0 / v1.3.1 的真因就在这）：
               # 同一个 tag 下存在两个 Release 时，资产会被拆到两个对象里 —— 一个拿到
               # exe + latest.yml，另一个拿到 blockmap。而 /releases/tags/<tag> 只返回其中一个，
               # 于是用户看到的 Release 可能「只有 blockmap、没有安装包」，但上传其实是成功的。
               # 现行流程用 gh 显式创建一次再上传，不会产生孪生；这条是防回归（尤其是
               # 有人改回 `--publish always` 时 —— 它的 getOrCreateRelease() 存在并发建 release 的竞态）。
-              $allReleases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers $headers
-              $sameTag = @($allReleases | Where-Object { $_.tag_name -eq $tag })
-              if ($sameTag.Count -gt 1) {
-                Write-Error "$tag 存在 $($sameTag.Count) 个 Release：资产被拆散到不同对象，用户看到的会不全。删掉多余的后重跑。"
-                exit 1
-              }
-              Write-Host "发布自检通过 ✓"
+              Write-Host "草稿资产验收通过 ✓"
               Write-Host "Release $tag 资产：$($names -join ', ')"
               exit 0
             }
             Write-Host ("第 {0} 次自检未通过（exe={1} latest.yml={2} size={3}/{4}），3 秒后重试…" -f `
-              $i, ($exeAsset -ne $null), $hasYml, $(if ($exeAsset) { $exeAsset.size } else { 'n/a' }), $declaredSize)
+              $i, ($exeAsset.Count -eq 1), $hasYml, $(if ($exeAsset.Count -eq 1) { $exeAsset[0].size } else { 'n/a' }), $declaredSize)
             Start-Sleep -Seconds 3
           }
 
-          Write-Error ("发布不完整：$tag 的资产只有 [$($names -join ', ')]，" +
-            "缺少 latest.yml 或 $declaredPath（期望 $declaredSize 字节）。" +
-            "用户下载不到安装包，客户端也检测不到更新。" +
-            "本次完整产物已作为 windows-installer 工件上传，可手动补挂到该 Release。")
-          exit 1
+          throw ("草稿验收失败：$tag 的资产只有 [$($names -join ', ')]，" +
+            "期望 [$($expectedNames -join ', ')]，安装包应为 $declaredSize 字节。" +
+            "草稿保持不可见，后续备份工件仍会尝试上传。")
 
+      # 备份失败也不能公开：要保留一条可恢复路径，验收未通过时仍会尝试备份。
       - name: Upload artifacts (backup)
         if: always()
         uses: actions/upload-artifact@v4
@@ -258,6 +395,37 @@ jobs:
             release/*.exe
             release/*.blockmap
             release/latest.yml
-          # error：产物缺失本身就是「发布不可信」的信号，不要只打一条 warn 就滑过去
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish verified draft
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $repo = $env:GITHUB_REPOSITORY
+          # 任务排队期间可能有人手工发布了更新的版本；最后一刻再校验一次。
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'User-Agent' = 'release-verify'
+          }
+          $latest = $null
+          try {
+            $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
+          } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+          }
+          if ($latest -and $latest.tag_name -match '^v(\d+\.\d+\.\d+)$') {
+            if ([version]$Matches[1] -ge [version]((Get-Content package.json | ConvertFrom-Json).version)) {
+              throw "已有更新的正式版本 $($latest.tag_name)，拒绝公开 $tag"
+            }
+          }
+          # 此前所有步骤（含完整性校验与备份）成功才会公开；失败时草稿保持不可见。
+          gh release edit $tag --repo $repo --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw "公开 $tag 失败，草稿保留待检查" }
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" -Headers $headers
+          $currentLatest = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
+          if ($release.draft -or $release.tag_name -ne $tag -or $currentLatest.id -ne $release.id) {
+            throw "公开后核查失败：$tag 未成为已验收的 latest Release"
+          }

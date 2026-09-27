@@ -11,6 +11,7 @@ import { Sparkles, Compass, BookOpen, Cpu, Loader2, CheckCircle2, Download } fro
 import { toast } from 'sonner'
 import { toastAiError } from '@/lib/ai-error'
 import { useApi } from '@/lib/hooks'
+import { describeConflicts } from '@/lib/library/merge-conflicts'
 import { useAppStore } from '@/lib/store'
 import { AiMarkdown } from '@/components/ai-markdown'
 import { cn } from '@/lib/utils'
@@ -88,9 +89,13 @@ export function AIRelatedPapers() {
         res.updated ? `合并已有 ${res.updated} 篇` : '',
         res.skipped ? `丢弃 ${res.skipped} 条无标题记录` : '',
       ].filter(Boolean)
-      toast.success(`导入完成：${parts.join('，')}`, {
-        action: { label: '去论文库', onClick: () => setSection('papers') },
-      })
+        toast.success(`导入完成：${parts.join('，')}`, {
+          action: { label: '去论文库', onClick: () => setSection('papers') },
+        })
+        // 身份冲突的条目不会被写入（既不合并也不造同名副本）。不提示的话，
+        // 用户看到的是「勾了几篇、库里却没出现」—— 而这类冲突往往正是他要找的那篇。
+        const conflictNotice = describeConflicts(res.conflicts)
+        if (conflictNotice) toast.warning(conflictNotice, { duration: 12_000 })
     } catch (e) {
       toast.error('导入失败：' + (e as Error).message)
     } finally {

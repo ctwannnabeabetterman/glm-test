@@ -243,16 +243,18 @@ function migrateDatabase(dbPath, options = {}) {
         for (const name of missingTables) db.exec(newTables[name])
         for (const name of missingIndexes) db.exec(newIndexes[name].sql)
         for (const name of legacyTables) db.exec(`DROP TABLE IF EXISTS "${name}"`)
+        // 版本戳与 DDL 必须一起提交；失败回滚时旧程序不能误认半成品为新库。
+        const stamped = stampVersion(db, options.appVersion)
         db.exec('COMMIT')
+        result = { changed: true, backupPath }
+        return stamped === null ? result : { ...result, versionStamped: stamped }
       } catch (error) {
         db.exec('ROLLBACK')
         throw error
       }
-      result = { changed: true, backupPath }
     }
 
-    // 版本戳独立于 schema 迁移：即使这次没改结构，也要把「本程序写过的库」记下来，
-    // 否则升级到 1.2.4 时若结构已经是最新的，戳就永远写不进去。
+    // 即使结构无需迁移，也要标记已经被当前程序打开的库。
     const stamped = stampVersion(db, options.appVersion)
     return stamped === null ? result : { ...result, versionStamped: stamped }
   } finally {

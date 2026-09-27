@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { db } from '@/lib/db'
 import { buildResearchNoteMarkdown } from '@/lib/library/research-note'
 import {
   DEFAULT_OBSIDIAN_CONFIG,
   OBSIDIAN_SETTING_KEY,
-  dedupeFileNames,
   isSafeNoteFileName,
   normalizeObsidianConfig,
   obsidianFileName,
@@ -24,6 +24,29 @@ async function loadCfg(): Promise<ObsidianConfig> {
   const row = await db.setting.findUnique({ where: { key: OBSIDIAN_SETTING_KEY } })
   if (!row) return { ...DEFAULT_OBSIDIAN_CONFIG }
   return normalizeObsidianConfig(row.value)
+}
+
+// 标记绑定 note id，并记录上次导出的内容摘要；用户在 vault 里编辑过就不覆盖。
+function exportedContent(note: { id: string; title: string; content: string; tags: string; category: string; structured: string; updatedAt: Date; lastReadAt: Date | null }) {
+  const markdown = buildResearchNoteMarkdown(note)
+  const hash = createHash('sha256').update(markdown).digest('hex')
+  return `${markdown}<!-- ai-network-lab:note:${note.id}:${hash} -->\n`
+}
+
+function fileState(target: string, id: string): 'absent' | 'owned' | 'modified' | 'conflict' {
+  let stat: fs.Stats
+  try {
+    stat = fs.lstatSync(target)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 'absent'
+    throw e
+  }
+  if (!stat.isFile()) return 'conflict'
+  const text = fs.readFileSync(target, 'utf8')
+  const marker = /<!-- ai-network-lab:note:([^\r\n<>]*):([a-f0-9]{64}) -->\r?\n?/.exec(text)
+  if (!marker || marker[1] !== id) return 'conflict'
+  const actual = createHash('sha256').update(text.slice(0, marker.index)).digest('hex')
+  return actual === marker[2] && marker.index + marker[0].length === text.length ? 'owned' : 'modified'
 }
 
 // POST /api/notes/export/obsidian —— 把科研笔记直接写入 Obsidian vault，交由 Obsidian 管理
@@ -72,30 +95,66 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, dir: targetDir, written: [], total: 0, skipped: 0 })
     }
 
-    // 生成文件名并去重（同名笔记追加短 id，避免互相覆盖）
-    const filenames = dedupeFileNames(
-      notes.map((n) => ({ id: n.id, filename: obsidianFileName(n.title || '') })),
-    )
+    // 保留原有的标题文件名；当它已有别人的导出时使用稳定 id 后缀。
+    // 不能仅按本次请求去重，否则「单篇 A、单篇 B」会互相覆盖。
+    const names = notes.map((n) => obsidianFileName(n.title || ''))
+    const duplicates = new Map<string, number>()
+    for (const name of names) duplicates.set(name.toLowerCase(), (duplicates.get(name.toLowerCase()) ?? 0) + 1)
 
+    // 在创建子目录前检查已有的每段路径，避免经符号链接在 vault 外建目录。
+    const realVault = fs.realpathSync(cfg.vaultPath)
+    let segment = path.resolve(cfg.vaultPath)
+    for (const part of dirRel.split('/').filter(Boolean)) {
+      segment = path.join(segment, part)
+      if (!fs.existsSync(segment)) continue
+      const real = fs.realpathSync(segment)
+      if (real !== realVault && !real.startsWith(realVault + path.sep)) {
+        return NextResponse.json({ error: '子目录指向 vault 外部', code: 'BAD_SUBFOLDER' }, { status: 400 })
+      }
+    }
     fs.mkdirSync(targetDir, { recursive: true })
+    const realTarget = fs.realpathSync(targetDir)
+    if (realTarget !== realVault && !realTarget.startsWith(realVault + path.sep)) {
+      return NextResponse.json({ error: '子目录指向 vault 外部', code: 'BAD_SUBFOLDER' }, { status: 400 })
+    }
 
     const written: WrittenFile[] = []
     const errors: Array<{ filename: string; error: string }> = []
-    notes.forEach((note, i) => {
-      const filename = filenames[i]
+    for (const [i, note] of notes.entries()) {
+      const primary = names[i]
+      const stem = primary.slice(0, -3)
+      const alternate = `${stem}-${createHash('sha256').update(note.id).digest('hex').slice(0, 16)}.md`
+      // 同批重名统一使用稳定 id 摘要；单篇仍优先沿用标题文件名。
+      const preferred = duplicates.get(primary.toLowerCase())! > 1 ? alternate : primary
+      const candidates = [preferred, primary, alternate].filter((name, index, all) => all.indexOf(name) === index)
+      let filename = preferred
       try {
-        if (!isSafeNoteFileName(filename)) {
-          errors.push({ filename, error: '文件名非法' })
-          return
+        if (!candidates.every(isSafeNoteFileName)) throw new Error('文件名非法')
+        const states = candidates.map((name) => fileState(path.join(targetDir, name), note.id))
+        const modifiedIndex = states.indexOf('modified')
+        if (modifiedIndex !== -1) {
+          filename = candidates[modifiedIndex]
+          throw new Error('已在 vault 中手工修改，跳过覆盖')
         }
+        const ownedIndex = states.indexOf('owned')
+        if (ownedIndex !== -1) filename = candidates[ownedIndex]
+        else if (states[0] === 'absent') filename = candidates[0]
+        else if (states[states.length - 1] === 'absent') filename = alternate
+        else throw new Error('目标文件已存在且不属于该笔记，跳过覆盖')
+
         const target = path.join(targetDir, filename)
-        const content = buildResearchNoteMarkdown(note)
-        fs.writeFileSync(target, content, 'utf8')
+        const content = exportedContent(note)
+        if (fileState(target, note.id) === 'absent') {
+          // 排他创建：并发或用户刚新建了文件时不可覆盖。
+          fs.writeFileSync(target, content, { encoding: 'utf8', flag: 'wx' })
+        } else if (fileState(target, note.id) === 'owned') {
+          fs.writeFileSync(target, content, 'utf8')
+        } else throw new Error('目标文件已被修改，跳过覆盖')
         written.push({ filename, path: target, bytes: Buffer.byteLength(content, 'utf8') })
       } catch (e) {
         errors.push({ filename, error: (e as Error).message })
       }
-    })
+    }
 
     return NextResponse.json({
       ok: errors.length === 0,

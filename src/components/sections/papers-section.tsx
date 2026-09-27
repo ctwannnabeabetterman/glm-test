@@ -70,6 +70,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { SectionHeader } from '@/components/section-header'
 import { downloadFromApi } from '@/lib/download'
+import { describeConflicts } from '@/lib/library/merge-conflicts'
 import { AISummary } from '@/components/ai-summary'
 import { TopicLinker, TopicBadges } from '@/components/topic-linker'
 import { PaperNotesPanel } from '@/components/paper-notes-panel'
@@ -148,6 +149,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export function PapersSection() {
   const { data: papers, loading, refetch } = useFetch<Paper[]>('/api/papers')
+  const { data: topics } = useFetch<Array<{ id: string; name: string; direction: string }>>('/api/topics')
   // 哪些论文的分数是 AI 给的、什么时候给的（存成一条 Setting，不是数据库列）
   const { data: provenance, refetch: refetchProvenance } = useFetch<{ scored: Record<string, { at: string }> }>(
     '/api/papers/score-provenance',
@@ -276,6 +278,10 @@ export function PapersSection() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       toast.success(`导入完成：新增 ${data.created}，更新 ${data.updated}（未调用 LLM）`)
+      // 身份冲突的条目不会被写入（既不合并也不造同名副本），必须明确告知，
+      // 否则用户看到的是「我导入了它却没出现」且毫无线索。
+      const conflictNotice = describeConflicts(data.conflicts)
+      if (conflictNotice) toast.warning(conflictNotice, { duration: 12_000 })
       setImportOpen(false)
       setImportText('')
       refetch()
@@ -293,6 +299,8 @@ export function PapersSection() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       toast.success(`Zotero 同步完成：新增 ${data.created}，更新 ${data.updated}`)
+      const conflictNotice = describeConflicts(data.conflicts)
+      if (conflictNotice) toast.warning(conflictNotice, { duration: 12_000 })
       refetch()
     } catch (e) {
       toast.error((e as Error).message)
@@ -565,6 +573,7 @@ export function PapersSection() {
                 <PaperRow
                   key={p.id}
                   paper={p}
+                  topics={topics ?? []}
                   onSelect={() => setSelectedPaper(p)}
                   onStatusChange={(s) => handleStatusChange(p, s)}
                   onDelete={() => handleDelete(p)}
@@ -648,8 +657,9 @@ export function PapersSection() {
   )
 }
 
-function PaperRow({ paper, onSelect, onStatusChange, onDelete, selected }: {
+function PaperRow({ paper, topics, onSelect, onStatusChange, onDelete, selected }: {
   paper: Paper
+  topics: ReadonlyArray<{ id: string; name: string; direction: string }>
   onSelect: () => void
   onStatusChange: (s: string) => void
   onDelete: () => void
@@ -681,7 +691,7 @@ function PaperRow({ paper, onSelect, onStatusChange, onDelete, selected }: {
               </Badge>
             )}
             <span className="text-[11px] text-muted-foreground">{paper.year}</span>
-            <TopicBadges topicIds={paper.topicIds || '[]'} />
+            <TopicBadges topicIds={paper.topicIds || '[]'} topics={topics} />
           </div>
           <div className="text-sm font-medium leading-snug line-clamp-2">{paper.title}</div>
           <div className="text-xs text-muted-foreground mt-1 truncate">
@@ -959,18 +969,7 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
         )}
 
         {/* Reading timer (§2.3 三遍阅读法) */}
-        <ReadingTimer
-          paperId={paper.id}
-          initialTime={paper.readingTime || 0}
-          onTimeUpdate={async (totalSeconds) => {
-            try {
-              await api.put(`/api/papers/${paper.id}`, { readingTime: totalSeconds })
-              onUpdate({ ...paper, readingTime: totalSeconds })
-            } catch {
-              // Silent fail - localStorage still has the data
-            }
-          }}
-        />
+        <ReadingTimer paperId={paper.id} initialTime={paper.readingTime || 0} />
 
         {/* Three-pass reading tracker (§2.3.1) */}
         <ThreePassReadingTracker paper={paper} onUpdate={onUpdate} />

@@ -46,7 +46,8 @@ export function dijkstra(
   source: string,
   destination: string,
   edgeLoads: Map<string, number>,
-  congestionWeight: number
+  congestionWeight: number,
+  unavailableEdges: ReadonlySet<string> = new Set(),
 ): PathResult {
   const n = adj.nodes.length
   const srcIdx = adj.nodeIndex.get(source)
@@ -98,6 +99,7 @@ export function dijkstra(
     inHeap[u] = 0
     if (u === dstIdx) break
     for (const { to: v, edge } of adj.out[u]) {
+      if (unavailableEdges.has(edge.id)) continue
       const load = edgeLoads.get(edge.id) ?? 0
       const w = edgeDecisionCost(edge, adj.nodes[v].reliability, load, congestionWeight)
       const nd = d + w

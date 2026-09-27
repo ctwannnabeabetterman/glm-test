@@ -77,21 +77,30 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { citingPaperId, citedPaperId, context } = body
 
-    if (!citingPaperId || !citedPaperId) {
+    if (typeof citingPaperId !== 'string' || !citingPaperId.trim() ||
+        typeof citedPaperId !== 'string' || !citedPaperId.trim()) {
       return NextResponse.json({ error: 'Missing paper IDs' }, { status: 400 })
     }
     if (citingPaperId === citedPaperId) {
       return NextResponse.json({ error: 'Cannot cite self' }, { status: 400 })
     }
 
-    const citation = await db.citation.upsert({
-      where: {
-        citingPaperId_citedPaperId: { citingPaperId, citedPaperId },
-      },
-      update: { context: context || '' },
-      create: { citingPaperId, citedPaperId, context: context || '' },
+    // Citation 没有 FK；在同一事务里检查两端并写入，避免检查后论文被删除。
+    const result = await db.$transaction(async (tx) => {
+      const papers = await tx.paper.findMany({
+        where: { id: { in: [citingPaperId, citedPaperId] } },
+        select: { id: true },
+      })
+      if (papers.length !== 2) return null
+      return tx.citation.upsert({
+        where: { citingPaperId_citedPaperId: { citingPaperId, citedPaperId } },
+        update: { context: context || '' },
+        create: { citingPaperId, citedPaperId, context: context || '' },
+      })
     })
+    if (!result) return NextResponse.json({ error: '引用的论文不存在，请先添加论文' }, { status: 404 })
 
+    const citation = result
     void recordActivity({ module: 'paper', action: 'create', title: '建立了一条引用关系', refId: citation.id })
     return NextResponse.json(citation, { status: 201 })
   } catch (e) {

@@ -29,9 +29,12 @@ const {
  * 但万一打包时漏了，也绝不能让整个应用起不来——「更新不可用」远好过「应用打不开」。
  */
 let autoUpdater = null
+let CancellationToken = null
 try {
   ;({ autoUpdater } = require('electron-updater'))
+  ;({ CancellationToken } = require('builder-util-runtime'))
 } catch (e) {
+  autoUpdater = null
   console.warn('[update] electron-updater 不可用，本次跳过自动更新：', e && e.message ? e.message : e)
 }
 
@@ -66,8 +69,23 @@ let updateActionInFlight = false
  * 进度 ⇒ 认定卡住，推一个 reason='stalled' 的错误态（界面据此显示「重试下载」+ 手动下载入口）。
  */
 const DOWNLOAD_STALL_MS = 45_000
+/**
+ * 取消后等待 downloadPromise settle 的宽限期。
+ *
+ * 为什么需要它：`startUpdateDownload()` 用 `activeDownload` 挡住并发下载（electron-updater
+ * 会复用未结束的 downloadPromise，不等它结束就重新下载会拿到旧任务）。正常情况下
+ * `token.cancel()` 会立刻让该 Promise reject，`.finally()` 随即清掉 `activeDownload`。
+ * 但底层网络层**不保证**兑现 —— 一旦 Promise 永不 settle，`activeDownload` 就永远不为空，
+ * 用户点「重试下载」永远收到「上一次下载尚未结束」，而他看到的只是「更新一直不来」。
+ * 这不是理论风险：本项目历史上最难的故障就是「更新永远不会到达」。
+ * 所以宽限期一到就强制清锁，把重试能力还给用户。
+ */
+const DOWNLOAD_CANCEL_GRACE_MS = 20_000
 let downloadStallTimer = null
+let downloadCancelTimer = null
 let downloadLastPercent = 0
+// electron-updater 会复用未结束的 downloadPromise；取消确认前禁止重新下载。
+let activeDownload = null
 
 /**
  * 最近一次成功下载的安装包绝对路径。
@@ -95,7 +113,26 @@ function armDownloadStallWatch() {
     // 只有「用户主动发起的下载」才打扰用户；后台检查阶段的异常留给 error 事件记日志
     if (!updateActionInFlight) return
     const sec = Math.round(DOWNLOAD_STALL_MS / 1000)
-    logUpdate(`下载停滞：${sec} 秒内没有收到任何进度（停在 ${downloadLastPercent}%），判定为卡住`)
+    logUpdate(`下载停滞：${sec} 秒内没有收到任何进度（停在 ${downloadLastPercent}%），取消底层下载`)
+    // cancel() 让 updater 的 downloadPromise settle，不能只推错误态后又复用同一 Promise。
+    // 不等取消完成才推状态：卡死的网络层也可能不及时兑现 reject。
+    if (activeDownload) {
+      const cancelled = activeDownload
+      cancelled.stalled = true
+      cancelled.token.cancel()
+      // 兜底见 DOWNLOAD_CANCEL_GRACE_MS 的说明：底层的 cancel 不保证 settle。
+      if (downloadCancelTimer) clearTimeout(downloadCancelTimer)
+      downloadCancelTimer = setTimeout(() => {
+        downloadCancelTimer = null
+        if (activeDownload !== cancelled) return
+        activeDownload = null
+        updateActionInFlight = false
+        logUpdate(
+          `取消后 ${Math.round(DOWNLOAD_CANCEL_GRACE_MS / 1000)} 秒仍未结束下载任务` +
+          ' ⇒ 强制清除下载锁，恢复「重试下载」（底层请求可能仍在后台）',
+        )
+      }, DOWNLOAD_CANCEL_GRACE_MS)
+    }
     updateActionInFlight = false
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setTitle(`AI Network Lab ${app.getVersion()}`)
@@ -107,8 +144,8 @@ function armDownloadStallWatch() {
       percent: downloadLastPercent,
       message:
         `下载卡住了：${sec} 秒没有收到任何数据（停在 ${downloadLastPercent}%）。` +
-        '通常是网络无法稳定访问 GitHub 所致。可以点「重试下载」；' +
-        '若反复卡住，请用下面的「发布页手动下载」。',
+        '通常是网络无法稳定访问 GitHub 所致。待取消完成后可点「重试下载」；' +
+        '若一直无法取消或反复卡住，请用下面的「发布页手动下载」。',
     })
   }, DOWNLOAD_STALL_MS)
 }
@@ -410,13 +447,12 @@ async function extractZip(zip, destDir) {
  * 解压随包携带的 resources/app.zip 到 resources/app（standalone 服务本体）。
  *
  * 语义（每条都是有意的）：
- *  1. **fail-safe**：读不出 zip 版本时**保留现有目录**，绝不因为一次只读探测失败
- *     就删掉可用的服务目录——旧实现会这么干，导致「启动即自毁」。
+ *  1. **fail-safe**：读不出 zip 版本时保留现有目录但拒绝启动，避免旧服务写入新版数据库。
  *  2. **原子替换**：先解压到 app.new，校验通过后再 rename 切换。解压期间
  *     resources/app 始终是完整的旧版本，不会出现半残状态。
  *  3. **完整性标记**：解压后校验 BUILD_ID 与 server.js / .next/server 是否齐备，
  *     全部通过才写 .extract-ok 标记。中断的解压不会留标记，下次启动自动重做。
- *  4. **失败回滚**：切换失败时把旧目录 rename 回来，保证应用仍可用。
+ *  4. **失败保全**：切换失败时把旧目录 rename 回来，但不能在新版壳内运行旧服务。
  */
 function ensureAppExtracted() {
   if (!app.isPackaged) return Promise.resolve()
@@ -439,25 +475,15 @@ function ensureAppExtracted() {
 
   return readZipBuildId(zip).then(async (zipBuildId) => {
     // ① 目录完整且版本一致 → 复用，零 IO
-    if (isAppDirComplete(appDir, zipBuildId)) {
-      fs.rmSync(backupDir, { recursive: true, force: true })
-      return
-    }
+    if (isAppDirComplete(appDir, zipBuildId)) return
 
-    // ② fail-safe：无法确定 zip 版本时保留现状，绝不做破坏性操作
+    // 版本不明时保留旧目录但停止启动，避免新版壳/数据库迁移搭配旧版服务运行。
     if (!zipBuildId) {
-      if (fs.existsSync(path.join(appDir, 'server.js'))) {
-        console.warn('[desktop] 无法读取 app.zip 的 BUILD_ID，保留现有服务目录')
-        return
-      }
       if (!fs.existsSync(zip)) throw new Error('安装不完整：缺少内置服务包 app.zip')
       throw new Error('内置服务包 app.zip 无法读取，请重新安装')
     }
 
-    if (!fs.existsSync(zip)) {
-      if (fs.existsSync(path.join(appDir, 'server.js'))) return // 有旧解压产物可兜底
-      throw new Error('安装不完整：缺少内置服务包 app.zip')
-    }
+    if (!fs.existsSync(zip)) throw new Error('安装不完整：缺少内置服务包 app.zip')
 
     // ③ 需要重建 → 解压到 staging，校验通过后再原子切换
     fs.mkdirSync(stagingDir, { recursive: true })
@@ -479,7 +505,6 @@ function ensureAppExtracted() {
       fs.rmSync(backupDir, { recursive: true, force: true })
       if (fs.existsSync(appDir)) fs.renameSync(appDir, backupDir)
       fs.renameSync(stagingDir, appDir)
-      fs.rmSync(backupDir, { recursive: true, force: true })
       console.log(`[desktop] 服务目录已更新到 BUILD_ID ${zipBuildId}`)
     } catch (err) {
       // 回滚：只要旧目录还能找回来，应用就仍然可用
@@ -491,10 +516,6 @@ function ensureAppExtracted() {
         } catch (e) {
           console.error('[desktop] 回滚失败：', e.message)
         }
-      }
-      if (fs.existsSync(path.join(appDir, 'server.js'))) {
-        console.warn('[desktop] 本次更新未生效，继续使用旧服务目录：', err.message)
-        return
       }
       throw err
     }
@@ -573,15 +594,12 @@ function ensureDatabase() {
     console.error(`[guard] 数据库版本 ${formatVersion(stored)} 高于程序版本 ${appVersion}，拒绝启动`)
     dialog.showErrorBox('版本不一致', detail)
     app.exit(0)
+    throw new Error('数据库版本高于当前程序，启动已停止')
   }
 
-  try {
-    // 顺带把本程序的版本写进库头的 user_version —— 下次若拿更老的程序来开，
-    // 上面的检查就能拦住它。
-    migrateDatabase(dbPath, { appVersion })
-  } catch (e) {
-    console.error('[desktop] 数据库迁移失败：', e && e.message ? e.message : e)
-  }
+  // 迁移失败时绝不能启动内部服务写入不完整的库；由 bootstrap 的错误处理提示用户。
+  // migrateDatabase 在同一事务中提交 DDL 与版本戳，并保留迁移前的备份。
+  migrateDatabase(dbPath, { appVersion })
   return dbPath
 }
 
@@ -776,6 +794,9 @@ async function applyUpdateAndRestart() {
 function startUpdateDownload() {
   if (!autoUpdater) return { ok: false, error: '更新组件不可用' }
   if (!app.isPackaged) return { ok: false, error: '开发模式不下载更新' }
+  if (activeDownload) return { ok: false, error: '上一次下载尚未结束，请稍后再试' }
+  const download = { token: new CancellationToken(), stalled: false }
+  activeDownload = download
   updateActionInFlight = true
   downloadLastPercent = 0
   downloadLoggedBucket = -1
@@ -788,19 +809,30 @@ function startUpdateDownload() {
     percent: 0,
     message: '正在下载更新…',
   })
-  autoUpdater.downloadUpdate().catch((e) => {
-    clearDownloadStallWatch()
-    const info = classifyUpdateError(e)
-    // 看门狗可能已经先一步判定「停滞」并推过状态了。这时 Promise 才 reject 属于同一个故障，
-    // 再弹一次错误框只会让用户以为坏了两次。
-    if (lastUpdateStatus && lastUpdateStatus.state === 'error' && lastUpdateStatus.reason === 'stalled') {
-      logUpdate(`下载失败（已按停滞处理过，不重复提示）：${info.reason} — ${info.message}`)
+  let promise
+  try {
+    promise = autoUpdater.downloadUpdate(download.token)
+  } catch (e) {
+    promise = Promise.reject(e)
+  }
+  Promise.resolve(promise).catch((e) => {
+    if (download.stalled) {
+      logUpdate(`已取消停滞下载：${e && e.message ? e.message : e}`)
       return
     }
+    const info = classifyUpdateError(e)
     updateActionInFlight = false
     logUpdate(`下载失败：${info.reason} — ${info.message}`)
     sendUpdateStatus({ state: 'error', reason: info.reason, message: info.message, current: app.getVersion() })
     dialog.showErrorBox('下载更新失败', info.message)
+  }).finally(() => {
+    clearDownloadStallWatch()
+    // Promise 正常结算 ⇒ 兜底的强制清锁没必要了，撤掉，避免它在后台误清下一次下载。
+    if (downloadCancelTimer) {
+      clearTimeout(downloadCancelTimer)
+      downloadCancelTimer = null
+    }
+    if (activeDownload === download) activeDownload = null
   })
   return { ok: true }
 }
@@ -814,7 +846,15 @@ function startUpdateDownload() {
  * 更新源来自 electron-builder 的 publish 配置生成的 app-update.yml（GitHub Releases）。
  */
 function setupAutoUpdate() {
-  if (!autoUpdater) return
+  if (!autoUpdater) {
+    sendUpdateStatus({
+      state: 'error',
+      reason: 'no-updater',
+      current: app.getVersion(),
+      message: '更新组件缺失，无法自动检查更新；请重新安装客户端或从发布页手动下载。',
+    })
+    return
+  }
   if (!app.isPackaged) {
     console.log('[update] 开发模式，跳过自动更新检查')
     return
@@ -875,6 +915,7 @@ function setupAutoUpdate() {
   })
 
   autoUpdater.on('download-progress', (p) => {
+    if (!activeDownload || activeDownload.stalled) return
     const percent = Math.round(p.percent || 0)
     downloadLastPercent = percent
     // 收到任何进度就说明连接还活着 —— 重新计时（这就是看门狗的「喂狗」动作）
@@ -903,6 +944,7 @@ function setupAutoUpdate() {
   })
 
   autoUpdater.on('update-downloaded', async (info) => {
+    if (activeDownload && activeDownload.stalled) return
     // 下载已经落地，看门狗必须立刻停：否则停在 100% 后 45 秒会误报「卡住」
     clearDownloadStallWatch()
     // 把安装包的真实落盘路径与版本记下来：这是「下载成功但装不上」时唯一能对着查的东西，

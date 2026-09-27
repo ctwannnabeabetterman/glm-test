@@ -126,6 +126,50 @@ describe.skipIf(!sqlite)('desktop database version stamp', () => {
     expect(encodeVersion('1.2.4') > stored).toBe(false)
   })
 
+  it('SQLite user_version 在迁移事务中可回滚', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-transaction-stamp-'))
+    tempDirs.push(dir)
+    const dbPath = path.join(dir, 'custom.db')
+    const db = new sqlite!.DatabaseSync(dbPath)
+    const { stampVersion, readDatabaseVersion } = require('../../desktop/migrate-database.js')
+    try {
+      db.exec('BEGIN IMMEDIATE')
+      db.exec('CREATE TABLE Note (id TEXT PRIMARY KEY)')
+      stampVersion(db, '1.2.4')
+      expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(10204)
+      db.exec('ROLLBACK')
+      expect(readDatabaseVersion(dbPath)).toBe(0)
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE name='Note'").get()).toBeUndefined()
+    } finally {
+      db.close()
+    }
+  })
+
+  it('迁移失败时 DDL 和版本戳一并回滚（不允许半升级库被标成新版）', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-rollback-'))
+    tempDirs.push(dir)
+    const dbPath = path.join(dir, 'custom.db')
+    const db = new sqlite!.DatabaseSync(dbPath)
+    db.exec(`
+      CREATE TABLE Note (id TEXT PRIMARY KEY, title TEXT);
+      CREATE TABLE "Manuscript_createdAt_idx" (id TEXT PRIMARY KEY);
+      PRAGMA user_version = 10100;
+    `)
+    db.close()
+
+    const { migrateDatabase, readDatabaseVersion } = require('../../desktop/migrate-database.js')
+    // 新表的同名索引被遗留表占用；CREATE INDEX 应失败，事务回滚已添加的列/表和版本戳。
+    expect(() => migrateDatabase(dbPath, { appVersion: '1.2.4' })).toThrow()
+    const restored = new sqlite!.DatabaseSync(dbPath)
+    try {
+      expect((restored.prepare("PRAGMA table_info('Note')").all() as { name: string }[]).map((c) => c.name)).not.toContain('content')
+      expect(restored.prepare("SELECT name FROM sqlite_master WHERE name='Manuscript'").get()).toBeUndefined()
+      expect(readDatabaseVersion(dbPath)).toBe(10100)
+    } finally {
+      restored.close()
+    }
+  })
+
   it('版本戳与 schema 迁移能在同一次调用里一起完成', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-both-'))
     tempDirs.push(dir)

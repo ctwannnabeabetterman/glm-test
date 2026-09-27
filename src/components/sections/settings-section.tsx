@@ -116,16 +116,10 @@ export function SettingsSection() {
 
   useEffect(() => {
     let alive = true
-    // 放进 then 回调而不是 effect 体内同步执行：避免「同步 setState 触发级联渲染」，
-    // 也顺带避开 SSR 没有 window 的问题（服务端先渲染「浏览器环境」，挂载后再补真实态）
-    void getAppInfo().then((info) => {
-      if (!alive) return
-      setDesktopUpdate(hasDesktopUpdate())
-      setAppInfo(info)
-      if (info?.updateStatus) setUpdateState(info.updateStatus)
-    })
-    // 主进程推来的状态（例如启动后后台检查发现新版本）同步到这张卡片
+    let receivedEvent = false
+    // 先订阅实时状态，再读快照；较慢的快照不能覆盖订阅后收到的新状态。
     const off = onUpdateStatus((p) => {
+      receivedEvent = true
       setUpdateState(p)
       // 一旦进入「正在下载 / 已下载 / 出错 / 版本冲突」，之前那次手动检查的结论就已经过期了。
       // 不清掉的话，状态行会用 updateResult 覆盖新状态 —— 用户会看到「已下载完成」的按钮
@@ -133,6 +127,12 @@ export function SettingsSection() {
       if (p.state === 'downloading' || p.state === 'downloaded' || p.state === 'error' || p.state === 'conflict') {
         setUpdateResult(null)
       }
+    })
+    void getAppInfo().then((info) => {
+      if (!alive) return
+      setDesktopUpdate(hasDesktopUpdate())
+      setAppInfo(info)
+      if (!receivedEvent && info?.updateStatus) setUpdateState(info.updateStatus)
     })
     return () => {
       alive = false
