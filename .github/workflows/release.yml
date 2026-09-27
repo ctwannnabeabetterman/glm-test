@@ -293,12 +293,16 @@ jobs:
             'User-Agent' = 'release-preflight'
           }
           $api = "https://api.github.com/repos/$repo"
-          # /releases/tags/<tag> 不保证返回草稿；从包含草稿的列表检查重跑与孪生对象。
-          $releases = @(Invoke-RestMethod -Uri "$api/releases?per_page=100" -Headers $headers)
-          if ($releases.Count -eq 100) { throw 'Release 超过单页容量，拒绝未经完整枚举的发布' }
-          $matches = @($releases | Where-Object { $_.tag_name -eq $tag })
-          if ($matches.Count -gt 1) { throw "$tag 存在重复 Release，拒绝上传" }
-          $existing = if ($matches.Count -eq 1) { $matches[0] } else { $null }
+          # ⚠️ 刻意**不用** `@(Invoke-RestMethod .../releases)` + `Where-Object` 过滤：
+          #    实测那串写法里数组不会被按元素枚举，过滤不生效，`$release` 会变成整个数组，
+          #    随后 `.assets` 触发成员枚举把所有版本的资产拍平（实测数出 49 个），
+          #    于是「资产数必须为 3」的判据永远为假。按 tag 直接查一次最稳。
+          $existing = $null
+          $existRaw = gh release view $tag --repo $repo --json isDraft,assets 2>$null
+          if ($LASTEXITCODE -eq 0 -and $existRaw) {
+            $existInfo = $existRaw | ConvertFrom-Json
+            $existing = [pscustomobject]@{ draft = $existInfo.isDraft; assets = $existInfo.assets }
+          }
           # 已公开的 Release 不能 clobber：旧客户端此时可能正从 latest.yml 下载资产。
           if ($existing -and -not $existing.draft) { throw "Release $tag 已公开，拒绝覆盖；请人工核查" }
           $latest = $null
@@ -338,10 +342,14 @@ jobs:
           }
           # 上传后立刻回读一次草稿的资产列表 —— 以 warning 形式输出，
           # 这样即使后面的「草稿验收」失败，远端也能从 annotation 看到上传到底落了几个资产。
-          $after = @(Invoke-RestMethod -Uri "$api/releases?per_page=100" -Headers $headers |
-                     Where-Object { $_.tag_name -eq $tag })
-          $assetNames = @($after[0].assets | ForEach-Object { $_.name })
-          Write-Host ("::warning::" + "上传后草稿 $tag 的资产数=$($assetNames.Count)：[$($assetNames -join ', ')]")
+          # 同样用 gh 按 tag 直查（理由见上面 $existing 那段）。
+          $afterRaw = gh release view $tag --repo $repo --json assets 2>$null
+          if ($LASTEXITCODE -eq 0 -and $afterRaw) {
+            $assetNames = @(($afterRaw | ConvertFrom-Json).assets | ForEach-Object { $_.name })
+            Write-Host ("::warning::" + "上传后草稿 $tag 的资产数=$($assetNames.Count)：[$($assetNames -join ', ')]")
+          } else {
+            Write-Host ("::warning::" + "上传后无法读回草稿 $tag 的资产列表（gh exit=$LASTEXITCODE）")
+          }
 
         # ---------- 草稿验收：Release 里必须真的有安装包、latest.yml，且字节数对得上 ----------
       # 为什么必须有这一步：v1.3.0 的发布 job **全程绿灯**，但 GitHub Release 里
