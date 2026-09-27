@@ -459,16 +459,19 @@ describe('发行流水线门禁与更新通道', () => {
     //    「Process completed with exit code 1」—— 2026-09-27 就因为这一点
     //    完全查不出草稿验收为什么失败，白烧了一轮。Write-Error 会带上文案。
     const verifyScript = stepScript(job, 'Verify draft assets')
-    expect(verifyScript, '验收失败必须带文案（Write-Error），不能只是 throw').toMatch(/Write-Error/)
-    // ⚠️ 断言前必须**剥掉注释行**：说明「为什么不用 throw」的注释本身就含这个词，
-    //    直接对整段做子串匹配会把自己写死 —— 这与「门禁只查字符串」是同一类错误。
+    // ⚠️ 可诊断性要求（2026-09-27 实测踩过两轮）：
+    //    远端能读到的只有 GitHub 的 **annotation**，而 annotation 只由**工作流命令**
+    //    `::warning::` / `::error::` 产生。pwsh 的 `Write-Warning` / `Write-Error`
+    //    只是写 warning/error 流，**不会**变成 annotation；
+    //    `throw` 更是连文案都没有，远端只看到「Process completed with exit code 1」。
+    //    第一版按「Write-Error 会带文案」写，实测是错的 —— 所以这里钉住工作流命令的写法。
+    expect(verifyScript, '验收失败必须发 ::error:: 工作流命令（否则远端读不到原因）').toContain('::error::')
+    expect(verifyScript, '每次重试都要发 ::warning:: 诊断（资产状态），否则远端无从判断差在哪').toContain('::warning::')
     const verifyCode = verifyScript
       .split('\n')
       .filter((line) => !line.trim().startsWith('#'))
       .join('\n')
     expect(verifyCode, '验收失败不允许只用裸 throw（远端读不到原因）').not.toMatch(/\bthrow\b/)
-    // 每次重试都要把资产状态打出来，否则远端无从判断差在哪
-    expect(verifyScript).toMatch(/Write-Warning/)
   })
 
   it('cleanup 把未信任 tag 经环境变量传入并逐条校验，且权限错误不得伪装成「资源不存在」', () => {
