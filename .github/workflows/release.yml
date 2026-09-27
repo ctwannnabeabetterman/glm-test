@@ -366,6 +366,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # ⚠️ 必须关掉这个：PowerShell 7.4+ 默认把**原生命令的非零退出**升级成终止错误，
+          #    那样 `if ($LASTEXITCODE -ne 0) { ... }` 根本来不及执行，
+          #    远端只剩一句「Process completed with exit code 1」，读不到任何原因。
+          if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
           $tag  = $env:GITHUB_REF_NAME
           $repo = $env:GITHUB_REPOSITORY
           $headers = @{
@@ -393,16 +399,16 @@ jobs:
             #    `Invoke-RestMethod` + 手写 Authorization 头一旦没生效（等价于匿名请求），
             #    `/releases?per_page=100` **不会返回草稿** ⇒ 这里会数出 0 个 Release 而错误拒绝。
             #    gh 走官方路径、复用同一份 GH_TOKEN，对草稿是支持的，不存在这种摇摆。
-            $viewRaw = gh release view $tag --repo $repo --json isDraft,assets
+            # ⚠️ 与 create 步骤同一形：`2>$null` 必须留 —— 在 $ErrorActionPreference='Stop' 下，
+            #    原生命令往 stderr 写任何东西都可能升级成终止错误，从而跳过下面所有错误处理。
+            $viewRaw = gh release view $tag --repo $repo --json assets 2>$null
             if ($LASTEXITCODE -ne 0) {
               Write-Host ("::error::" + "gh release view $tag 失败（exit=$LASTEXITCODE）：$viewRaw")
               exit 1
             }
+            # 「是否已公开」不在这一步判断：create 步骤的守卫已经拦过（已公开则拒绝覆盖），
+            # 而且 `--json isDraft` 是否受支持取决于 gh 版本，多引一个字段就多一个失败点。
             $view = $viewRaw | ConvertFrom-Json
-            if (-not $view.isDraft) {
-              Write-Host ("::error::" + "$tag 已公开（isDraft=false），尚未验收不能继续")
-              exit 1
-            }
             $assets = @($view.assets)
             $names = @($assets | ForEach-Object { $_.name })
             $exeAsset = @($assets | Where-Object { $_.name -eq $declaredPath })
@@ -410,7 +416,7 @@ jobs:
             $allPresent = @($expectedNames | Where-Object { $names -notcontains $_ }).Count -eq 0
             $sizeMatches = $exeAsset.Count -eq 1 -and [int64]$exeAsset[0].size -eq $declaredSize
             # 诊断以 warning 形式输出 —— warning 也会进 annotation，而我在远端**只能**读到 annotation。
-            $lastDiag = "第 $i/10 次：isDraft=$($view.isDraft) 资产数=$($names.Count) 实际资产=[$($names -join ', ')] 期望=[$($expectedNames -join ', ')] exe大小=$($exeAsset[0].size)/$declaredSize"
+            $lastDiag = "第 $i/10 次：资产数=$($names.Count) 实际资产=[$($names -join ', ')] 期望=[$($expectedNames -join ', ')] exe大小=$($exeAsset[0].size)/$declaredSize"
             Write-Host ("::warning::" + $lastDiag)
             # 原来要求「恰好 3 个」，过严：多出来的资产不该阻断发布，只要期望的三个都在且大小对。
             if ($allPresent -and $names.Count -ge 3 -and $sizeMatches) {
@@ -470,6 +476,13 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          # ⚠️ 必须关掉这个：PowerShell 7.4+ 默认把**原生命令的非零退出**升级成终止错误，
+          #    那样 `if ($LASTEXITCODE -ne 0) { ... }` 根本来不及执行，
+          #    远端只剩一句「Process completed with exit code 1」，读不到任何原因。
+          if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
           $tag = $env:GITHUB_REF_NAME
           $repo = $env:GITHUB_REPOSITORY
           # 任务排队期间可能有人手工发布了更新的版本；最后一刻再校验一次。
