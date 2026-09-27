@@ -98,6 +98,26 @@
 - AI 上下文仍是「取全库 → 应用层筛选」，未统一为带来源与 token 预算的 `ContextBuilder`。
 - 审查报告里的方向 A（科研证据链）与方向 B（外部实验执行）属后续路线，本版不涉及。
 
+### 本版发布过程中被自己的门禁拦下一次（值得记下）
+
+第一次给 v1.4.2 打 tag 后，**新增的同 SHA CI 门禁拒绝发布** ——
+CI 的 `verify (node 20)` 是红的（`verify (node 22)` 与 `e2e` 都是绿的）。
+
+真因：本轮新增的 `tests/desktop/migration-parity.test.ts` 在 `describe` 体内就加载
+`desktop/migrate-database.js`，而那个文件顶层 `require('node:sqlite')` ——
+**`node:sqlite` 是 Node 22.5+ 才有的内置模块**，Node 20 上直接抛 `ERR_UNKNOWN_BUILTIN_MODULE`，
+于是整份测试在**收集阶段**就炸（0 条执行）。既有测试都靠 `describe.skipIf(!sqlite)` 守卫、
+且把 require 放在测试体内，所以没暴露过这个问题。
+
+修法：该测试只需要迁移模块里的**纯数据声明**（`newTables` / `tableColumns` / `newIndexes`），
+不需要 `DatabaseSync`，改为在 `vm` 里以「`node:sqlite` → 空对象」的桩 require 求值，
+任何 Node 版本都能加载。
+
+⚠️ 值得记住的一点：**本机只装了 Node 22，单版本跑测试是发现不了这类问题的** ——
+这正是「同 SHA 双版本 CI 作为发布门禁」的价值所在。此后本轮又用
+`node:sqlite` 缺失的桩在本机跑了一遍**全量**（57 文件通过 / 2 文件按设计跳过），
+确认没有第二处类似的版本依赖。
+
 ## [1.4.1] - 2026-09-23
 
 **维护版：没有新功能，做的是「体检 + 精简」。**

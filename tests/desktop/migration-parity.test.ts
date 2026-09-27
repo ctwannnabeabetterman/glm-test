@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
@@ -65,14 +66,34 @@ function parseSchemaModels(text: string): Map<string, SchemaField[]> {
   return models
 }
 
-/** 从迁移模块取出「表 → 补列 DDL」与「新建表 DDL 里出现的表名」 */
+/**
+ * 取出迁移模块里的**声明表**（`newTables` / `tableColumns` / `newIndexes`）。
+ *
+ * ⚠️ 刻意**不用** `require('../../desktop/migrate-database.js')`：
+ * 那个文件顶层就 `require('node:sqlite')`，而 `node:sqlite` 是 **Node 22.5+** 才有的内置模块。
+ * 在 Node 20（CI 的 `verify (node 20)` 就跑在它上面）直接 `require` 会抛
+ * `ERR_UNKNOWN_BUILTIN_MODULE` —— 2026-09-27 CI 就是这么红的：本文件在 describe 体内
+ * 调它，**收集阶段**就炸，整份测试 0 条执行。
+ * 本文件只需要那几个**纯数据**声明，不需要 `DatabaseSync`，所以把 `node:sqlite`
+ * 换成空对象、在 vm 里求值即可 —— 任何 Node 版本都能加载。
+ * （其余用到 sqlite 的测试都靠 `describe.skipIf(!sqlite)` 守卫，无需改动。）
+ */
 function loadMigration() {
-  const mod = require(MIGRATION) as {
+  const source = readFileSync(MIGRATION, 'utf8')
+  const moduleShim: { exports: Record<string, unknown> } = { exports: {} }
+  const sandbox = {
+    module: moduleShim,
+    exports: moduleShim.exports,
+    require: (name: string) => (name === 'node:sqlite' ? {} : require(name)),
+    console,
+    process,
+  }
+  vm.runInNewContext(source, sandbox, { filename: MIGRATION })
+  return moduleShim.exports as unknown as {
     newTables: Record<string, string>
     newIndexes: Record<string, { table: string }>
     tableColumns: Record<string, Record<string, string>>
   }
-  return mod
 }
 
 /** 把一条 `colName TYPE DEFAULT x` 的列 DDL 拆开 */
