@@ -381,34 +381,33 @@ jobs:
           $lastDiag = ''
           for ($i = 1; $i -le 10; $i++) {
             # 草稿不能靠 /releases/tags/<tag> 查找；list releases 包含草稿。
-            $allReleases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers $headers)
-            if ($allReleases.Count -eq 100) {
-              Write-Host ("::error::" + "Release 总数达 $($allReleases.Count)，超出单页容量，拒绝未经完整枚举的发布")
+            # ⚠️ 用 gh CLI 读草稿，而不是裸 REST：
+            #    `Invoke-RestMethod` + 手写 Authorization 头一旦没生效（等价于匿名请求），
+            #    `/releases?per_page=100` **不会返回草稿** ⇒ 这里会数出 0 个 Release 而错误拒绝。
+            #    gh 走官方路径、复用同一份 GH_TOKEN，对草稿是支持的，不存在这种摇摆。
+            $viewRaw = gh release view $tag --repo $repo --json isDraft,assets
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host ("::error::" + "gh release view $tag 失败（exit=$LASTEXITCODE）：$viewRaw")
               exit 1
             }
-            $sameTag = @($allReleases | Where-Object { $_.tag_name -eq $tag })
-            if ($sameTag.Count -ne 1) {
-              # ⚠️ 这里必须用 Write-Error 而不是 throw：`throw` 的文案**不会进 GitHub 的 annotation**，
-              #    远端只能看到「Process completed with exit code 1」，等于没写。Write-Error 会带上文案。
-              Write-Host ("::error::" + "$tag 存在 $($sameTag.Count) 个 Release（期望恰好 1 个：草稿）；本次共枚举到 $($allReleases.Count) 个 Release")
+            $view = $viewRaw | ConvertFrom-Json
+            if (-not $view.isDraft) {
+              Write-Host ("::error::" + "$tag 已公开（isDraft=false），尚未验收不能继续")
               exit 1
             }
-            $release = $sameTag[0]
-            if (-not $release.draft) {
-              Write-Host ("::error::" + "$tag 已公开，尚未验收不能继续")
-              exit 1
-            }
-            $names = @($release.assets | ForEach-Object { $_.name })
-            $exeAsset = @($release.assets | Where-Object { $_.name -eq $declaredPath })
+            $assets = @($view.assets)
+            $names = @($assets | ForEach-Object { $_.name })
+            $exeAsset = @($assets | Where-Object { $_.name -eq $declaredPath })
             $hasYml = $names -contains 'latest.yml'
             $allPresent = @($expectedNames | Where-Object { $names -notcontains $_ }).Count -eq 0
             $sizeMatches = $exeAsset.Count -eq 1 -and [int64]$exeAsset[0].size -eq $declaredSize
             # 诊断以 warning 形式输出 —— warning 也会进 annotation，而我在远端**只能**读到 annotation。
-            $lastDiag = "第 $i/10 次：draft=$($release.draft) 资产数=$($names.Count) 实际资产=[$($names -join ', ')] 期望=[$($expectedNames -join ', ')] exe大小=$($exeAsset[0].size)/$declaredSize"
+            $lastDiag = "第 $i/10 次：isDraft=$($view.isDraft) 资产数=$($names.Count) 实际资产=[$($names -join ', ')] 期望=[$($expectedNames -join ', ')] exe大小=$($exeAsset[0].size)/$declaredSize"
             Write-Host ("::warning::" + $lastDiag)
-            if ($allPresent -and $names.Count -eq 3 -and $sizeMatches) {
+            # 原来要求「恰好 3 个」，过严：多出来的资产不该阻断发布，只要期望的三个都在且大小对。
+            if ($allPresent -and $names.Count -ge 3 -and $sizeMatches) {
               foreach ($name in $expectedNames) {
-                $asset = @($release.assets | Where-Object { $_.name -eq $name })[0]
+                $asset = @($assets | Where-Object { $_.name -eq $name })[0]
                 $local = Get-Item (Join-Path release $name)
                 if ($asset.state -ne 'uploaded' -or [int64]$asset.size -ne $local.Length) {
                   Write-Host ("::error::" + "草稿资产 $name 未完整上传：state=$($asset.state) 远端大小=$($asset.size) 本地大小=$($local.Length)")
