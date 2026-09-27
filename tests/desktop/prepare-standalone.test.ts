@@ -241,6 +241,23 @@ describe('assertNoEmptyDependencyDirs：外部化依赖不许是空目录', () =
     expect(() => ps.assertNoEmptyDependencyDirs(root)).not.toThrow()
     expect(exit).not.toHaveBeenCalled()
   })
+
+  it('包里有文件、但某个子目录被裁剪成空的，**不该**判失败（pruneLinkedDeps 的正常行为）', () => {
+    // ⚠️ 这条是回归守卫：第一版判据写成「全树任何目录都不许为空」，
+    //    而 pruneLinkedDeps 会按可达性/白名单故意删空某些深层目录 ——
+    //    过宽的判据会在**正常产物**上误报，把打包整个搞失败。
+    const root = makeRoot((r) => {
+      const pkg = path.join(r, '.next', 'node_modules', 'pdfkit-abcdef')
+      fs.mkdirSync(path.join(pkg, 'js', 'data'), { recursive: true })
+      fs.mkdirSync(path.join(pkg, 'tools'), { recursive: true }) // 被裁剪后是空目录
+      fs.mkdirSync(path.join(pkg, '.yarn', 'releases'), { recursive: true })
+      fs.writeFileSync(path.join(pkg, 'js', 'data', 'sRGB.icc'), 'x')
+      fs.writeFileSync(path.join(pkg, 'package.json'), '{}')
+    })
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never)
+    expect(() => ps.assertNoEmptyDependencyDirs(root)).not.toThrow()
+    expect(exit).not.toHaveBeenCalled()
+  })
 })
 
 // resources/ 被 .gitignore 忽略，CI 上没有这个文件；本地跑过一次 desktop:prepare 才会有

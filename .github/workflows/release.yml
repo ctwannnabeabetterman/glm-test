@@ -165,8 +165,33 @@ jobs:
         run: npm test
 
       # ---------- 构建：next build + 白名单裁剪 + 生成 resources/app.zip ----------
-      - name: Build desktop bundle (Next standalone + prune + app.zip)
-        run: npm run desktop:build
+      #
+      # ⚠️ 刻意**拆成四步**、而不是一句 `npm run desktop:build`：
+      #    2026-09-27 遇到过「这一步 exit 1，但日志取不到（匿名 API 限流、job 日志需鉴权）」
+      #    ⇒ 只能看到「Build desktop bundle 失败」，究竟是图标、prisma、next build 还是打包
+      #    完全不知道，白烧了一轮排查。拆开之后，GitHub 的 annotation 会**直接点名失败的子步骤**。
+      #    `npm run desktop:build` 保留原样，供本地一条命令跑完。
+      - name: Diagnose build toolchain
+        shell: pwsh
+        run: |
+          node -v
+          npm -v
+          Write-Host "--- sharp（生成图标要用）---"
+          node -e "console.log('sharp', require('sharp/package.json').version); require('sharp'); console.log('sharp 可加载 ✓')"
+          Write-Host "--- 平台 SWC 二进制（next build 要用）---"
+          node -e "const p='@next/swc-win32-x64-msvc'; try{ require.resolve(p); console.log(p,'已安装 ✓') }catch(e){ console.log(p,'缺失 ✗', e.code) }"
+
+      - name: Generate app icon (sharp)
+        run: npm run desktop:icon
+
+      - name: Generate Prisma client (build)
+        run: npm run db:generate
+
+      - name: Next production build
+        run: npm run build
+
+      - name: Prepare standalone + app.zip
+        run: npm run desktop:prepare
 
       - name: Smoke test packaged standalone service
         shell: pwsh

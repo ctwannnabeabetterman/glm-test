@@ -559,7 +559,7 @@ function assertNoBrokenLinks({ broken }) {
 }
 
 /**
- * 打包前置的硬闸门：`.next/node_modules` 下**不允许存在空目录**。
+ * 打包前置的硬闸门：`.next/node_modules` 下的**外部化依赖包**不许一个文件都没有。
  *
  * 为什么需要它（2026-09-27 实测踩到，且只在这一条路径上出现）：
  * 在**已存在的 `.next`** 上重复跑 `next build` 后，Next 为外部化依赖准备的
@@ -570,48 +570,60 @@ function assertNoBrokenLinks({ broken }) {
  * `Cannot find module` / 启动超时。
  *
  * 干净重建 `.next` 后 `dereference` 会正常替换（实测「替换 2 个符号链接」，
- * 两个包分别有 21 / 153 个文件）。所以判据很简单：**这些目录不许是空的**。
- * 顺带一提，CI 侧还有「解压 app.zip 真启动一次」的成品冒烟兜底；
- * 这条的价值是让**本地**打包也能在第一时间失败，而不是等到装机才发现。
+ * 两个包分别有 21 / 153 个文件）。所以判据是：**每个外部化包必须至少有一个文件**。
+ *
+ * ⚠️ 判据刻意**只到「包」这一层**，不做「任何目录都不许为空」：
+ * `pruneLinkedDeps()` 会按可达性/白名单**故意删空**某些深层目录（这是它的正常行为），
+ * 那种「空」不该让打包失败。第一版写成全树扫描就属于过宽 —— 会在正常产物上误报。
  */
 function assertNoEmptyDependencyDirs(rootDir = STANDALONE) {
   const root = path.join(rootDir, '.next', 'node_modules')
   if (!fs.existsSync(root)) return
-  const empty = []
-  const walk = (dir) => {
-    let entries
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return
+
+  /** 递归数一个包里有多少个文件 */
+  const countFiles = (dir) => {
+    let n = 0
+    const stack = [dir]
+    while (stack.length) {
+      const cur = stack.pop()
+      let entries
+      try {
+        entries = fs.readdirSync(cur, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const e of entries) {
+        if (e.isFile()) n += 1
+        else if (e.isDirectory()) stack.push(path.join(cur, e.name))
+      }
     }
-    const files = entries.filter((e) => e.isFile())
-    const dirs = entries.filter((e) => e.isDirectory())
-    if (entries.length > 0 && files.length === 0 && dirs.length === 0) return
-    if (entries.length === 0) {
-      empty.push(path.relative(rootDir, dir) || dir)
-      return
-    }
-    for (const d of dirs) walk(path.join(dir, d.name))
+    return n
   }
+
+  const empty = []
   for (const e of fs.readdirSync(root, { withFileTypes: true })) {
     if (!e.isDirectory()) continue
     const first = path.join(root, e.name)
-    // @scope 目录本身通常只有子目录，逐层进去看；叶子目录为空就是问题。
-    let children = []
-    try {
-      children = fs.readdirSync(first, { withFileTypes: true })
-    } catch {
-      continue
-    }
     if (e.name.startsWith('@')) {
-      for (const c of children) if (c.isDirectory()) walk(path.join(first, c.name))
-    } else {
-      walk(first)
+      // @scope 目录本身不是包，逐个子目录才是
+      let children = []
+      try {
+        children = fs.readdirSync(first, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const c of children) {
+        if (!c.isDirectory()) continue
+        const pkgDir = path.join(first, c.name)
+        if (countFiles(pkgDir) === 0) empty.push(`${e.name}/${c.name}`)
+      }
+    } else if (countFiles(first) === 0) {
+      empty.push(e.name)
     }
   }
+
   if (!empty.length) return
-  console.error(`[desktop] .next/node_modules 下有 ${empty.length} 个依赖目录是空的：`)
+  console.error(`[desktop] .next/node_modules 下有 ${empty.length} 个外部化依赖包没有任何文件：`)
   empty.slice(0, 10).forEach((p) => console.error('   ' + p))
   console.error('[desktop] 这通常意味着在**已存在的 .next** 上重复构建 —— Next 没有把外部化依赖')
   console.error('[desktop] 落成真实副本，而 dereference 与符号链接检查都发现不了。')
