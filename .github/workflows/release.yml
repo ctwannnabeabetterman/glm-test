@@ -455,8 +455,7 @@ jobs:
             Start-Sleep -Seconds 3
           }
 
-          Write-Host ("::error::" + ("草稿验收失败：$tag 的资产只有 [$($names -join ', ')]，" +)
-            "期望 [$($expectedNames -join ', ')]，安装包应为 $declaredSize 字节。最后一次诊断：$lastDiag")
+            Write-Host ("::error::" + "草稿验收失败：$tag 的资产只有 [$($names -join ', ')]，期望 [$($expectedNames -join ', ')]，安装包应为 $declaredSize 字节。最后一次诊断：$lastDiag")
           exit 1
 
       # 备份失败也不能公开：要保留一条可恢复路径，验收未通过时仍会尝试备份。
