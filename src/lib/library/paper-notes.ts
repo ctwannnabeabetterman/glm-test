@@ -3,6 +3,8 @@
  * 导出对象是「这一篇论文的阅读笔记」，不是论文列表。
  */
 
+import { hasPassContent, parseReadingProgress, passNotes } from './reading-progress'
+
 export interface PaperNoteSource {
   title: string
   authors?: string
@@ -13,39 +15,25 @@ export interface PaperNoteSource {
   readingProgress?: string
 }
 
-interface PassNotes {
-  pass1?: boolean
-  pass2?: boolean
-  pass3?: boolean
-  pass1Notes?: string
-  pass2Notes?: string
-  pass3Notes?: string
-}
-
-function parseProgress(raw?: string): PassNotes {
-  try {
-    return JSON.parse(raw || '{}') as PassNotes
-  } catch {
-    return {}
-  }
-}
-
 export function sanitizeFilename(name: string): string {
   const s = name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim()
   return (s || 'untitled').slice(0, 80)
 }
 
 export function buildPaperMarkdown(paper: PaperNoteSource): string {
-  const progress = parseProgress(paper.readingProgress)
+  // 解析收敛到 `./reading-progress`（三遍进度的唯一定义处）：
+  // 这里以前有一份与组件逐字重复的 `parseProgress`，改一处忘一处就会出现
+  // 「界面显示三遍读完、导出的 Markdown 少一段」。2026-09-28 合并。
+  const progress = parseReadingProgress(paper.readingProgress)
   const tags = (paper.tags || '')
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
   const yamlTags = tags.length ? `[${tags.join(', ')}]` : '[]'
   const passBlock = [
-    progress.pass1 || progress.pass1Notes ? `## 第一遍 · 快速筛选\n\n${progress.pass1Notes || '（已完成，无文字）'}` : '',
-    progress.pass2 || progress.pass2Notes ? `## 第二遍 · 把握结构\n\n${progress.pass2Notes || '（已完成，无文字）'}` : '',
-    progress.pass3 || progress.pass3Notes ? `## 第三遍 · 精读\n\n${progress.pass3Notes || '（已完成，无文字）'}` : '',
+    hasPassContent(progress, 'pass1') ? `## 第一遍 · 快速筛选\n\n${passNotes(progress, 'pass1') || '（已完成，无文字）'}` : '',
+    hasPassContent(progress, 'pass2') ? `## 第二遍 · 把握结构\n\n${passNotes(progress, 'pass2') || '（已完成，无文字）'}` : '',
+    hasPassContent(progress, 'pass3') ? `## 第三遍 · 精读\n\n${passNotes(progress, 'pass3') || '（已完成，无文字）'}` : '',
   ].filter(Boolean).join('\n\n')
 
   return `---
@@ -128,10 +116,31 @@ export function buildSimplePdf(title: string, body: string): Uint8Array {
   return new Uint8Array(Buffer.from(bodyOut + xref + trailer, 'utf8'))
 }
 
+/**
+ * CSV 单元格转义。
+ *
+ * 做两件事，缺一件都不够：
+ *  1. 常规转义（含 `,` `"` 换行的单元格加引号、引号翻倍）；
+ *  2. **中和公式前缀** —— 以 `=` `+` `-` `@` 或制表/回车开头的单元格会被
+ *     Excel / WPS 当**公式**执行（DDE、HYPERLINK 之类）。
+ *
+ * 为什么第 2 件在这里特别要紧：论文标题与作者来自 Crossref / Zotero / BibTeX
+ * ——**都是外部输入**，用户只是「导入一篇文献」，不该在打开导出表格时执行别人写的东西。
+ * 这是我们这个应用唯一真正存在的注入面（SQL 侧全走 Prisma 参数化、无裸 SQL）。
+ *
+ * ⚠️ 但**纯数字不要加前缀**：`-5` / `-3.5e2` 是合法的负数（扫参导出里就有），
+ * 加个 `'` 会把它变成文本、破坏后续计算。所以只对「以符号开头**且整体不是数字**」的
+ * 值做中和。
+ */
+const NUMERIC = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/
+const FORMULA_PREFIX = /^[=+\-@\t\r]/
+
 export function csvEscape(value: unknown): string {
   const s = value == null ? '' : String(value)
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
-  return s
+  // Excel/WPS 把前置单引号视为「强制文本」，且不显示这个引号
+  const safe = FORMULA_PREFIX.test(s) && !NUMERIC.test(s) ? `'${s}` : s
+  if (/[",\n\r]/.test(safe)) return `"${safe.replace(/"/g, '""')}"`
+  return safe
 }
 
 /** Excel 可直接打开的论文列表 CSV（带 UTF-8 BOM） */

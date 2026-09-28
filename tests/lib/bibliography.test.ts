@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { detectBibliographyFormat, parseBibliography, parseRis, parseBibtex, paperIdentityKey } from '@/lib/library/bibliography'
-import { buildPaperMarkdown, buildPapersCsv, sanitizeFilename } from '@/lib/library/paper-notes'
+import { buildPaperMarkdown, buildPapersCsv, csvEscape, sanitizeFilename } from '@/lib/library/paper-notes'
 import { mapZoteroItem } from '@/lib/library/zotero'
 
 describe('RIS / BibTeX import', () => {
@@ -136,6 +136,50 @@ describe('paper note export', () => {
 
   it('sanitizes filenames', () => {
     expect(sanitizeFilename('a/b:c*.pdf')).toBe('a_b_c_.pdf')
+  })
+})
+
+/**
+ * CSV 公式注入 —— 2026-09-28 补的**唯一真实存在的注入面**加固。
+ *
+ * 论文标题/作者来自 Crossref / Zotero / BibTeX（外部输入），
+ * 用户只是「导入一篇文献」；打开导出表格时不该执行别人写的东西。
+ * SQL 侧没有这个面（全走 Prisma 参数化、无裸 SQL），命令侧也没有（无 shell 调用）。
+ */
+describe('CSV 公式注入：外部来的标题不能变成公式', () => {
+  const cases: Array<[string, string]> = [
+    ['=HYPERLINK("http://evil","点我")', "'=HYPERLINK"],
+    ['+1+1', "'+1+1"],
+    ['@SUM(A1:A9)', "'@SUM"],
+    ['-2+3', "'-2+3"],
+    ['\tDDE', "'\tDDE"],
+  ]
+
+  it.each(cases)('%s → 前置单引号中和', (raw, expectPrefix) => {
+    expect(csvEscape(raw)).toContain(expectPrefix)
+  })
+
+  it('⚠️ 合法负数不加前缀（否则扫参导出的数值会变成文本、毁掉后续计算）', () => {
+    expect(csvEscape(-5)).toBe('-5')
+    expect(csvEscape('-3.5')).toBe('-3.5')
+    expect(csvEscape('-3.5e2')).toBe('-3.5e2')
+  })
+
+  it('普通文本与既有转义规则都不受影响', () => {
+    expect(csvEscape('Paper A')).toBe('Paper A')
+    expect(csvEscape('a,b')).toBe('"a,b"')
+    expect(csvEscape('say "hi"')).toBe('"say ""hi"""')
+    expect(csvEscape(null)).toBe('')
+  })
+
+  it('端到端：恶意标题经 buildPapersCsv 出来仍是文本，不是公式', () => {
+    const csv = buildPapersCsv(
+      [{ Title: '=HYPERLINK("http://evil","click")', Authors: 'Zhang' }],
+      ['Title', 'Authors'],
+    )
+    // 含逗号的单元格会加引号 ⇒ 前缀单引号在引号内，Excel 仍按文本处理
+    expect(csv).toContain("'=HYPERLINK")
+    expect(csv).not.toMatch(/^=HYPERLINK/m)
   })
 })
 

@@ -2,7 +2,7 @@ import { chatComplete } from '@/lib/llm'
 import { llmFailureResponse } from '@/lib/llm/http'
 import { NO_FABRICATION_GUARD, NO_FABRICATION_GUARD_EN } from '@/lib/llm/prompts'
 import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
-import { scopeByTopic } from '@/lib/methodology/topic-scope'
+import { MATCH_REASON_LABEL, scopeByTopic, summarizeScope } from '@/lib/methodology/topic-scope'
 import { extractCitationIds } from '@/lib/writing/draft'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
@@ -168,8 +168,13 @@ export async function POST(request: NextRequest) {
       : allRows
 
     const scoped = scopeByTopic<PaperRow>(inScope, topicRow)
+    const breakdown = summarizeScope(scoped)
 
-    const paperContext = scoped.matched.slice(0, PAPER_LIMIT).map(({ item, reason }) => ({
+    // 真正送进模型的那一批 —— 下面两处（提示词清单、对外来源清单）都从它派生，
+    // 免得「喂给模型的」与「回报给用户的」各切一刀、迟早对不上。
+    const usedRows = scoped.matched.slice(0, PAPER_LIMIT)
+
+    const paperContext = usedRows.map(({ item, reason }) => ({
       // id 一定要给：正文里的 [@id] 必须能对上它，否则引用全是坏的
       id: item.id,
       title: item.title,
@@ -180,14 +185,35 @@ export async function POST(request: NextRequest) {
       tags: item.tags,
       category: item.category,
       abstract: (item.abstract || '').slice(0, ABSTRACT_LIMIT),
-      matchedBy: reason === 'linked' ? '已挂到本课题' : '关键词匹配',
+      matchedBy: MATCH_REASON_LABEL[reason],
+    }))
+
+    /**
+     * 逐篇来源清单 —— 「这份综述的材料是哪来的」必须可查，而不是只有一个总数。
+     *
+     * 只列**真正送进模型**的那些（`usedRows`），不是全部命中项：
+     * 用户要核的是「模型看到过什么」，列上被截断掉的等于给出无法核对的材料。
+     * 被截断的数量单独回报（`used.truncated`），不让它静默消失。
+     *
+     * ⚠️ `reason` 用机器可读的原值（`linked`/`keyword`/`all`），不在这里翻译成中文：
+     * 前端要靠它筛选出「未确认」的那些，用中文字符串判断迟早会跟着文案漂移。
+     */
+    const sources = usedRows.map(({ item, reason }) => ({
+      id: item.id,
+      title: item.title,
+      reason,
     }))
 
     const scopeHeader = [
       `本次综述范围：**${SCOPE_LABEL[scope]}**`,
       topicRow ? `课题「${topicRow.name}」` : '不限课题（全库）',
       `共 ${paperContext.length} 篇可用（本范围相关 ${scoped.matched.length} 篇）`,
-    ].join(' · ')
+      // 把「手挂 / 关键词」的构成也告诉模型：清单里每条已经带了 matchedBy，
+      // 这里再给一个总数，模型才知道整份材料的证据强度分布（而不是只看得到单条）。
+      topicRow && breakdown.linked + breakdown.keyword > 0
+        ? `其中手挂到本课题 ${breakdown.linked} 篇、仅关键词命中 ${breakdown.keyword} 篇（后者未经确认，引用时措辞应更保守）`
+        : '',
+    ].filter(Boolean).join(' · ')
 
     // 没有原料时不能硬编 —— 让模型基于空清单写「已有研究表明…」，
     // 它只能凭记忆编，而这正是防编造约束要拦的事。如实拒绝更负责。
@@ -304,10 +330,17 @@ Structure:
       used: {
         papers: paperContext.length,
         relatedPapers: scoped.matched.length,
+        // 材料的构成：手挂 = 用户确认过；关键词 = 未经确认（界面必须分开显示）
+        linkedPapers: breakdown.linked,
+        keywordPapers: breakdown.keyword,
+        // 因上限被截断、**没有送进模型**的命中项 —— 不静默丢掉
+        truncated: Math.max(0, scoped.matched.length - paperContext.length),
         // 被「阅读范围」挡在外面的论文数 —— 提示用户「你还有 N 篇没读/没标记」
         excludedByScope: allRows.length - inScope.length,
         scopeLabel: SCOPE_LABEL[scope],
       },
+      // 逐篇来源清单：让「依据了哪些文献」可核对，而不是只有一个总数
+      sources,
       citations: {
         total: cited.length,
         known: cited.length - unknownCitations.length,

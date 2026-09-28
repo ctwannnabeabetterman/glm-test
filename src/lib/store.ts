@@ -51,6 +51,23 @@ export interface DraftInbox {
   at: number
 }
 
+/**
+ * 「引文 → 论文库」的一次性投递：在写作页点某条引文的「证据」，跳到论文库看这一篇。
+ *
+ * 与 `draftInbox` 同属一类：**一次会话内的待办**，所以同样不进 `partialize` ——
+ * 重启后自动跳到某篇论文，比不动更让人困惑。
+ *
+ * 为什么不由调用方自己 `setSection('papers')` 就完事：光切页还差一步「选中那一篇」，
+ * 而「选中」是论文库页的内部状态，外面够不着。投递把它变成一次点击能完成的事
+ * （与引用投递同样的理由：跳页不是可选步骤，不跳用户会以为按钮没反应）。
+ */
+export interface PaperInbox {
+  /** 要跳过去查看的论文 id */
+  paperId: string
+  /** 投递时间戳，仅用于展示 */
+  at: number
+}
+
 interface AppState {
   activeSection: Section
   theme: 'light' | 'dark'
@@ -60,6 +77,7 @@ interface AppState {
   /** 参考文献著录格式（IEEE / GB/T 7714），在写作工作台可切换 */
   citationStyle: CitationStyle
   draftInbox: DraftInbox | null
+  paperInbox: PaperInbox | null
   setSection: (s: Section) => void
   toggleTheme: () => void
   setSidebarCollapsed: (v: boolean) => void
@@ -73,6 +91,10 @@ interface AppState {
   }) => void
   /** 取出并清空待插入的内容；没有则返回 null（写作工作台在插入完成后调用） */
   takeDraftInbox: () => DraftInbox | null
+  /** 跳到论文库并选中某篇（投递 + 切页一次完成） */
+  openPaper: (paperId: string) => void
+  /** 取出并清空待查看的论文；没有则返回 null（论文库页在选中后调用） */
+  takePaperInbox: () => PaperInbox | null
 }
 
 export const useAppStore = create<AppState>()(
@@ -84,6 +106,7 @@ export const useAppStore = create<AppState>()(
       resultDensity: DEFAULT_RESULT_DENSITY,
       citationStyle: DEFAULT_CITATION_STYLE,
       draftInbox: null,
+      paperInbox: null,
       setSection: (s) => set({ activeSection: s }),
       toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
@@ -98,6 +121,13 @@ export const useAppStore = create<AppState>()(
       takeDraftInbox: () => {
         const current = get().draftInbox
         if (current) set({ draftInbox: null })
+        return current
+      },
+      openPaper: (paperId) =>
+        set({ paperInbox: { paperId, at: Date.now() }, activeSection: 'papers' }),
+      takePaperInbox: () => {
+        const current = get().paperInbox
+        if (current) set({ paperInbox: null })
         return current
       },
     }),

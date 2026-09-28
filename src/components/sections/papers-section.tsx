@@ -1,7 +1,14 @@
 'use client'
 
 import { useFetch, useApi } from '@/lib/hooks'
-import { useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { useAppStore } from '@/lib/store'
+import {
+  passesDone,
+  parseReadingProgress,
+  type PassKey,
+  type ReadingProgress,
+} from '@/lib/library/reading-progress'
 import {
   Card,
   CardContent,
@@ -114,23 +121,9 @@ interface Paper {
 }
 
 // Three-pass reading method (§2.3.1)
-type ReadingProgress = {
-  pass1?: boolean
-  pass2?: boolean
-  pass3?: boolean
-  pass1Notes?: string
-  pass2Notes?: string
-  pass3Notes?: string
-}
-
-function parseReadingProgress(s: string | undefined | null): ReadingProgress {
-  if (!s) return {}
-  try {
-    return JSON.parse(s)
-  } catch {
-    return {}
-  }
-}
+// 解析与类型收敛到 `@/lib/library/reading-progress`（三遍进度的唯一定义处）：
+// 这里以前有一份与 `paper-notes.ts` 逐字重复的实现，且旧写法遇到 `"null"`
+// 会解析出 null、取属性时抛 TypeError 把详情页打崩。2026-09-28 合并 + 加固。
 
 // ⚠️ 评分公式与优先级的权重表已挪到 `src/lib/library/reading-priority.ts`（唯一定义处）。
 // 这里以前还留着一份 `PRIORITY_RANK`，与排序比较器、行内渲染各写一遍 —— 三份实现必然漂移。
@@ -160,6 +153,13 @@ export function PapersSection() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null)
+  /**
+   * 当前标签页（受控）。
+   *
+   * 改为受控是为了让「写作页点引文证据」的投递能把标签页切到「详情」——
+   * 非受控时只能靠 `defaultValue`，投递进来就只能选中列表行、看不到详情。
+   */
+  const [tab, setTab] = useState('list')
   const [addOpen, setAddOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
@@ -197,6 +197,39 @@ export function PapersSection() {
    * 改一处忘一处就会变成「显示的分数与排序依据不一致」—— 这种不一致还特别难被发现。
    */
   const ranked = useMemo(() => rankByPriority(filtered), [filtered])
+
+  /**
+   * 接收「写作页点引文证据 → 跳到这一篇」的投递（见 store 的 PaperInbox）。
+   *
+   * 为什么要有这条通道：稿件里能看到「某条引文对应的文献还没读过」，
+   * 但**具体读了多少、有没有留笔记**只在论文详情里。没有这条通道，
+   * 用户得知编号后自己去论文库搜标题 —— 这条链路正是「证据可追溯」最容易断掉的地方。
+   *
+   * ⚠️ 光设 `selectedPaper` 不够：论文详情挂在**「详情」标签页**下（`TabsContent value="detail"`），
+   * 不切页的话用户只看到列表里那行被高亮，会以为按钮没反应
+   * （2026-09-28 实测踩到：真实浏览器里点「证据」后详情根本没展开）。
+   * 所以这里同时把标签页切过去 —— 这也是把 `Tabs` 从非受控改成受控的原因。
+   *
+   * 两条与 `draftInbox` 一致的处理：
+   *  1. **列表还没加载好时不清空投递**（投递早于数据到达是正常顺序），
+   *     等论文出现后 effect 会自动补选中；
+   *  2. setState 放进定时回调 —— effect 体内同步调会触发级联渲染
+   *     （`react-hooks/set-state-in-effect`，两处 inbox 都栽过）。
+   */
+  const paperInbox = useAppStore((s) => s.paperInbox)
+  const takePaperInbox = useAppStore((s) => s.takePaperInbox)
+  useEffect(() => {
+    if (!paperInbox || !papers) return
+    const target = papers.find((p) => p.id === paperInbox.paperId)
+    if (!target) return
+    const t = setTimeout(() => {
+      const job = takePaperInbox()
+      if (!job) return
+      setSelectedPaper(target)
+      setTab('detail')
+    }, 0)
+    return () => clearTimeout(t)
+  }, [paperInbox, papers, takePaperInbox])
 
   /** 交给 AI 打分面板的最小形状（含当前的分数，用来显示「当前 → 建议」） */
   const scorable = useMemo(
@@ -537,7 +570,7 @@ export function PapersSection() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="list">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="list">
             <BookOpen className="h-3.5 w-3.5 mr-1.5" />
@@ -1148,10 +1181,10 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({})
   const [editingPass, setEditingPass] = useState<string | null>(null)
 
-  const completedCount = PASS_INFO.filter((p) => progress[p.key]).length
+  const completedCount = passesDone(progress)
   const overallPct = (completedCount / 3) * 100
 
-  const togglePass = async (passKey: 'pass1' | 'pass2' | 'pass3') => {
+  const togglePass = async (passKey: PassKey) => {
     const newProgress = { ...progress, [passKey]: !progress[passKey] }
     const updated = { ...paper, readingProgress: JSON.stringify(newProgress) }
     try {
@@ -1170,7 +1203,7 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
     }
   }
 
-  const savePassNotes = async (passKey: 'pass1' | 'pass2' | 'pass3') => {
+  const savePassNotes = async (passKey: PassKey) => {
     const notesKey = `${passKey}Notes` as keyof ReadingProgress
     const newProgress = { ...progress, [notesKey]: notesDraft[passKey] ?? progress[notesKey] ?? '' }
     const updated = { ...paper, readingProgress: JSON.stringify(newProgress) }

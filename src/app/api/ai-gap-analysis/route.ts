@@ -2,7 +2,7 @@ import { chatComplete } from '@/lib/llm'
 import { llmFailureResponse } from '@/lib/llm/http'
 import { NO_FABRICATION_GUARD } from '@/lib/llm/prompts'
 import { HEADING_LEVEL_RULE, OUTPUT_FORMAT_CONTRACT } from '@/lib/llm/format'
-import { formatTopicScope, scopeByTopic } from '@/lib/methodology/topic-scope'
+import { formatTopicScope, MATCH_REASON_LABEL, scopeByTopic } from '@/lib/methodology/topic-scope'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { recordActivity } from '@/lib/activity'
@@ -119,8 +119,10 @@ export async function POST(request: NextRequest) {
       relevance: item.relevance,
       // 摘要是判断「这篇到底做了什么」最关键的原料；此前完全没喂给模型
       abstract: (item.abstract || '').slice(0, 300),
-      // 标明这条是靠「已挂到本课题」还是「关键词命中」进来的，让模型知道证据强度
-      matchedBy: reason === 'linked' ? '已挂到本课题' : '关键词匹配',
+      // 标明这条是靠「已挂到本课题」「关键词命中」还是「未限定课题」进来的，
+      // 让模型知道证据强度。⚠️ 标签统一取自 topic-scope，不在这里另写三元表达式 ——
+      // 那种写法在全库模式下会把「未限定课题」误说成「关键词匹配」。
+      matchedBy: MATCH_REASON_LABEL[reason],
     }))
 
     const topicContext = topics.map((t) => ({

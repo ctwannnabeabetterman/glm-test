@@ -30,6 +30,7 @@ import {
 import { toast } from 'sonner'
 import { toastAiError } from '@/lib/ai-error'
 import { AiMarkdown } from '@/components/ai-markdown'
+import { MATCH_REASON_LABEL, type MatchReason } from '@/lib/methodology/topic-scope'
 
 /** 「不限课题」的哨兵值 —— Radix Select 不允许空字符串作为 item value */
 const ALL_TOPICS = '__all__'
@@ -53,8 +54,37 @@ interface TopicOption {
 interface ReviewUsed {
   papers: number
   relatedPapers: number
+  /** 手挂到本课题的篇数（用户确认过） */
+  linkedPapers: number
+  /** 仅关键词命中、**未经用户确认**的篇数 */
+  keywordPapers: number
+  /** 因上限被截断、没有送进模型的篇数 */
+  truncated: number
   excludedByScope: number
   scopeLabel: string
+}
+
+/** 逐篇来源：这次综述「依据了哪些文献」必须可核对，而不是只有一个总数 */
+interface ReviewSource {
+  id: string
+  title: string
+  /** 机器可读的匹配原因；文案由 MATCH_REASON_LABEL 统一给（不要在这里另写一份） */
+  reason: MatchReason
+}
+
+/**
+ * `used` 的缺省形状 —— 与**旧版服务端**通信时也要能正常显示。
+ * 直接读 `data.used.linkedPapers` 会渲染成「手挂到课题 undefined 篇」，
+ * 所以先与这份缺省值合并，再交给界面。
+ */
+const EMPTY_USED: ReviewUsed = {
+  papers: 0,
+  relatedPapers: 0,
+  linkedPapers: 0,
+  keywordPapers: 0,
+  truncated: 0,
+  excludedByScope: 0,
+  scopeLabel: '',
 }
 
 interface ReviewCitations {
@@ -66,6 +96,7 @@ interface ReviewCitations {
 interface ReviewResult {
   content: string
   used: ReviewUsed
+  sources?: ReviewSource[]
   citations: ReviewCitations
   topicName: string | null
   scope: ScopeId
@@ -110,6 +141,13 @@ export function AIReviewGenerator() {
   const scopeTopicId = picked || (topicList.length > 0 ? topicList[0].id : ALL_TOPICS)
   const currentTopic = topicList.find((t) => t.id === scopeTopicId) ?? null
 
+  // 「仅关键词命中」的那些：用户从未确认过它们属于本课题，
+  // 所以不能混在总数里 —— 单独列出来，用户才有机会去课题页把它们挂上。
+  const unconfirmedSources = useMemo(
+    () => (result?.sources ?? []).filter((s) => s.reason === 'keyword'),
+    [result],
+  )
+
   const generate = async () => {
     if (!topic.trim()) {
       toast.error('请输入研究课题')
@@ -134,9 +172,12 @@ export function AIReviewGenerator() {
         toastAiError(data, '生成失败')
         return
       }
+      const rawUsed = data.used && typeof data.used === 'object' ? data.used : {}
       setResult({
         content: data.content,
-        used: data.used,
+        used: { ...EMPTY_USED, ...rawUsed },
+        // 来源清单：老服务端可能还没有这个字段，缺了就退化成空数组（不显示那一段）
+        sources: Array.isArray(data.sources) ? data.sources : [],
         citations: data.citations,
         topicName: data.topicName ?? null,
         scope,
@@ -236,7 +277,7 @@ export function AIReviewGenerator() {
             {SCOPES.find((s) => s.id === scope)?.hint}。
             {scopeTopicId === ALL_TOPICS
               ? '当前不限课题，课题多时文献会互相稀释，建议选一个具体课题。'
-              : `只使用挂到「${currentTopic?.name ?? scopeTopicId}」的文献；未归课题的不会算进来。`}
+              : `以挂到「${currentTopic?.name ?? scopeTopicId}」的文献为主；为了让没打标但有相关词的文献不漏掉，还会带上关键词命中的，并在结果里单独标出（可去课题页把它们挂上，变成确认过的材料）。`}
           </p>
         </div>
 
@@ -348,6 +389,46 @@ export function AIReviewGenerator() {
                 另有 {result.used.excludedByScope} 篇因不在「{result.used.scopeLabel}」范围内被排除；
                 想纳入就把它们标记为已读，或把范围放宽。
               </p>
+            )}
+
+            {/*
+              材料的来源构成 —— 这段存在的理由：界面曾声称「只用已挂到本课题的文献」，
+              而取料实际允许关键词兜底。用户据此以为整份综述只用了他确认过的文献。
+              现在把「手挂 / 关键词 / 被截断」三种数量如实摆出来。
+              ⚠️ 不要在源码里照抄被废掉的那句旧文案（哪怕是注释）：
+              `review-draft.test.ts` 用它做守卫，照抄会让守卫永久误报。
+            */}
+            <p className="mb-2 text-[10px] text-muted-foreground">
+              材料构成：手挂到课题 {result.used.linkedPapers} 篇
+              {result.used.keywordPapers > 0 && (
+                <>
+                  {' · '}
+                  <span className="text-amber-600 dark:text-amber-500">
+                    仅关键词命中 {result.used.keywordPapers} 篇（未经确认）
+                  </span>
+                </>
+              )}
+              {result.used.truncated > 0 && ` · 超出上限未使用 ${result.used.truncated} 篇`}
+            </p>
+
+            {unconfirmedSources.length > 0 && (
+              <details className="mb-2 text-[10px] text-muted-foreground">
+                <summary className="cursor-pointer select-none">
+                  查看「未经确认」的 {unconfirmedSources.length} 篇 ——
+                  它们没挂到本课题，只是标题/标签/摘要命中了关键词
+                </summary>
+                <ul className="mt-1 space-y-0.5 pl-1">
+                  {unconfirmedSources.map((s) => (
+                    <li key={s.id} className="truncate" title={s.title}>
+                      · {s.title}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1">
+                  把它们挂到课题上，下次就会以「
+                  {MATCH_REASON_LABEL.linked}」的身份参与，证据强度更高。
+                </p>
+              </details>
             )}
 
             <div className="max-h-[500px] overflow-y-auto">

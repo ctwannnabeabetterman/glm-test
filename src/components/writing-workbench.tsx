@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  ExternalLink,
   FilePlus2,
   Link2,
   Loader2,
@@ -59,6 +60,9 @@ import {
   type ResolvedReference,
 } from '@/lib/writing/draft'
 import type { ManuscriptDto } from '@/lib/writing/dto'
+// ⚠️ 必须 `import type`：`resolve.ts` 里 import 了 Prisma 客户端（`@/lib/db`），
+// 值导入会把服务端代码带进客户端包。类型导入被编译期完全擦除，只留形状。
+import type { ManuscriptEvidence } from '@/lib/writing/resolve'
 import { manuscriptAutosave, type SaveState } from '@/lib/writing/autosave'
 
 interface PaperOption {
@@ -76,6 +80,7 @@ export function WritingWorkbench() {
   const [papers, setPapers] = useState<PaperOption[]>([])
   const [refs, setRefs] = useState<ResolvedReference[]>([])
   const [missing, setMissing] = useState<string[]>([])
+  const [evidence, setEvidence] = useState<ManuscriptEvidence[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   useSyncExternalStore(manuscriptAutosave.subscribe, manuscriptAutosave.getRevision, manuscriptAutosave.getRevision)
@@ -88,6 +93,8 @@ export function WritingWorkbench() {
   const setCitationStyle = useAppStore((s) => s.setCitationStyle)
   const draftInbox = useAppStore((s) => s.draftInbox)
   const takeDraftInbox = useAppStore((s) => s.takeDraftInbox)
+  // 点某条引文的「证据」= 投递 + 切到论文库（选中那篇由论文库页接住）
+  const openPaper = useAppStore((s) => s.openPaper)
   const stylePreset = findCitationStylePreset(citationStyle)
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -102,6 +109,23 @@ export function WritingWorkbench() {
   const citationIds = useMemo(() => collectCitationIds(sections), [sections])
   const citationKey = citationIds.join('|')
   const activeSectionWords = countWords(activeSection?.content)
+
+  // 引文证据：按 paperId 索引，渲染每条引文时 O(1) 取到
+  const evidenceByPaper = useMemo(() => {
+    const m = new Map<string, ManuscriptEvidence>()
+    for (const e of evidence) m.set(e.paperId, e)
+    return m
+  }, [evidence])
+
+  /**
+   * 「引用了但还没读过」的文献 —— 这一层提醒的意义不在统计，而在拦事故：
+   * 引用一篇自己没读过的文献，是投稿后被审稿人问「你真的看过吗」时最难解释的情况。
+   * 只统计**库里确实存在**的引文（查不到的已经在上面单独告警了）。
+   */
+  const unreadRefs = useMemo(
+    () => refs.filter((r) => r.found && (evidenceByPaper.get(r.paperId)?.status ?? 'unread') !== 'read'),
+    [refs, evidenceByPaper],
+  )
 
   // The queue outlives this component so an unmount cannot strand a failed PUT in a dead ref.
   const scheduleSave = useCallback((id: string, payload: Record<string, unknown>) => {
@@ -171,6 +195,7 @@ export function WritingWorkbench() {
       if (!activeId) {
         setRefs([])
         setMissing([])
+        setEvidence([])
         return
       }
       try {
@@ -180,6 +205,8 @@ export function WritingWorkbench() {
         if (cancelled) return
         setRefs(Array.isArray(data.references) ? data.references : [])
         setMissing(Array.isArray(data.missing) ? data.missing : [])
+        // 老服务端可能还没有这个字段 —— 缺了就不显示证据行，不影响参考文献本身
+        setEvidence(Array.isArray(data.evidence) ? data.evidence : [])
       } catch {
         /* 参考文献是辅助信息，取不到不打断写作 */
       }
@@ -778,18 +805,60 @@ export function WritingWorkbench() {
                   </span>
                 </div>
               )}
+              {/*
+                引用了但没读过的文献 —— 方向 A「可追溯的科研证据链」最直接的一处收益：
+                写作时就能看到哪几条引文背后没有阅读痕迹，而不是等审稿人来问。
+                仅当确实取到证据时才提示（老服务端无此字段时不误报）。
+              */}
+              {evidence.length > 0 && unreadRefs.length > 0 && (
+                <div className="flex items-start gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px]">
+                  <TriangleAlert className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
+                  <span>
+                    有 {unreadRefs.length} 条引文对应的文献你还没读完：
+                    {unreadRefs.slice(0, 3).map((r) => `[${r.number}]`).join('、')}
+                    {unreadRefs.length > 3 ? ' 等' : ''}
+                    。点引文右侧的「证据」可到论文库查看阅读记录。
+                  </span>
+                </div>
+              )}
               {refs.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground py-2 text-center">
                   正文里还没有引用。用上面的搜索插入 [@论文] 即可。
                 </p>
               ) : (
-                <ol className="max-h-[260px] overflow-y-auto space-y-1.5 -mx-1 px-1">
-                  {refs.map((r) => (
-                    <li key={r.paperId} className="text-[11px] leading-relaxed text-muted-foreground">
-                      <span className={cn('tabular-nums', !r.found && 'text-destructive')}>[{r.number}]</span>{' '}
-                      {referenceBody(r, citationStyle)}
-                    </li>
-                  ))}
+                <ol className="max-h-[260px] overflow-y-auto space-y-1.5 -mx-1">
+                  {refs.map((r) => {
+                    const ev = r.found ? evidenceByPaper.get(r.paperId) : undefined
+                    return (
+                      <li key={r.paperId} className="text-[11px] leading-relaxed text-muted-foreground">
+                        <div className="flex items-start gap-1.5">
+                          <span className={cn('tabular-nums shrink-0', !r.found && 'text-destructive')}>
+                            [{r.number}]
+                          </span>
+                          <span className="flex-1 break-words">{referenceBody(r, citationStyle)}</span>
+                          {r.found && (
+                            <button
+                              onClick={() => openPaper(r.paperId)}
+                              title="到论文库查看这篇的阅读记录与笔记"
+                              className="shrink-0 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                            >
+                              <ExternalLink className="h-2.5 w-2.5" />
+                              证据
+                            </button>
+                          )}
+                        </div>
+                        {ev && (
+                          <div className="pl-4 text-[10px]">
+                            <span className={cn(ev.status !== 'read' && 'text-amber-600')}>
+                              {ev.status === 'read' ? '已读' : ev.status === 'reading' ? '在读' : '未读'}
+                            </span>
+                            <span> · {ev.linkedNotes} 条笔记 · {ev.citations} 条引用关系</span>
+                            {ev.readingMinutes > 0 && <span> · 累计阅读 {ev.readingMinutes} 分钟</span>}
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ol>
               )}
               <Separator />

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   extractKeywords,
   formatTopicScope,
+  MATCH_REASON_LABEL,
   parseTopicIds,
   scopeByTopic,
+  summarizeScope,
 } from '@/lib/methodology/topic-scope'
 
 /**
@@ -127,5 +129,58 @@ describe('formatTopicScope：进提示词的课题描述', () => {
     expect(s).toContain(T.name)
     expect(s).toContain('物理层')
     expect(s).toContain('面向 6G')
+  })
+})
+
+/**
+ * 「材料的来源可交代」—— 2026-09-28 新增。
+ *
+ * 起因：`/api/ai-review` 的界面写着「只使用挂到本课题的文献；未归课题的不会算进来」，
+ * 而 `scopeByTopic` 实际允许关键词兜底进来。用户以为整份综述只用了他确认过的文献。
+ * 修法不是把关键词兜底去掉（那会让「没打标但有相关词」的文献直接消失），
+ * 而是**让每一级来源都可分辨**，界面才能如实说。
+ */
+describe('summarizeScope：手挂 / 关键词 / 全库 / 未命中 必须分得开', () => {
+  const items = [
+    { id: 'p1', title: 'A survey', topicIds: '["t1"]' },        // 手挂
+    { id: 'p2', title: 'Something about DRL routing', topicIds: '[]' }, // 关键词
+    { id: 'p3', title: 'Totally unrelated topic', topicIds: '[]' },     // 未命中
+  ]
+
+  it('手挂与关键词分开计数，绝不合并成「相关」一个数', () => {
+    const b = summarizeScope(scopeByTopic(items, T))
+    expect(b.linked).toBe(1)
+    expect(b.keyword).toBe(1)
+    expect(b.unmatched).toBe(1)
+    expect(b.total).toBe(3)
+  })
+
+  it('全库模式（不传课题）计入 all，而不是混进 linked', () => {
+    const b = summarizeScope(scopeByTopic(items, null))
+    expect(b.all).toBe(3)
+    expect(b.linked).toBe(0)
+    expect(b.keyword).toBe(0)
+  })
+
+  it('空输入不炸且各计数为 0', () => {
+    const b = summarizeScope(scopeByTopic([], T))
+    expect(b).toEqual({ linked: 0, keyword: 0, all: 0, unmatched: 0, total: 0 })
+  })
+
+  it('计数之和等于参与筛选的总数（漏一条就是界面在少报材料）', () => {
+    const b = summarizeScope(scopeByTopic(items, T))
+    expect(b.linked + b.keyword + b.all + b.unmatched).toBe(b.total)
+  })
+})
+
+describe('不限定课题时不得声称条目「手挂」到本课题', () => {
+  it('reason 是 all，不是 linked', () => {
+    const r = scopeByTopic([{ id: 'x', title: 'anything', topicIds: '[]' }], null)
+    expect(r.matched.map((m) => m.reason)).toEqual(['all'])
+  })
+
+  it('三种原因都有给人和模型看的说法（新增原因时不能漏掉标签）', () => {
+    expect(Object.keys(MATCH_REASON_LABEL).sort()).toEqual(['all', 'keyword', 'linked'])
+    for (const v of Object.values(MATCH_REASON_LABEL)) expect(v.trim().length).toBeGreaterThan(0)
   })
 })

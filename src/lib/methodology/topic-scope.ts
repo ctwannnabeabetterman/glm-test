@@ -58,7 +58,30 @@ export interface TopicScopeInput {
   description?: string
 }
 
-export type MatchReason = 'linked' | 'keyword'
+/**
+ * 条目为什么进入本次分析：
+ *  - `linked` —— 用户明确把手挂到了本课题上（证据强度最高）；
+ *  - `keyword` —— 只靠关键词兜底命中，**用户从未确认过它属于本课题**；
+ *  - `all` —— 根本没有限定课题（全库模式），此时「属于本课题」无从谈起。
+ *
+ * ⚠️ 第三种是 2026-09-28 补的。此前不限定课题时一律标成 `linked`，
+ * 于是「手挂」这个词被用来表示完全相反的意思（其实是「没筛」），
+ * 前端据此显示「手挂 12 篇」就是在说谎。
+ */
+export type MatchReason = 'linked' | 'keyword' | 'all'
+
+/**
+ * 匹配原因 → 给人和模型看的说法。
+ *
+ * 抽在这里而不是各路由再写一遍三元表达式：这个映射出现在**提示词**里
+ * （模型据此判断证据强度），也出现在**界面**上（用户据此判断能不能引用）。
+ * 两份实现一旦漂移，用户看到的与模型看到的就不是同一件事。
+ */
+export const MATCH_REASON_LABEL: Record<MatchReason, string> = {
+  linked: '已挂到本课题',
+  keyword: '关键词匹配',
+  all: '未限定课题（全库）',
+}
 
 export interface ScopedItem<T> {
   item: T
@@ -70,6 +93,50 @@ export interface ScopeResult<T> {
   matched: Array<ScopedItem<T>>
   /** 未命中的条目数（供 UI 提示「还有 N 篇没归到这个课题」） */
   unmatched: number
+}
+
+/** 一次筛选的构成，供界面如实交代「这份结论的材料是怎么来的」 */
+export interface ScopeBreakdown {
+  /** 手挂到本课题（用户确认过） */
+  linked: number
+  /** 仅关键词命中（**未经确认**，界面必须单独标出，不能混进「手挂」里） */
+  keyword: number
+  /** 未限定课题时的全量条目（全库模式） */
+  all: number
+  /** 未命中 */
+  unmatched: number
+  /** 参与筛选的总条目数 */
+  total: number
+}
+
+/**
+ * 把一次筛选结果压成「手挂 / 关键词 / 全库 / 未命中」四个数。
+ *
+ * 为什么值得单独一层：`/api/ai-review` 的界面曾经写着
+ * 「只使用挂到本课题的文献；未归课题的不会算进来」，而 `scopeByTopic` 实际
+ * 允许关键词兜底进来 —— 用户以为在看的是一份「只用已确认文献」的综述，
+ * 实际混着从未确认的材料。要让这句话重新成立，界面必须能拿到**与筛选同源**的计数，
+ * 而不是自己再算一遍（自己算必然漂移，这是这个仓库反复踩过的坑）。
+ *
+ * ⚠️ 刻意**不**在这里给「是否限定了课题」下结论：那取决于调用方有没有传 topic，
+ * 从计数反推在「限定了课题但一条都没命中」时会得出相反答案。
+ */
+export function summarizeScope<T>(result: ScopeResult<T>): ScopeBreakdown {
+  let linked = 0
+  let keyword = 0
+  let all = 0
+  for (const m of result.matched) {
+    if (m.reason === 'linked') linked += 1
+    else if (m.reason === 'keyword') keyword += 1
+    else all += 1
+  }
+  return {
+    linked,
+    keyword,
+    all,
+    unmatched: result.unmatched,
+    total: result.matched.length + result.unmatched,
+  }
 }
 
 /**
@@ -144,7 +211,9 @@ export function scopeByTopic<T extends Scopable>(
   topic: TopicScopeInput | null
 ): ScopeResult<T> {
   if (!topic) {
-    return { matched: items.map((item) => ({ item, reason: 'linked' as MatchReason })), unmatched: 0 }
+    // 全库模式：条目并没有「属于本课题」这回事，所以标 `all` 而不是 `linked`。
+    // 标成 `linked` 会让上游如实报告时说出「手挂 N 篇」这种没有依据的话。
+    return { matched: items.map((item) => ({ item, reason: 'all' as MatchReason })), unmatched: 0 }
   }
 
   const keywords = extractKeywords(topic)

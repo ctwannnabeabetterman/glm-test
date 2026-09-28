@@ -11,6 +11,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       total: resolved.references.length,
       // 前端据此提示"有 N 条引用不在文献库里"，而不是静默少条
       missing: resolved.missing,
+      // 每条引文的阅读证据（读没读、留了多少笔记）—— 写作页据此提醒
+      // 「你引用了一篇自己还没读过的文献」，这是投稿前最该拦下的那类问题
+      evidence: resolved.evidence,
     })
   } catch (e) {
     console.error('GET manuscript references error', e)
