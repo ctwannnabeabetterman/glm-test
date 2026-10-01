@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { SectionHeader } from '@/components/section-header'
+import { SectionHeader, PanelHeader } from '@/components/section-header'
 import { AiMarkdown } from '@/components/ai-markdown'
 import { useAppStore } from '@/lib/store'
 import { RESULT_DENSITY_PRESETS, normalizeResultDensity } from '@/lib/result-density'
@@ -325,12 +325,12 @@ export function SettingsSection() {
       />
 
       {!status?.hasKey && (
-        <Alert>
-          <Info className="h-4 w-4" />
+        <Alert className="rounded-md border-l-2 border-l-primary/60 bg-muted/30">
+          <Info className="h-4 w-4 text-primary" aria-hidden="true" />
           <AlertTitle>尚未配置 API Key</AlertTitle>
           <AlertDescription>
             AI 摘要、综述生成、实验顾问等 6 个 AI 功能需要 LLM 支持。推荐智谱
-            <code className="mx-1 rounded bg-muted px-1">glm-4-flash</code>
+            <code className="mx-1 rounded-sm bg-muted px-1 font-mono">glm-4-flash</code>
             （免费模型）：注册 open.bigmodel.cn 后在下方填入 API Key 即可。
           </AlertDescription>
         </Alert>
@@ -338,18 +338,19 @@ export function SettingsSection() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <KeyRound className="h-5 w-5" /> LLM 服务配置
-            </CardTitle>
-            <CardDescription>
-              当前生效：
-              <Badge variant={status?.hasKey ? 'default' : 'secondary'} className="mx-1">
-                {status ? sourceLabel[status.source] : '加载中'}
-              </Badge>
-              {status?.keyHint && <span className="ml-1 font-mono text-xs">{status.keyHint}</span>}
-            </CardDescription>
-          </CardHeader>
+          <PanelHeader
+            icon={KeyRound}
+            title="LLM 服务配置"
+            description={
+              <>
+                当前生效：
+                <Badge variant={status?.hasKey ? 'default' : 'secondary'} className="mx-1 rounded-sm font-normal">
+                  {status ? sourceLabel[status.source] : '加载中'}
+                </Badge>
+                {status?.keyHint && <span className="ml-1 font-mono text-xs">{status.keyHint}</span>}
+              </>
+            }
+          />
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>服务商预设</Label>
@@ -372,7 +373,7 @@ export function SettingsSection() {
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
                 >
-                  获取该服务商的 API Key <ExternalLink className="h-3 w-3" />
+                  获取该服务商的 API Key <ExternalLink className="h-3 w-3" aria-hidden="true" />
                 </a>
               )}
             </div>
@@ -390,13 +391,19 @@ export function SettingsSection() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => save()} disabled={saving}>
-                {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}保存配置
+                {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" />}保存配置
               </Button>
-              <Button variant="outline" onClick={test} disabled={testing}>
-                {testing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plug className="mr-1 h-4 w-4" />}测试连通
+              <Button variant="outline" onClick={test} disabled={testing} aria-busy={testing}>
+                {testing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" /> : <Plug className="mr-1 h-4 w-4" aria-hidden="true" />}测试连通
               </Button>
               {status?.keyHint && (
-                <Button variant="ghost" onClick={() => save(true)} disabled={saving}>
+                /* 清除已存凭据属于破坏性操作 ⇒ destructive 文字色 */
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => save(true)}
+                  disabled={saving}
+                >
                   清除已存 Key
                 </Button>
               )}
@@ -406,24 +413,23 @@ export function SettingsSection() {
 
         <div className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Plug className="h-5 w-5" /> 连通性测试
-              </CardTitle>
-              <CardDescription>向所选服务发送一次最小补全请求，验证 Key、Base URL 与模型名</CardDescription>
-            </CardHeader>
-            <CardContent>
+            <PanelHeader
+              icon={Plug}
+              title="连通性测试"
+              description="向所选服务发送一次最小补全请求，验证 Key、Base URL 与模型名"
+            />
+            <CardContent aria-live="polite">
               {testResult === null ? (
                 <p className="text-sm text-muted-foreground">点击左侧「测试连通」查看结果</p>
               ) : testResult.ok ? (
-                <Alert>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  <AlertTitle>连通成功 · {testResult.latency}ms</AlertTitle>
+                <Alert className="rounded-md border-primary/30 bg-accent/40">
+                  <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden="true" />
+                  <AlertTitle className="tabular">连通成功 · {testResult.latency}ms</AlertTitle>
                   <AlertDescription>{testResult.message}</AlertDescription>
                 </Alert>
               ) : (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
+                <Alert variant="destructive" className="rounded-md">
+                  <AlertCircle className="h-4 w-4" aria-hidden="true" />
                   <AlertTitle>连接失败</AlertTitle>
                   <AlertDescription className="break-all">{testResult.message}</AlertDescription>
                 </Alert>
@@ -432,14 +438,11 @@ export function SettingsSection() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Type className="h-5 w-5" /> 界面与阅读
-              </CardTitle>
-              <CardDescription>
-                AI 结果的呈现密度。只改 AI 输出（摘要 / 综述 / 选题分析 / 实验顾问等）的字号与行高，不动界面其余部分。
-              </CardDescription>
-            </CardHeader>
+            <PanelHeader
+              icon={Type}
+              title="界面与阅读"
+              description="AI 结果的呈现密度。只改 AI 输出（摘要 / 综述 / 选题分析 / 实验顾问等）的字号与行高，不动界面其余部分。"
+            />
             <CardContent className="space-y-4">
               <RadioGroup
                 value={resultDensity}
@@ -453,7 +456,7 @@ export function SettingsSection() {
                       key={preset.id}
                       htmlFor={`result-density-${preset.id}`}
                       className={cn(
-                        'flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 transition-colors',
+                        'list-row card-hover flex cursor-pointer items-start gap-2.5 p-2.5',
                         selected ? 'border-primary bg-accent' : 'hover:bg-muted',
                       )}
                     >
@@ -469,7 +472,7 @@ export function SettingsSection() {
 
               {/* 预览即实物：密度是全局的，所以下面这块就是 AI 结果此刻的样子，
                   不需要另做一套「假预览」（假预览反而会和真实渲染对不上）。 */}
-              <div className="rounded-md border bg-muted/30 p-3">
+              <div className="rounded-sm border border-border bg-muted/30 p-3">
                 <div className="eyebrow mb-2">实时预览</div>
                 <AiMarkdown content={DENSITY_PREVIEW_MD} />
               </div>
@@ -481,26 +484,24 @@ export function SettingsSection() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookMarked className="h-5 w-5" /> Zotero 同步
-              </CardTitle>
-              <CardDescription>
-                Zotero 仍是文献主库。这里只拉条目元数据写入论文列表，不会自动让 LLM 读 PDF。User ID 在 zotero.org/settings/keys 页面顶部。
-              </CardDescription>
-            </CardHeader>
+            <PanelHeader
+              icon={BookMarked}
+              title="Zotero 同步"
+              description="Zotero 仍是文献主库。这里只拉条目元数据写入论文列表，不会自动让 LLM 读 PDF。User ID 在 zotero.org/settings/keys 页面顶部。"
+            />
             <CardContent className="space-y-3">
+              {/* 原先 Label 未与输入框关联（屏幕阅读器读不出字段名）⇒ 补 htmlFor / id */}
               <div className="space-y-2">
-                <Label>User ID</Label>
-                <Input value={zoteroUserId} onChange={(e) => setZoteroUserId(e.target.value)} placeholder="例如 1234567" />
+                <Label htmlFor="zotero-user">User ID</Label>
+                <Input id="zotero-user" value={zoteroUserId} onChange={(e) => setZoteroUserId(e.target.value)} placeholder="例如 1234567" />
               </div>
               <div className="space-y-2">
-                <Label>API Key{zoteroHint ? `（已保存 ${zoteroHint}）` : ''}</Label>
-                <Input type="password" value={zoteroKey} onChange={(e) => setZoteroKey(e.target.value)} placeholder="粘贴 Zotero API Key" />
+                <Label htmlFor="zotero-key">API Key{zoteroHint ? `（已保存 ${zoteroHint}）` : ''}</Label>
+                <Input id="zotero-key" type="password" value={zoteroKey} onChange={(e) => setZoteroKey(e.target.value)} placeholder="粘贴 Zotero API Key" />
               </div>
               <div className="space-y-2">
-                <Label>Collection Key（可选，留空同步整个库）</Label>
-                <Input value={zoteroCollection} onChange={(e) => setZoteroCollection(e.target.value)} placeholder="ABCDEF12" />
+                <Label htmlFor="zotero-collection">Collection Key（可选，留空同步整个库）</Label>
+                <Input id="zotero-collection" value={zoteroCollection} onChange={(e) => setZoteroCollection(e.target.value)} placeholder="ABCDEF12" />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -524,7 +525,7 @@ export function SettingsSection() {
                     }
                   }}
                 >
-                  {zoteroSaving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}保存 Zotero
+                  {zoteroSaving && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" />}保存 Zotero
                 </Button>
                 <Button
                   disabled={zoteroSyncing}
@@ -542,7 +543,7 @@ export function SettingsSection() {
                     }
                   }}
                 >
-                  {zoteroSyncing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                  {zoteroSyncing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
                   立即同步
                 </Button>
               </div>
@@ -550,14 +551,11 @@ export function SettingsSection() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookMarked className="h-5 w-5" /> Obsidian 笔记库
-              </CardTitle>
-              <CardDescription>
-                把科研笔记直接写入 Obsidian vault（YAML frontmatter + #标签），交给 Obsidian 做索引、双链与检索——不用再手动搬运文件
-              </CardDescription>
-            </CardHeader>
+            <PanelHeader
+              icon={BookMarked}
+              title="Obsidian 笔记库"
+              description="把科研笔记直接写入 Obsidian vault（YAML frontmatter + #标签），交给 Obsidian 做索引、双链与检索——不用再手动搬运文件"
+            />
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="vault-path">Vault 目录</Label>
@@ -569,28 +567,31 @@ export function SettingsSection() {
                     placeholder="例如 D:/Obsidian/MyVault"
                   />
                   <Button type="button" variant="outline" onClick={() => void chooseVaultDir()} disabled={obsidianSaving}>
-                    <FolderOpen className="mr-1 h-4 w-4" /> 选择
+                    <FolderOpen className="mr-1 h-4 w-4" aria-hidden="true" /> 选择
                   </Button>
                 </div>
-                {obsidian.vaultPath ? (
-                  obsidian.ready ? (
-                    <div className="flex items-center gap-1 text-xs text-emerald-600">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> 目录可用，笔记将写入
-                      <code className="rounded bg-muted px-1">
-                        {obsidian.vaultPath}
-                        {obsidian.subfolder ? `/${obsidian.subfolder}` : ''}
-                      </code>
-                    </div>
+                <div aria-live="polite">
+                  {obsidian.vaultPath ? (
+                    obsidian.ready ? (
+                      <div className="flex flex-wrap items-center gap-1 text-xs text-primary">
+                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> 目录可用，笔记将写入
+                        <code className="rounded-sm bg-muted px-1 font-mono break-all text-foreground">
+                          {obsidian.vaultPath}
+                          {obsidian.subfolder ? `/${obsidian.subfolder}` : ''}
+                        </code>
+                      </div>
+                    ) : (
+                      /* 目录不可用是需要用户处理的警告 ⇒ destructive 令牌（原为琥珀色） */
+                      <div className="flex items-center gap-1 text-xs text-destructive">
+                        <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" /> {obsidian.vaultError || '目录不可用'}
+                      </div>
+                    )
                   ) : (
-                    <div className="flex items-center gap-1 text-xs text-amber-600">
-                      <AlertCircle className="h-3.5 w-3.5" /> {obsidian.vaultError || '目录不可用'}
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Info className="h-3.5 w-3.5" aria-hidden="true" /> 未配置时，「导出 Markdown」仍走原来的「另存为」
                     </div>
-                  )
-                ) : (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Info className="h-3.5 w-3.5" /> 未配置时，「导出 Markdown」仍走原来的「另存为」
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -602,16 +603,17 @@ export function SettingsSection() {
                   placeholder="AI Network Lab（留空 = 直接写 vault 根目录）"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  相对路径；绝对路径与 <code className="rounded bg-muted px-1">..</code> 会被自动净化，避免污染你已有的 vault 结构
+                  相对路径；绝对路径与 <code className="rounded-sm bg-muted px-1 font-mono">..</code> 会被自动净化，避免污染你已有的 vault 结构
                 </p>
               </div>
 
-              <div className="flex items-center justify-between rounded-md border p-3">
+              <div className="list-row flex items-center justify-between gap-3 p-3">
                 <div>
-                  <div className="text-sm font-medium">导出 Markdown 时顺便写入 vault</div>
+                  <Label htmlFor="vault-auto-write" className="text-sm font-medium">导出 Markdown 时顺便写入 vault</Label>
                   <div className="text-[11px] text-muted-foreground">关闭后只保留「另存为」下载，vault 写入需手动触发</div>
                 </div>
                 <Switch
+                  id="vault-auto-write"
                   checked={obsidian.enabled}
                   disabled={obsidianSaving}
                   onCheckedChange={(v) => void saveObsidian({ enabled: v })}
@@ -620,7 +622,7 @@ export function SettingsSection() {
 
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" onClick={() => void saveObsidian()} disabled={obsidianSaving}>
-                  {obsidianSaving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                  {obsidianSaving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
                   保存并测试目录
                 </Button>
                 <Button
@@ -629,7 +631,7 @@ export function SettingsSection() {
                   onClick={() => void syncAllToObsidian()}
                   disabled={obsidianSyncing || !obsidian.ready}
                 >
-                  {obsidianSyncing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FolderSync className="mr-1 h-4 w-4" />}
+                  {obsidianSyncing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" /> : <FolderSync className="mr-1 h-4 w-4" aria-hidden="true" />}
                   同步全部文献笔记
                 </Button>
               </div>
@@ -637,32 +639,29 @@ export function SettingsSection() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" /> 数据与安全说明
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <PanelHeader icon={Database} title="数据与安全说明" />
+            <CardContent className="space-y-2 text-sm leading-relaxed text-muted-foreground">
               <p>· API Key 仅保存在本机 SQLite（个人单机部署场景），不会上传到任何第三方</p>
-              <p>· 也可不进应用，直接在项目根目录 <code className="rounded bg-muted px-1">.env</code> 写入 <code className="rounded bg-muted px-1">LLM_API_KEY</code></p>
+              <p>· 也可不进应用，直接在项目根目录 <code className="rounded-sm bg-muted px-1 font-mono">.env</code> 写入 <code className="rounded-sm bg-muted px-1 font-mono">LLM_API_KEY</code></p>
               <p>· 应用内配置优先于环境变量；读取接口只返回脱敏 Key</p>
               <p>· 推荐工作流：Zotero 管文献 → 本软件同步列表/写阅读笔记/做实验 → 一键写入 Obsidian vault 长期管理</p>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <PackageCheck className="h-5 w-5" /> 软件更新
-              </CardTitle>
-              <CardDescription>
-                当前版本
-                <Badge variant="secondary" className="mx-1 font-mono">
-                  v{appInfo?.version ?? '—'}
-                </Badge>
-                {appInfo?.ok && !appInfo.isPackaged && '（开发模式，不检查更新）'}
-              </CardDescription>
-            </CardHeader>
+            <PanelHeader
+              icon={PackageCheck}
+              title="软件更新"
+              description={
+                <>
+                  当前版本
+                  <Badge variant="secondary" className="tabular mx-1 rounded-sm font-mono font-normal">
+                    v{appInfo?.version ?? '—'}
+                  </Badge>
+                  {appInfo?.ok && !appInfo.isPackaged && '（开发模式，不检查更新）'}
+                </>
+              }
+            />
             <CardContent className="space-y-3">
               {!desktopUpdate ? (
                 <p className="text-sm text-muted-foreground">
@@ -722,7 +721,7 @@ export function SettingsSection() {
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
                   >
-                    更新反复失败？到发布页手动下载安装包 <ExternalLink className="h-3 w-3" />
+                    更新反复失败？到发布页手动下载安装包 <ExternalLink className="h-3 w-3" aria-hidden="true" />
                   </a>
                 </>
               )}
@@ -851,8 +850,9 @@ function UpdateStatusLine({
   const Icon = line.tone === 'error' ? AlertCircle : line.tone === 'pending' ? Loader2 : CheckCircle2
   return (
     <div
+      role={line.tone === 'error' ? 'alert' : 'status'}
       className={cn(
-        'rounded-md border px-3 py-2 text-xs',
+        'rounded-sm border px-3 py-2 text-xs',
         line.tone === 'error' ? 'border-destructive/40 bg-destructive/10' : 'border-border bg-muted/40',
       )}
     >
@@ -862,14 +862,22 @@ function UpdateStatusLine({
             'mt-0.5 h-3.5 w-3.5 shrink-0',
             line.tone === 'error' ? 'text-destructive' : line.tone === 'pending' ? 'animate-spin text-muted-foreground' : 'text-primary',
           )}
+          aria-hidden="true"
         />
         <div className="min-w-0 flex-1">
-          <p className="font-medium">{line.title}</p>
-          {line.hint && <p className="mt-0.5 text-muted-foreground">{line.hint}</p>}
+          <p className="tabular font-medium">{line.title}</p>
+          {line.hint && <p className="mt-0.5 leading-relaxed text-muted-foreground">{line.hint}</p>}
           {/* 下载进度条：主进程一直有推 percent，之前只把它渲染成文字，
               用户盯着一个数字分不清「在慢慢下」还是「卡住了」。 */}
           {typeof line.progress === 'number' && (
-            <span className="mt-1.5 block h-1.5 w-full overflow-hidden rounded-full bg-border">
+            <span
+              className="mt-1.5 block h-1.5 w-full overflow-hidden rounded-full bg-border"
+              role="progressbar"
+              aria-label="更新下载进度"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(Math.max(0, Math.min(100, line.progress)))}
+            >
               <span
                 className="block h-full rounded-full bg-primary transition-[width] duration-300"
                 style={{ width: `${Math.max(0, Math.min(100, line.progress))}%` }}

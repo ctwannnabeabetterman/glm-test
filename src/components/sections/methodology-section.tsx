@@ -1,15 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { SectionHeader } from '@/components/section-header'
 import { METHODOLOGY_MODULES, type MethodologyModule } from '@/lib/methodology-data'
 import { ResearchStatsDashboard } from '@/components/research-stats-dashboard'
@@ -49,29 +42,36 @@ export function MethodologySection() {
       <ResearchStatsDashboard />
 
       {/* Overview card */}
-      <Card className="border-l-2 border-l-primary/60 bg-card">
+      <Card className="border-l-2 border-l-primary/60 bg-card py-0">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/15 text-primary shrink-0">
-              <BookOpen className="h-5 w-5" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-sm bg-accent text-accent-foreground shrink-0" aria-hidden="true">
+              <BookOpen className="h-5 w-5" strokeWidth={1.75} />
             </div>
             <div className="flex-1">
-              <div className="text-sm font-semibold mb-1">AI 通信组网科研方法论 — 完整指南</div>
-              <div className="text-xs text-muted-foreground">
+              <h2 className="section-title mb-1">AI 通信组网科研方法论 — 完整指南</h2>
+              <div className="prose-research text-[13px] text-muted-foreground">
                 合并自 6 个模块的全部内容。适用对象：通信组网方向硕士研究生。工具栈：Python + MATLAB。前置基础：信号处理、通信原理、移动通信、LSTM/RL 基础。
               </div>
-              <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <nav className="flex items-center gap-2 mt-3 flex-wrap" aria-label="方法论模块">
                 {METHODOLOGY_MODULES.map((m) => (
                   <button
                     key={m.id}
+                    type="button"
+                    aria-current={expanded === m.id ? 'true' : undefined}
                     onClick={() => { setExpanded(m.id); document.getElementById(`module-${m.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
-                    className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors"
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-sm border px-2.5 py-1 text-[12px] font-medium transition-colors',
+                      expanded === m.id
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-primary/30 bg-accent/50 text-accent-foreground hover:bg-accent',
+                    )}
                   >
-                    <span className="font-bold">M{m.id}</span>
+                    <span className="tabular font-mono font-semibold">M{m.id}</span>
                     {m.title}
                   </button>
                 ))}
-              </div>
+              </nav>
             </div>
           </div>
         </CardContent>
@@ -126,64 +126,82 @@ function ModuleCard({ module: m, expanded, onToggle, onNavigate }: {
   onNavigate: (target: 'overview' | 'papers' | 'search' | 'topics' | 'experiments' | 'planner' | 'writing' | 'notes' | 'methodology') => void
 }) {
   return (
-    <Card id={`module-${m.id}`} className={cn('overflow-hidden transition-all', expanded && 'ring-1 ring-primary/30')}>
+    <Card id={`module-${m.id}`} className={cn('overflow-hidden transition-colors', expanded && 'border-primary/40')}>
+      {/* 整个题头仍可点击展开（鼠标）；标题本身是无处理器的 button，click / Enter 冒泡到 CardHeader，
+          让键盘与读屏用户也能展开，并通过 aria-expanded 知道当前状态 */}
       <CardHeader className="pb-3 cursor-pointer" onClick={onToggle}>
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-border font-mono text-[13px] font-medium text-primary">
+          <div
+            className={cn(
+              'tabular flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border font-mono text-[13px] font-semibold',
+              expanded ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-primary',
+            )}
+            aria-hidden="true"
+          >
             M{m.id}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <CardTitle className="text-base">{m.title}</CardTitle>
-              <Badge variant="outline" className="text-[11px]">
-                <Layers className="h-2.5 w-2.5 mr-0.5" />
+              <CardTitle>
+                <h2 className="font-serif text-base font-semibold">
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-controls={`module-${m.id}-body`}
+                    className="rounded-sm text-left hover:text-primary"
+                  >
+                    {m.title}
+                  </button>
+                </h2>
+              </CardTitle>
+              <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal text-muted-foreground">
+                <Layers className="h-3 w-3 mr-0.5" aria-hidden="true" />
                 {m.sections.length} 节
               </Badge>
-              <Badge variant="outline" className="text-[11px]">
-                <FileCode className="h-2.5 w-2.5 mr-0.5" />
+              <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal text-muted-foreground">
+                <FileCode className="h-3 w-3 mr-0.5" aria-hidden="true" />
                 {m.scripts.length} 脚本
               </Badge>
             </div>
-            <CardDescription className="text-xs mt-1">{m.goal}</CardDescription>
+            <p className="caption mt-1">{m.goal}</p>
           </div>
           {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
           )}
         </div>
       </CardHeader>
 
       {expanded && (
-        <CardContent className="pt-0 space-y-4">
+        <CardContent id={`module-${m.id}-body`} className="pt-0 space-y-4">
           {/* Sections */}
           <div>
-            <div className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
-              <Target className="h-3 w-3" />
+            <h3 className="eyebrow mb-2 flex items-center gap-1.5">
+              <Target className="h-3 w-3" aria-hidden="true" />
               章节内容
-            </div>
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {m.sections.map((s) => {
                 const navTarget = NAV_MAP[s.id]
                 return (
-                  <div
-                    key={s.id}
-                    className="rounded-md border border-border/60 p-2.5 hover:border-primary/40 transition-colors group"
-                  >
+                  <div key={s.id} className="list-row card-hover group p-2.5">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="secondary" className="text-[11px] bg-primary/10 text-primary font-mono">{s.id}</Badge>
+                      <Badge variant="outline" className="tabular rounded-sm text-[11px] font-mono font-normal border-primary/30 bg-accent text-accent-foreground">{s.id}</Badge>
                       <span className="text-xs font-medium flex-1">{s.title}</span>
                       {navTarget && navTarget !== 'methodology' && (
                         <button
+                          type="button"
                           onClick={(e) => { e.stopPropagation(); onNavigate(navTarget) }}
-                          className="opacity-0 group-hover:opacity-100 text-primary hover:text-primary/80 transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-primary hover:text-primary/80 transition-opacity"
                           title={`跳转到${navTarget}`}
+                          aria-label={`跳转到${navTarget}：${s.title}`}
                         >
-                          <ArrowRight className="h-3 w-3" />
+                          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       )}
                     </div>
-                    <div className="text-[11px] text-muted-foreground leading-relaxed">{s.summary}</div>
+                    <div className="text-[12px] text-muted-foreground leading-relaxed">{s.summary}</div>
                   </div>
                 )
               })}
@@ -192,11 +210,11 @@ function ModuleCard({ module: m, expanded, onToggle, onNavigate }: {
 
           {/* Scripts */}
           <div>
-            <div className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
-              <FileCode className="h-3 w-3" />
+            <h3 className="eyebrow mb-2 flex items-center gap-1.5">
+              <FileCode className="h-3 w-3" aria-hidden="true" />
               Python 脚本索引
-              <span className="text-[11px] text-muted-foreground/70 ml-1">（点击查看代码示例）</span>
-            </div>
+              <span className="ml-1 normal-case tracking-normal text-[11px] font-normal">（点击查看代码示例）</span>
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
               {m.scripts.map((s) => (
                 <ScriptCard key={s.name} name={s.name} desc={s.desc} code={s.code} />
@@ -206,18 +224,19 @@ function ModuleCard({ module: m, expanded, onToggle, onNavigate }: {
 
           {/* Deliverables */}
           <div>
-            <div className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
-              <CheckSquare className="h-3 w-3" />
+            <h3 className="eyebrow mb-2 flex items-center gap-1.5">
+              <CheckSquare className="h-3 w-3" aria-hidden="true" />
               模块交付清单
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
+            </h3>
+            <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
               {m.deliverables.map((d, i) => (
-                <div key={i} className="flex items-center gap-2 rounded-md p-1.5 hover:bg-muted/50 transition-colors">
-                  <div className="flex h-4 w-4 items-center justify-center rounded border border-primary/40 text-primary text-[8px]">✓</div>
+                <li key={i} className="flex items-center gap-2 rounded-sm p-1.5">
+                  {/* 原 8px 勾号低于可读下限 */}
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary/40 text-primary text-[11px] leading-none" aria-hidden="true">✓</span>
                   <span className="text-xs">{d}</span>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         </CardContent>
       )}
@@ -240,40 +259,52 @@ function ScriptCard({ name, desc, code }: { name: string; desc: string; code?: s
 
   return (
     <div className={cn(
-      'rounded-md border p-2 bg-card transition-all',
-      code ? 'cursor-pointer hover:border-primary/40' : 'border-border/60',
+      'list-row p-2',
+      code && 'card-hover cursor-pointer',
       expanded && 'md:col-span-2 lg:col-span-3 border-primary/40'
     )}
     onClick={() => code && setExpanded(!expanded)}
     >
       <div className="flex items-center gap-1.5 mb-1">
-        <FileCode className="h-3 w-3 text-primary shrink-0" />
-        <code className="text-[11px] font-mono font-medium text-primary flex-1 truncate">{name}</code>
+        <FileCode className="h-3 w-3 text-primary shrink-0" aria-hidden="true" />
+        {/* 展开区内有复制按钮 ⇒ 外层保持 div；脚本名用无处理器的 button 承载键盘焦点，click 冒泡到外层 */}
+        {code ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            className="min-w-0 flex-1 truncate rounded-sm text-left font-mono text-[12px] font-medium text-primary"
+          >
+            {name}
+          </button>
+        ) : (
+          <code className="text-[12px] font-mono font-medium text-primary flex-1 truncate">{name}</code>
+        )}
         {code && (
-          <Badge variant="outline" className="text-[11px] py-0 px-1 shrink-0">
-            <Code className="h-2 w-2 mr-0.5" />
+          <Badge variant="outline" className="rounded-sm text-[11px] font-normal py-0 px-1 shrink-0 text-muted-foreground">
+            <Code className="h-3 w-3 mr-0.5" aria-hidden="true" />
             代码
           </Badge>
         )}
       </div>
-      <div className="text-[11px] text-muted-foreground">{desc}</div>
+      <div className="text-[12px] leading-relaxed text-muted-foreground">{desc}</div>
 
       {expanded && code && (
-        <div className="mt-2 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+        <div className="mt-2 animate-fade-in cursor-auto" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-medium text-muted-foreground">Python 代码示例</span>
             <button
+              type="button"
               onClick={copy}
-              className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+              className="flex items-center gap-1 text-[12px] text-primary hover:underline"
             >
               {copied ? (
-                <><CheckCircle2 className="h-2.5 w-2.5" /> 已复制</>
+                <><CheckCircle2 className="h-3 w-3" aria-hidden="true" /> 已复制</>
               ) : (
-                <><Copy className="h-2.5 w-2.5" /> 复制</>
+                <><Copy className="h-3 w-3" aria-hidden="true" /> 复制</>
               )}
             </button>
           </div>
-          <pre className="rounded-md bg-muted/50 border border-border/40 p-2.5 text-[11px] font-mono overflow-x-auto whitespace-pre leading-relaxed">
+          <pre className="rounded-sm bg-muted/50 border border-border p-2.5 text-[12px] font-mono overflow-x-auto whitespace-pre leading-relaxed">
             {code}
           </pre>
         </div>

@@ -2,13 +2,7 @@
 
 import { useFetch, useApi } from '@/lib/hooks'
 import { useState } from 'react'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,7 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { SectionHeader } from '@/components/section-header'
+import { SectionHeader, MethodNote } from '@/components/section-header'
 import { KnowledgeGraph } from '@/components/knowledge-graph'
 import { NoteTemplates } from '@/components/note-templates'
 import { NotesExport } from '@/components/notes-export'
@@ -69,12 +63,13 @@ interface Note {
   updatedAt: string
 }
 
+/* 单一强调色：五类笔记用「实心 → 浅强调 → 描边 → 中性」区分，不再用五种颜色 */
 const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
-  literature: { label: '文献笔记', color: 'bg-blue-500/15 text-blue-600' },
-  project: { label: '项目笔记', color: 'bg-emerald-500/15 text-emerald-600' },
-  knowledge: { label: '知识库', color: 'bg-purple-500/15 text-purple-600' },
-  template: { label: '模板', color: 'bg-amber-500/15 text-amber-600' },
-  daily: { label: '日志', color: 'bg-slate-500/15 text-slate-600' },
+  literature: { label: '文献笔记', color: 'bg-primary/10 text-primary' },
+  project: { label: '项目笔记', color: 'bg-accent text-accent-foreground' },
+  knowledge: { label: '知识库', color: 'bg-primary/20 text-primary' },
+  template: { label: '模板', color: 'bg-muted text-foreground' },
+  daily: { label: '日志', color: 'bg-muted text-muted-foreground' },
 }
 
 export function NotesSection() {
@@ -205,11 +200,11 @@ export function NotesSection() {
         <CardContent className="p-3">
           <div className="flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索笔记..." className="pl-8 h-9" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} aria-label="搜索笔记" placeholder="搜索笔记..." className="pl-8 h-9" />
             </div>
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-[130px] h-9"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-[130px] h-9" aria-label="笔记分类"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部分类</SelectItem>
                 <SelectItem value="literature">文献笔记</SelectItem>
@@ -219,9 +214,9 @@ export function NotesSection() {
                 <SelectItem value="daily">日志</SelectItem>
               </SelectContent>
             </Select>
-            <Badge variant="outline" className="h-9 px-3 flex items-center gap-1">
-              <FileText className="h-3.5 w-3.5" />
-              {filtered.length} 篇
+            <Badge variant="outline" className="h-9 rounded-sm px-3 flex items-center gap-1 font-normal text-muted-foreground" aria-live="polite">
+              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="tabular text-foreground">{filtered.length}</span> 篇
             </Badge>
           </div>
         </CardContent>
@@ -238,29 +233,30 @@ export function NotesSection() {
             filtered.map((n) => {
               const cat = CATEGORY_LABELS[n.category] ?? CATEGORY_LABELS.literature
               return (
-                <Card
+                /* 行内无交互子元素 ⇒ 整行直接是 button（原为可点击 Card，键盘无法聚焦） */
+                <button
                   key={n.id}
-                  className={cn('cursor-pointer transition-colors hover:border-primary/40', selected?.id === n.id && 'ring-1 ring-primary')}
+                  type="button"
+                  aria-pressed={selected?.id === n.id}
+                  className={cn('list-row card-hover block w-full p-3 text-left', selected?.id === n.id && 'border-primary ring-1 ring-primary/30')}
                   onClick={() => setSelected(n)}
                 >
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="secondary" className={cn('text-[11px] py-0', cat.color)}>{cat.label}</Badge>
-                      <span className="text-[11px] text-muted-foreground ml-auto">
-                        {new Date(n.updatedAt).toLocaleDateString('zh-CN')}
-                      </span>
-                    </div>
-                    <div className="text-sm font-medium leading-snug line-clamp-2">{n.title}</div>
-                    <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{n.content.replace(/[#*-]/g, '').slice(0, 80)}</div>
-                    {n.tags && (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {n.tags.split(',').slice(0, 3).map((t) => (
-                          <Badge key={t} variant="outline" className="text-[11px] py-0">#{t.trim()}</Badge>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                  <span className="flex items-center gap-2 mb-1">
+                    <Badge variant="secondary" className={cn('rounded-sm text-[11px] font-normal py-0', cat.color)}>{cat.label}</Badge>
+                    <span className="tabular text-[11px] text-muted-foreground ml-auto">
+                      {new Date(n.updatedAt).toLocaleDateString('zh-CN')}
+                    </span>
+                  </span>
+                  <span className="block text-sm font-medium leading-snug line-clamp-2">{n.title}</span>
+                  <span className="block text-xs text-muted-foreground mt-1 line-clamp-2">{n.content.replace(/[#*-]/g, '').slice(0, 80)}</span>
+                  {n.tags && (
+                    <span className="flex flex-wrap gap-1 mt-1.5">
+                      {n.tags.split(',').slice(0, 3).map((t) => (
+                        <Badge key={t} variant="outline" className="rounded-sm text-[11px] font-normal py-0 text-muted-foreground">#{t.trim()}</Badge>
+                      ))}
+                    </span>
+                  )}
+                </button>
               )
             })
           )}
@@ -279,7 +275,7 @@ export function NotesSection() {
           ) : (
             <Card className="border-dashed h-full">
               <CardContent className="py-16 text-center text-sm text-muted-foreground">
-                <StickyNote className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                <StickyNote className="h-10 w-10 mx-auto mb-2 opacity-30" aria-hidden="true" />
                 点击左侧笔记查看详情
               </CardContent>
             </Card>
@@ -288,11 +284,9 @@ export function NotesSection() {
       </div>
 
       {/* Obsidian template hint */}
-      <Card className="bg-purple-500/5 border-purple-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          💡 <strong>Obsidian 笔记模板</strong>（方法论 §2.2.3）：建议包含元数据/一句话概括/核心方法/关键公式/实验结果/与我的课题关联/疑问与思考。使用 <code className="bg-muted/60 px-1 rounded">[[双链]]</code> 建立文献间关联，方便综述写作时引用。
-        </CardContent>
-      </Card>
+      <MethodNote>
+        💡 <strong>Obsidian 笔记模板</strong>（方法论 §2.2.3）：建议包含元数据/一句话概括/核心方法/关键公式/实验结果/与我的课题关联/疑问与思考。使用 <code className="rounded-sm bg-muted px-1 font-mono">[[双链]]</code> 建立文献间关联，方便综述写作时引用。
+      </MethodNote>
         </TabsContent>
 
         <TabsContent value="graph">
@@ -347,19 +341,22 @@ function NoteDetail({ note, topics, onUpdate, onDelete }: {
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
+            {/* 编辑态标题是输入框，不能放进标题元素里 ⇒ 这里保留 CardHeader 而不用 PanelHeader */}
             {editing ? (
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} className="text-base font-semibold" />
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="笔记标题" className="text-base font-semibold" />
             ) : (
-              <CardTitle className="text-base">{note.title}</CardTitle>
+              <CardTitle>
+                <h2 className="font-serif text-base font-semibold leading-snug">{note.title}</h2>
+              </CardTitle>
             )}
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <Badge variant="secondary" className={cn('text-[11px]', CATEGORY_LABELS[note.category]?.color)}>
+              <Badge variant="secondary" className={cn('rounded-sm text-[11px] font-normal', CATEGORY_LABELS[note.category]?.color)}>
                 {CATEGORY_LABELS[note.category]?.label}
               </Badge>
               <TopicBadges topicIds={note.topicIds || '[]'} topics={topics} />
               <PaperBadges paperIds={note.paperIds || '[]'} />
-              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                <Clock className="h-2.5 w-2.5" />
+              <span className="tabular text-[11px] text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" aria-hidden="true" />
                 更新于 {new Date(note.updatedAt).toLocaleString('zh-CN')}
               </span>
             </div>
@@ -377,13 +374,19 @@ function NoteDetail({ note, topics, onUpdate, onDelete }: {
                   setContent(templateContent)
                 }} />
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(true)}>
-                  <Pencil className="h-3 w-3 mr-1" /> 编辑
+                  <Pencil className="h-3 w-3 mr-1" aria-hidden="true" /> 编辑
                 </Button>
               </div>
             )}
             <NotesExport note={note} />
-            <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={onDelete}>
-              <Trash2 className="h-3.5 w-3.5" />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+              aria-label={`删除笔记 ${note.title}`}
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
         </div>
@@ -392,10 +395,11 @@ function NoteDetail({ note, topics, onUpdate, onDelete }: {
         {editing ? (
           <div className="space-y-2">
             <div>
-              <Label className="text-xs">标签</Label>
-              <Input value={tags} onChange={(e) => setTags(e.target.value)} className="text-xs" />
+              <Label htmlFor="note-edit-tags" className="text-xs">标签</Label>
+              <Input id="note-edit-tags" value={tags} onChange={(e) => setTags(e.target.value)} className="text-xs" />
             </div>
             <Textarea
+              aria-label="笔记内容（Markdown）"
               value={content}
               onChange={(e) => setContent(e.target.value)}
               className="font-mono text-xs min-h-[400px]"
@@ -406,15 +410,15 @@ function NoteDetail({ note, topics, onUpdate, onDelete }: {
             {tags && (
               <div className="flex flex-wrap gap-1">
                 {tags.split(',').map((t) => (
-                  <Badge key={t} variant="outline" className="text-[11px]">
-                    <Tag className="h-2.5 w-2.5 mr-0.5" />
+                  <Badge key={t} variant="outline" className="rounded-sm text-[11px] font-normal text-muted-foreground">
+                    <Tag className="h-3 w-3 mr-0.5" aria-hidden="true" />
                     {t.trim()}
                   </Badge>
                 ))}
               </div>
             )}
             {/* 所属课题：勾选即保存（重进详情页才会看到最新值，这里不做整页 refetch） */}
-            <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+            <div className="rounded-sm border border-border bg-muted/30 p-2.5">
               <TopicLinker
                 topicIds={note.topicIds || '[]'}
                 onSave={async (json) => {
@@ -425,7 +429,7 @@ function NoteDetail({ note, topics, onUpdate, onDelete }: {
             </div>
             {/* 关联文献：与所属课题同一套交互。挂上之后，论文详情里就能看到这条笔记，
                 笔记导出也不必再靠标题猜作者（猜错会把作者填成别人）。 */}
-            <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+            <div className="rounded-sm border border-border bg-muted/30 p-2.5">
               <PaperLinker
                 paperIds={note.paperIds || '[]'}
                 onSave={async (json) => {
