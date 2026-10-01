@@ -2,13 +2,7 @@
 
 import { useFetch, useApi } from '@/lib/hooks'
 import { useState, useMemo } from 'react'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,16 +25,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SectionHeader } from '@/components/section-header'
+import { SectionHeader, PanelHeader } from '@/components/section-header'
 import { TOPIC_CRITERIA, TOPIC_DIRECTIONS } from '@/lib/methodology-data'
 import { AIGapAnalysis } from '@/components/ai-gap-analysis'
 import { AIDirectionExplorer } from '@/components/ai-direction-explorer'
 import {
-  ALL_SUB_ITEMS,
   computeTotalScore,
   emptyScoreMap,
   isSubjective,
-  SUBJECTIVE_ITEMS,
   type ScoreMap,
 } from '@/lib/methodology/topic-ai'
 import { toastAiError } from '@/lib/ai-error'
@@ -49,11 +41,8 @@ import {
   Plus,
   Trash2,
   Star,
-  TrendingUp,
   Award,
   Sparkles,
-  CheckCircle2,
-  AlertCircle,
   Loader2,
   Info,
 } from 'lucide-react'
@@ -229,7 +218,7 @@ export function TopicsSection() {
       {/* Theory card */}
       <Card className="border-l-2 border-l-primary/60 bg-card">
         <CardContent className="p-4">
-          <div className="text-xs text-muted-foreground mb-2">方法论 §1.3.1 创新性三维模型</div>
+          <div className="eyebrow mb-2">方法论 §1.3.1 创新性三维模型</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <InnovationCard label="问题新" desc="研究前人未解决的问题" difficulty="⭐⭐⭐ 较难" />
             <InnovationCard label="方法新" desc="新 AI 方法解决现有问题" difficulty="⭐⭐⭐⭐ 适中" />
@@ -267,21 +256,16 @@ export function TopicsSection() {
 
       {/* Comparison: typical 4 directions */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Award className="h-4 w-4 text-amber-500" />
-            四个典型课题方向对比
-          </CardTitle>
-          <CardDescription className="text-xs">方法论 §1.3.4</CardDescription>
-        </CardHeader>
+        <PanelHeader icon={Award} eyebrow="方法论 §1.3.4" title="四个典型课题方向对比" />
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            {/* 学术三线表：顶线粗、表头下细线 */}
+            <table className="w-full text-xs border-t-2 border-foreground/80">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left py-2 pr-2">维度</th>
+                  <th scope="col" className="text-left py-2 pr-2 font-medium text-muted-foreground">维度</th>
                   {TOPIC_DIRECTIONS.map((d) => (
-                    <th key={d.name} className="text-left py-2 px-2">{d.name}</th>
+                    <th key={d.name} scope="col" className="text-left py-2 px-2 font-semibold">{d.name}</th>
                   ))}
                 </tr>
               </thead>
@@ -359,22 +343,32 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
     onScoreChange(topic, c, s, v)
   }
 
-  const rankBadge = rank === 1 ? 'bg-amber-500 text-white' : rank === 2 ? 'bg-slate-400 text-white' : rank === 3 ? 'bg-orange-700 text-white' : 'bg-muted text-muted-foreground'
+  /* 与论文库排名同一套：实心强调 → 浅强调 → 描边强调 → 中性（不再用金/银/铜） */
+  const rankBadge =
+    rank === 1
+      ? 'bg-primary text-primary-foreground border-primary'
+      : rank === 2
+        ? 'bg-accent text-accent-foreground border-primary/30'
+        : rank === 3
+          ? 'bg-card text-primary border-primary/40'
+          : 'bg-muted text-muted-foreground border-border'
 
   return (
-    <Card className={cn('overflow-hidden', rank === 1 && 'border-amber-500/40')}>
+    <Card className={cn('overflow-hidden', rank === 1 && 'border-primary/40')}>
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-start gap-3 flex-1 min-w-0">
-            <div className={cn('flex h-9 w-9 items-center justify-center rounded-full font-bold text-xs shrink-0', rankBadge)}>
-              #{rank}
+            <div className={cn('tabular flex h-9 w-9 items-center justify-center rounded-sm border font-mono font-semibold text-sm shrink-0', rankBadge)}>
+              {rank}
             </div>
             <div className="flex-1 min-w-0">
-              <CardTitle className="text-base leading-tight">{topic.name}</CardTitle>
+              <CardTitle>
+                <h2 className="font-serif text-base font-semibold leading-tight">{topic.name}</h2>
+              </CardTitle>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <Badge variant="outline" className="text-[11px]">{topic.direction}</Badge>
-                <Badge variant="secondary" className="text-xs bg-primary/15 text-primary font-bold">
-                  <Star className="h-2.5 w-2.5 mr-0.5 fill-current" />
+                <Badge variant="outline" className="rounded-sm text-[11px] font-normal">{topic.direction}</Badge>
+                <Badge variant="outline" className="tabular rounded-sm text-xs font-semibold border-primary/30 bg-accent text-primary">
+                  <Star className="h-3 w-3 mr-0.5 fill-current" aria-hidden="true" />
                   {topic.totalScore.toFixed(2)} / 10
                 </Badge>
                 {/* 料的多少直接决定 AI 分析与 AI 打分的可信度，所以在列表上就亮出来 */}
@@ -382,9 +376,10 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
                   <Badge
                     variant="outline"
                     className={cn(
-                      'text-[11px] font-normal',
+                      'tabular rounded-sm text-[11px] font-normal',
+                      /* 零关联是「AI 结论不可靠」的警示 ⇒ 用 destructive 令牌 */
                       topic.paperCount === 0 && topic.noteCount === 0
-                        ? 'border-amber-500/40 text-amber-600'
+                        ? 'border-destructive/30 text-destructive'
                         : 'text-muted-foreground'
                     )}
                     title={
@@ -406,18 +401,31 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
             <Button
               size="sm"
               variant="secondary"
-              className="h-7 text-xs bg-primary/10 text-primary hover:bg-primary/20"
+              className="h-7 text-xs bg-accent text-accent-foreground hover:bg-primary/15"
               onClick={runAiScore}
               disabled={aiLoading}
+              aria-busy={aiLoading}
             >
-              {aiLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}
+              {aiLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" aria-hidden="true" /> : <Sparkles className="h-3 w-3 mr-1" aria-hidden="true" />}
               {aiLoading ? '打分中' : 'AI 打分'}
             </Button>
-            <Button size="sm" variant={isEditing ? 'default' : 'outline'} className="h-7 text-xs" onClick={onToggleEdit}>
+            <Button
+              size="sm"
+              variant={isEditing ? 'default' : 'outline'}
+              className="h-7 text-xs"
+              aria-expanded={isEditing}
+              onClick={onToggleEdit}
+            >
               {isEditing ? '完成' : '手改'}
             </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={onDelete}>
-              <Trash2 className="h-3.5 w-3.5" />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+              aria-label={`删除课题 ${topic.name}`}
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
         </div>
@@ -425,36 +433,37 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
       <CardContent className={cn('pt-0', !isEditing && 'hidden')}>
         <div className="space-y-3">
           {aiMeta && (
-            <div className="rounded-md border border-primary/25 bg-primary/5 p-3 space-y-1.5">
+            <div className="rounded-sm border border-primary/25 bg-accent/50 p-3 space-y-1.5" role="status">
               <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
-                <Sparkles className="h-3.5 w-3.5" />
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                 AI 打分依据
               </div>
-              <div className="text-[11px] text-muted-foreground leading-relaxed">
+              <div className="tabular text-[12px] text-muted-foreground leading-relaxed">
                 本次依据 {aiMeta.evidence.paperCount} 篇论文、{aiMeta.evidence.noteCount} 条笔记
                 {aiMeta.evidence.unlinkedPapers > 0 && `（另有 ${aiMeta.evidence.unlinkedPapers} 篇论文未归到本课题，未参与打分）`}
                 。已填 {aiMeta.scored}/14 项
                 {aiMeta.missing.length > 0 && `，${aiMeta.missing.length} 项未能识别已按 5 分兜底`}。
               </div>
               {aiMeta.rationale && (
-                <div className="text-[11px] leading-relaxed border-t border-primary/15 pt-1.5">{aiMeta.rationale}</div>
+                <div className="text-[12px] leading-relaxed border-t border-primary/15 pt-1.5">{aiMeta.rationale}</div>
               )}
-              <div className="flex items-start gap-1 text-[11px] text-amber-600 border-t border-primary/15 pt-1.5">
-                <Info className="h-3 w-3 mt-0.5 shrink-0" />
+              {/* 提示性说明，不是错误 ⇒ 墨色 + 强调色图标，不再用琥珀色 */}
+              <div className="flex items-start gap-1 text-[12px] text-foreground border-t border-primary/15 pt-1.5">
+                <Info className="h-3 w-3 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
                 <span>带「确认」标记的 4 项 AI 无从知晓（实验室条件、你的时间与方向），它是按同类情况估的，请按实际改写。</span>
               </div>
             </div>
           )}
           {Object.entries(TOPIC_CRITERIA).map(([crit, info]) => (
-            <div key={crit} className="rounded-md border border-border/60 p-3">
+            <div key={crit} className="list-row p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{crit}</span>
-                  <Badge variant="outline" className="text-[11px]">权重 {(info.weight * 100).toFixed(0)}%</Badge>
+                  <h3 className="text-sm font-medium">{crit}</h3>
+                  <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal">权重 {(info.weight * 100).toFixed(0)}%</Badge>
                 </div>
-                <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
+                <span className="tabular rounded-sm bg-accent px-1.5 py-0.5 font-mono text-xs font-semibold text-primary">
                   {getCritScore(crit).toFixed(2)}
-                </Badge>
+                </span>
               </div>
               <div className="space-y-1.5">
                 {Object.entries(info.subItems).map(([sub, weight]) => (
@@ -465,14 +474,14 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
                         {isSubjective(sub) && (
                           <Badge
                             variant="outline"
-                            className="text-[11px] px-1 py-0 h-4 border-amber-500/40 text-amber-600"
+                            className="rounded-sm text-[11px] font-normal px-1 py-0 h-4 border-primary/40 text-primary"
                             title="这一项只有你自己知道（实验室条件 / 你的时间 / 你的毕业论文方向），AI 给的是同类情况估值"
                           >
                             确认
                           </Badge>
                         )}
                       </div>
-                      <div className="text-[11px] text-muted-foreground">权重 {(weight * 100).toFixed(0)}%</div>
+                      <div className="tabular text-[11px] text-muted-foreground">权重 {(weight * 100).toFixed(0)}%</div>
                     </div>
                     <input
                       type="range"
@@ -480,6 +489,7 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
                       max="10"
                       value={getScore(crit, sub)}
                       onChange={(e) => handleManualChange(crit, sub, Number(e.target.value))}
+                      aria-label={`${crit} · ${sub} 评分`}
                       className="w-32 accent-primary"
                     />
                     <div className="w-12 text-right">
@@ -489,7 +499,8 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
                         max="10"
                         value={getScore(crit, sub)}
                         onChange={(e) => handleManualChange(crit, sub, Math.max(0, Math.min(10, Number(e.target.value))))}
-                        className="h-7 text-xs w-12"
+                        aria-label={`${crit} · ${sub} 分值`}
+                        className="tabular h-7 text-xs w-12"
                       />
                     </div>
                   </div>
@@ -497,9 +508,9 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
               </div>
             </div>
           ))}
-          <div className="rounded-md bg-primary/8 border border-primary/20 p-3 text-center">
-            <div className="text-xs text-muted-foreground">综合评分</div>
-            <div className="text-2xl font-bold gradient-text">{topic.totalScore.toFixed(2)} / 10</div>
+          <div className="rounded-sm bg-accent/50 border border-primary/20 p-3 text-center">
+            <div className="eyebrow">综合评分</div>
+            <div className="tabular font-mono text-2xl font-semibold tracking-tight text-primary">{topic.totalScore.toFixed(2)} / 10</div>
             <div className="text-[11px] text-muted-foreground mt-1">
               {topic.totalScore >= 8 ? '⭐ 优秀课题，强烈推荐' :
                topic.totalScore >= 6.5 ? '✓ 良好课题，建议推进' :
@@ -511,12 +522,13 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
       </CardContent>
       {!isEditing && (
         <CardContent className="pt-0">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {/* 与总览统计格同一形式：gap-px 细线分格 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px overflow-hidden rounded-sm border border-border bg-border">
             {Object.entries(TOPIC_CRITERIA).map(([crit]) => (
-              <div key={crit} className="rounded-md border border-border/40 p-2 text-center">
+              <div key={crit} className="bg-card p-2 text-center">
                 <div className="text-[11px] text-muted-foreground">{crit}</div>
-                <div className="text-sm font-bold">{getCritScore(crit).toFixed(1)}</div>
-                <Progress value={getCritScore(crit) * 10} className="h-1 mt-1" />
+                <div className="tabular text-sm font-semibold">{getCritScore(crit).toFixed(1)}</div>
+                <Progress value={getCritScore(crit) * 10} className="h-1 mt-1" aria-label={`${crit} 得分`} />
               </div>
             ))}
           </div>
@@ -528,8 +540,8 @@ function TopicCard({ topic, rank, isEditing, onToggleEdit, onScoreChange, onAiSc
 
 function Row({ label, values }: { label: string; values: string[] }) {
   return (
-    <tr className="border-b border-border/40">
-      <td className="py-2 pr-2 text-muted-foreground">{label}</td>
+    <tr className="border-b border-border/60 last:border-b-foreground/60">
+      <th scope="row" className="py-2 pr-2 text-left font-normal text-muted-foreground">{label}</th>
       {values.map((v, i) => (
         <td key={i} className="py-2 px-2">{v}</td>
       ))}
@@ -539,10 +551,10 @@ function Row({ label, values }: { label: string; values: string[] }) {
 
 function InnovationCard({ label, desc, difficulty }: { label: string; desc: string; difficulty: string }) {
   return (
-    <div className="rounded-md border border-border/60 p-2.5 bg-card">
+    <div className="list-row p-2.5">
       <div className="text-sm font-semibold">{label}</div>
-      <div className="text-[11px] text-muted-foreground mt-0.5">{desc}</div>
-      <div className="text-[11px] text-amber-600 mt-1">{difficulty}</div>
+      <div className="text-[12px] text-muted-foreground mt-0.5">{desc}</div>
+      <div className="text-[12px] text-primary mt-1">{difficulty}</div>
     </div>
   )
 }

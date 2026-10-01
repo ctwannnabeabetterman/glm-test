@@ -1,21 +1,14 @@
 'use client'
 
 import { useFetch, useApi } from '@/lib/hooks'
-import { useState, useMemo, useEffect } from 'react'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { useState, useMemo } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { Progress } from '@/components/ui/progress'
 import {
   Dialog,
   DialogContent,
@@ -32,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SectionHeader } from '@/components/section-header'
+import { SectionHeader, PanelHeader, MethodNote } from '@/components/section-header'
 import { BASELINE_LEVELS, METRICS } from '@/lib/methodology-data'
 import { AIExperimentAdvisor } from '@/components/ai-experiment-advisor'
 import {
@@ -41,12 +34,10 @@ import {
   Trash2,
   Settings,
   CheckCircle2,
-  XCircle,
   TrendingUp,
   Beaker,
   Cpu,
   Calendar,
-  Sprout,
   PlayCircle,
   StopCircle,
   ChartBar,
@@ -86,10 +77,11 @@ interface Experiment {
 }
 
 const STATUS_STYLES: Record<string, { label: string; color: string; bg: string; icon: React.ComponentType<{ className?: string }> }> = {
-  planned: { label: '计划中', color: 'text-amber-700', bg: 'bg-amber-100 dark:bg-amber-900/30', icon: Calendar },
-  running: { label: '运行中', color: 'text-blue-700', bg: 'bg-blue-100 dark:bg-blue-900/30', icon: PlayCircle },
-  completed: { label: '已完成', color: 'text-emerald-700', bg: 'bg-emerald-100 dark:bg-emerald-900/30', icon: CheckCircle2 },
-  failed: { label: '失败', color: 'text-red-700', bg: 'bg-red-100 dark:bg-red-900/30', icon: StopCircle },
+  /* 单一强调色：计划 → 运行 → 完成 用明度递进；只有「失败」用 destructive */
+  planned: { label: '计划中', color: 'text-muted-foreground', bg: 'bg-muted', icon: Calendar },
+  running: { label: '运行中', color: 'text-accent-foreground', bg: 'bg-accent', icon: PlayCircle },
+  completed: { label: '已完成', color: 'text-primary', bg: 'bg-primary/10', icon: CheckCircle2 },
+  failed: { label: '失败', color: 'text-destructive', bg: 'bg-destructive/10', icon: StopCircle },
 }
 
 export function ExperimentsSection() {
@@ -208,15 +200,16 @@ export function ExperimentsSection() {
       />
 
       {/* Baseline theory card */}
-      <Card className="border-l-2 border-l-primary/60 bg-card">
+      <Card className="border-l-2 border-l-primary/60 bg-card py-0">
         <CardContent className="p-4">
-          <div className="text-xs text-muted-foreground mb-2">方法论 §3.1.1 基线对比三层原则</div>
+          <div className="eyebrow mb-2">方法论 §3.1.1 基线对比三层原则</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             {BASELINE_LEVELS.map((b) => (
-              <div key={b.level} className="rounded-md border border-border/60 bg-card p-2.5">
+              <div key={b.level} className="list-row p-2.5">
                 <div className="text-xs font-semibold">{b.name}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{b.desc}</div>
-                {b.required && <Badge variant="secondary" className="text-[11px] mt-1 bg-red-500/15 text-red-600">必须对比</Badge>}
+                <div className="text-[12px] leading-relaxed text-muted-foreground mt-0.5">{b.desc}</div>
+                {/* 「必须」是要求而不是危险 ⇒ 强调色描边，红色留给破坏性操作 */}
+                {b.required && <Badge variant="outline" className="rounded-sm text-[11px] font-normal mt-1 border-primary/40 text-primary">必须对比</Badge>}
               </div>
             ))}
           </div>
@@ -262,30 +255,41 @@ export function ExperimentsSection() {
               const ablations = normalizeAblations(JSON.parse(exp.ablations))
               const Icon = st.icon
               return (
-                <Card key={exp.id} className={cn('cursor-pointer transition-colors hover:border-primary/40', selected?.id === exp.id && 'ring-1 ring-primary')}>
-                  <CardContent className="p-3" onClick={() => setSelected(exp)}>
+                /* 行内有下拉与删除按钮 ⇒ 外层保持 div + onClick；实验名用无处理器的 button，
+                   click / Enter 冒泡到外层（与论文库 PaperRow 同一手法） */
+                <div
+                  key={exp.id}
+                  className={cn('list-row card-hover cursor-pointer p-3', selected?.id === exp.id && 'border-primary ring-1 ring-primary/30')}
+                  onClick={() => setSelected(exp)}
+                >
                     <div className="flex items-start gap-3">
-                      <div className={cn('flex h-9 w-9 items-center justify-center rounded-lg shrink-0', st.bg, st.color)}>
+                      <div className={cn('flex h-9 w-9 items-center justify-center rounded-sm shrink-0', st.bg, st.color)} aria-hidden="true">
                         <Icon className="h-4 w-4" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="text-sm font-medium">{exp.name}</span>
-                          <Badge variant="outline" className={cn('text-[11px]', st.bg, st.color, 'border-transparent')}>{st.label}</Badge>
+                          <button
+                            type="button"
+                            aria-pressed={selected?.id === exp.id}
+                            className="rounded-sm text-left text-sm font-medium hover:text-primary"
+                          >
+                            {exp.name}
+                          </button>
+                          <Badge variant="outline" className={cn('rounded-sm text-[11px] font-normal', st.bg, st.color, 'border-transparent')}>{st.label}</Badge>
                         </div>
                         <div className="text-xs text-muted-foreground truncate">{exp.topic || '未指定课题'}</div>
-                        <div className="flex flex-wrap gap-2 mt-1.5 text-[11px] text-muted-foreground">
-                          {config.model && <Badge variant="outline" className="text-[11px] py-0">模型: {config.model}</Badge>}
-                          {config.lr && <Badge variant="outline" className="text-[11px] py-0">LR: {config.lr}</Badge>}
-                          {config.batch_size && <Badge variant="outline" className="text-[11px] py-0">BS: {config.batch_size}</Badge>}
-                          <Badge variant="outline" className="text-[11px] py-0">Seed: {exp.seed}</Badge>
-                          <Badge variant="outline" className="text-[11px] py-0">基线: {baselines.length}</Badge>
-                          <Badge variant="outline" className="text-[11px] py-0">消融: {ablations.length}</Badge>
+                        <div className="tabular flex flex-wrap gap-2 mt-1.5 text-[11px] text-muted-foreground">
+                          {config.model && <Badge variant="outline" className="rounded-sm text-[11px] font-normal py-0">模型: {config.model}</Badge>}
+                          {config.lr && <Badge variant="outline" className="rounded-sm text-[11px] font-mono font-normal py-0">LR: {config.lr}</Badge>}
+                          {config.batch_size && <Badge variant="outline" className="rounded-sm text-[11px] font-mono font-normal py-0">BS: {config.batch_size}</Badge>}
+                          <Badge variant="outline" className="rounded-sm text-[11px] font-mono font-normal py-0">Seed: {exp.seed}</Badge>
+                          <Badge variant="outline" className="rounded-sm text-[11px] font-normal py-0">基线: {baselines.length}</Badge>
+                          <Badge variant="outline" className="rounded-sm text-[11px] font-normal py-0">消融: {ablations.length}</Badge>
                         </div>
                       </div>
                       <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                         <Select value={exp.status} onValueChange={(v) => handleStatus(exp, v)}>
-                          <SelectTrigger className="h-7 w-[100px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-7 w-[100px] text-xs" aria-label="实验状态"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="planned">计划中</SelectItem>
                             <SelectItem value="running">运行中</SelectItem>
@@ -293,13 +297,18 @@ export function ExperimentsSection() {
                             <SelectItem value="failed">失败</SelectItem>
                           </SelectContent>
                         </Select>
-                        <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => handleDelete(exp)}>
-                          <Trash2 className="h-3.5 w-3.5" />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          aria-label={`删除实验 ${exp.name}`}
+                          onClick={() => handleDelete(exp)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         </Button>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
+                </div>
               )
             })
           )}
@@ -468,12 +477,13 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
   return (
     <div className="space-y-3">
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">{exp.name}</CardTitle>
-          {exp.topic && <CardDescription className="text-xs">{exp.topic}</CardDescription>}
-        </CardHeader>
+        <PanelHeader
+          title={<span className="font-serif text-base">{exp.name}</span>}
+          description={exp.topic || undefined}
+        />
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* 与总览统计格同一形式：gap-px 细线分格 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px overflow-hidden rounded-sm border border-border bg-border">
             <Stat label="模型" value={config.model || '-'} />
             <Stat label="学习率" value={config.lr ?? '-'} />
             <Stat label="Batch Size" value={config.batch_size ?? '-'} />
@@ -488,20 +498,15 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
 
       {/* Hyperparameters */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Cpu className="h-4 w-4 text-primary" />
-            超参数
-          </CardTitle>
-          <CardDescription className="text-xs">方法论 §3.3.2 超参数统一管理</CardDescription>
-        </CardHeader>
+        <PanelHeader icon={Cpu} eyebrow="方法论 §3.3.2 超参数统一管理" title="超参数" />
         <CardContent className="space-y-2">
           {Object.entries(config).map(([k, v]) => (
             <div key={k} className="flex items-center gap-2">
-              <Label className="text-xs w-32 shrink-0">{k}</Label>
+              <Label htmlFor={`exp-cfg-${k}`} className="text-xs font-mono w-32 shrink-0">{k}</Label>
               <Input
+                id={`exp-cfg-${k}`}
                 defaultValue={String(v)}
-                className="h-8 text-xs flex-1"
+                className="tabular h-8 text-xs font-mono flex-1"
                 onBlur={(e) => {
                   const newVal = typeof v === 'number' ? Number(e.target.value) : e.target.value
                   if (newVal !== v) saveConfig({ ...config, [k]: newVal })
@@ -516,20 +521,14 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
             if (v === null) return
             saveConfig({ ...config, [k]: typeof v === 'string' && !isNaN(Number(v)) ? Number(v) : v })
           }}>
-            <Plus className="h-3 w-3 mr-1" /> 新增参数
+            <Plus className="h-3 w-3 mr-1" aria-hidden="true" /> 新增参数
           </Button>
         </CardContent>
       </Card>
 
       {/* Baselines checklist */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            基线完整性检查
-          </CardTitle>
-          <CardDescription className="text-xs">方法论 §3.1.1 基线三层对比</CardDescription>
-        </CardHeader>
+        <PanelHeader icon={CheckCircle2} eyebrow="方法论 §3.1.1 基线三层对比" title="基线完整性检查" />
         <CardContent className="space-y-3">
           {baselineLevels.map((lv) => {
             const defaults = lv.defaults
@@ -538,13 +537,13 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
             const checked = allItems.filter((n: string) => baselines.find((b) => b.level === lv.level && b.name === n))
             const isRequired = BASELINE_LEVELS.find((b) => b.level === lv.level)?.required
             return (
-              <div key={lv.level} className="rounded-md border border-border/60 p-2">
+              <div key={lv.level} className="list-row p-2.5">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium">{lv.name}</span>
-                    {isRequired && <Badge variant="secondary" className="text-[11px] bg-red-500/15 text-red-600">必须</Badge>}
+                    <h3 className="text-xs font-medium">{lv.name}</h3>
+                    {isRequired && <Badge variant="outline" className="rounded-sm text-[11px] font-normal border-primary/40 text-primary">必须</Badge>}
                   </div>
-                  <Badge variant="outline" className="text-[11px]">{checked.length}/{allItems.length}</Badge>
+                  <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal">{checked.length}/{allItems.length}</Badge>
                 </div>
                 <div className="space-y-1">
                   {allItems.map((name: string) => {
@@ -552,16 +551,19 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
                     const isChecked = !!b
                     return (
                       <div key={name} className="flex items-center gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => updateBaseline(lv.level, name, e.target.checked)}
-                          className="accent-primary"
-                        />
-                        <span className={cn('flex-1', !isChecked && 'text-muted-foreground line-through')}>{name}</span>
+                        {/* 原先复选框与文字没有关联，点文字不会勾选 ⇒ 用 label 包起来（行为不变，只是可点区域变大） */}
+                        <label className="flex flex-1 cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => updateBaseline(lv.level, name, e.target.checked)}
+                            className="accent-primary"
+                          />
+                          <span className={cn('flex-1', !isChecked && 'text-muted-foreground line-through')}>{name}</span>
+                        </label>
                         {isChecked && b && (
                           <Select value={b.status || 'pending'} onValueChange={(v) => updateBaselineStatus(lv.level, name, v)}>
-                            <SelectTrigger className="h-6 w-[88px] text-[11px]">
+                            <SelectTrigger className="h-6 w-[88px] text-[11px]" aria-label={`${name} 复现状态`}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -575,11 +577,11 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
                     )
                   })}
                 </div>
-                <Button size="sm" variant="ghost" className="h-6 mt-1 text-[11px]" onClick={() => {
+                <Button size="sm" variant="ghost" className="h-7 mt-1 text-[12px]" aria-label={`添加基线到 ${lv.name}`} onClick={() => {
                   const name = prompt(`添加到「${lv.name}」：`)
                   if (name) updateBaseline(lv.level, name, true)
                 }}>
-                  <Plus className="h-2.5 w-2.5 mr-0.5" /> 添加
+                  <Plus className="h-3 w-3 mr-0.5" aria-hidden="true" /> 添加
                 </Button>
               </div>
             )
@@ -589,32 +591,29 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
 
       {/* Ablation */}
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Beaker className="h-4 w-4 text-amber-500" />
-                消融实验
-              </CardTitle>
-              <CardDescription className="text-xs">方法论 §3.1.3 消融实验设计模板</CardDescription>
-            </div>
+        <PanelHeader
+          icon={Beaker}
+          eyebrow="方法论 §3.1.3 消融实验设计模板"
+          title="消融实验"
+          action={
             <Button size="sm" variant="outline" onClick={addAblation}>
-              <Plus className="h-3 w-3 mr-1" /> 添加组件
+              <Plus className="h-3 w-3 mr-1" aria-hidden="true" /> 添加组件
             </Button>
-          </div>
-        </CardHeader>
+          }
+        />
         <CardContent>
           {ablations.length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-4">尚无消融组件</div>
           ) : (
             <div className="space-y-2">
               {ablations.map((a) => (
-                <div key={a.name} className="flex items-center gap-2 rounded-md border border-border/60 p-2">
+                <div key={a.name} className="list-row flex items-center gap-2 p-2">
                   <span className="text-xs flex-1">{a.name}</span>
                   <Input
                     type="number"
                     defaultValue={a.impact || 0}
-                    className="h-7 w-20 text-xs"
+                    className="tabular h-7 w-20 text-xs"
+                    aria-label={`${a.name} 性能下降百分比`}
                     placeholder="性能下降%"
                     onBlur={async (e) => {
                       const newAblations = ablations.map((x) => x.name === a.name ? { ...x, impact: Number(e.target.value) } : x)
@@ -627,9 +626,15 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
                       }
                     }}
                   />
-                  <span className="text-[11px] text-muted-foreground">%</span>
-                  <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => removeAblation(a.name)}>
-                    <Trash2 className="h-3 w-3" />
+                  <span className="text-[11px] text-muted-foreground" aria-hidden="true">%</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    aria-label={`删除消融组件 ${a.name}`}
+                    onClick={() => removeAblation(a.name)}
+                  >
+                    <Trash2 className="h-3 w-3" aria-hidden="true" />
                   </Button>
                 </div>
               ))}
@@ -640,35 +645,30 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
 
       {/* Metrics */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-blue-500" />
-            实验指标
-          </CardTitle>
-          <CardDescription className="text-xs">方法论 §3.4.1 性能指标</CardDescription>
-        </CardHeader>
+        <PanelHeader icon={TrendingUp} eyebrow="方法论 §3.4.1 性能指标" title="实验指标" />
         <CardContent className="space-y-2">
           {Object.keys(metrics).length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-4">尚无指标数据</div>
           ) : (
             Object.entries(metrics).map(([k, v]) => (
               <div key={k} className="flex items-center gap-2">
-                <Label className="text-xs w-40 shrink-0">{k}</Label>
+                <Label htmlFor={`exp-metric-${k}`} className="text-xs font-mono w-40 shrink-0">{k}</Label>
                 <Input
+                  id={`exp-metric-${k}`}
                   defaultValue={String(v)}
-                  className="h-8 text-xs flex-1"
+                  className="tabular h-8 text-xs font-mono flex-1"
                   onBlur={(e) => {
                     const newVal = typeof v === 'number' ? Number(e.target.value) : e.target.value
                     if (newVal !== v) saveMetrics({ ...metrics, [k]: newVal })
                   }}
                 />
-                <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={async () => {
+                <Button size="sm" variant="ghost" className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10" aria-label={`删除指标 ${k}`} onClick={async () => {
                   const newM = { ...metrics }
                   delete newM[k]
                   const updated = { ...exp, metrics: JSON.stringify(newM) }
                   try { await api.put(`/api/experiments/${exp.id}`, { metrics: updated.metrics }); onUpdate(updated) } catch {}
                 }}>
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3 w-3" aria-hidden="true" />
                 </Button>
               </div>
             ))
@@ -680,16 +680,16 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
             if (v === null) return
             saveMetrics({ ...metrics, [k]: typeof v === 'string' && !isNaN(Number(v)) ? Number(v) : v })
           }}>
-            <Plus className="h-3 w-3 mr-1" /> 新增指标
+            <Plus className="h-3 w-3 mr-1" aria-hidden="true" /> 新增指标
           </Button>
         </CardContent>
       </Card>
 
       {/* Notes */}
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm">实验备注</CardTitle>
+        <PanelHeader
+          title="实验备注"
+          action={
             <div className="flex gap-1">
               {editingNotes ? (
                 <>
@@ -700,13 +700,13 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingNotes(true)}>编辑</Button>
               )}
             </div>
-          </div>
-        </CardHeader>
+          }
+        />
         <CardContent>
           {editingNotes ? (
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[120px] text-xs" />
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} aria-label="实验备注" className="min-h-[120px] text-xs" />
           ) : (
-            <div className="text-xs whitespace-pre-wrap min-h-[40px]">{exp.notes || '暂无备注'}</div>
+            <div className="rounded-sm border border-border bg-muted/30 p-3 text-xs leading-relaxed whitespace-pre-wrap min-h-[40px]">{exp.notes || '暂无备注'}</div>
           )}
         </CardContent>
       </Card>
@@ -716,9 +716,9 @@ function ExperimentDetail({ exp, onUpdate }: { exp: Experiment; onUpdate: (e: Ex
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-md border border-border/60 p-2 text-center">
-      <div className="text-sm font-bold">{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
+    <div className="bg-card p-2.5 text-center">
+      <div className="tabular font-mono text-sm font-semibold">{value}</div>
+      <div className="text-[11px] text-muted-foreground mt-0.5">{label}</div>
     </div>
   )
 }
@@ -758,31 +758,28 @@ function VisualizationTemplates() {
 
   return (
     <div className="space-y-3">
-      <Card className="bg-blue-500/5 border-blue-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          📊 <strong className="text-blue-700 dark:text-blue-400">结果可视化模板</strong>
-          （方法论 §3.4.2 result_visualization.py）—— 提供三种常用图表模板，可直接复用
-        </CardContent>
-      </Card>
+      <MethodNote>
+        📊 <strong>结果可视化模板</strong>
+        （方法论 §3.4.2 result_visualization.py）—— 提供三种常用图表模板，可直接复用
+      </MethodNote>
 
+      {/* 图表色一律走 --chart-1..5 令牌；基线用中性灰（--muted-foreground），「Ours」用主强调色加粗。
+          ⚠️ 原先写的 `hsl(var(--border))` 是坏的：本项目令牌是 oklch 值，套 hsl() 会得到无效颜色 */}
       {/* Convergence curve */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">① 训练收敛曲线</CardTitle>
-          <CardDescription className="text-xs">展示各方法在训练过程中的奖励变化，含标准差带</CardDescription>
-        </CardHeader>
+        <PanelHeader title="① 训练收敛曲线" description="展示各方法在训练过程中的奖励变化，含标准差带" />
         <CardContent>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={convergenceData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-              <XAxis dataKey="episode" label={{ value: 'Episode', position: 'insideBottom', offset: -5, fontSize: 11 }} fontSize={10} />
-              <YAxis label={{ value: 'Avg Reward', angle: -90, position: 'insideLeft', fontSize: 11 }} fontSize={10} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="WMMSE" stroke="#6b7280" strokeWidth={1.5} dot={false} />
-              <Line type="monotone" dataKey="DQN" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
-              <Line type="monotone" dataKey="PPO" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
-              <Line type="monotone" dataKey="Ours" stroke="#10b981" strokeWidth={2.5} dot={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="episode" label={{ value: 'Episode', position: 'insideBottom', offset: -5, fontSize: 11 }} fontSize={11} />
+              <YAxis label={{ value: 'Avg Reward', angle: -90, position: 'insideLeft', fontSize: 11 }} fontSize={11} />
+              <Tooltip contentStyle={{ fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="WMMSE" stroke="var(--muted-foreground)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+              <Line type="monotone" dataKey="DQN" stroke="var(--chart-2)" strokeWidth={1.5} dot={false} />
+              <Line type="monotone" dataKey="PPO" stroke="var(--chart-3)" strokeWidth={1.5} dot={false} />
+              <Line type="monotone" dataKey="Ours" stroke="var(--chart-1)" strokeWidth={2.5} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </CardContent>
@@ -790,20 +787,17 @@ function VisualizationTemplates() {
 
       {/* Bar comparison */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">② 性能对比柱状图</CardTitle>
-          <CardDescription className="text-xs">多方法在多个指标上的对比</CardDescription>
-        </CardHeader>
+        <PanelHeader title="② 性能对比柱状图" description="多方法在多个指标上的对比" />
         <CardContent>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={barData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-              <XAxis dataKey="method" fontSize={10} />
-              <YAxis fontSize={10} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="throughput" fill="#10b981" name="Throughput (bps/Hz)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="fairness" fill="#f59e0b" name="Fairness" radius={[4, 4, 0, 0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="method" fontSize={11} />
+              <YAxis fontSize={11} />
+              <Tooltip contentStyle={{ fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="throughput" fill="var(--chart-1)" name="Throughput (bps/Hz)" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="fairness" fill="var(--chart-2)" name="Fairness" radius={[2, 2, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -811,20 +805,17 @@ function VisualizationTemplates() {
 
       {/* Radar comparison */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">③ 多维雷达图对比</CardTitle>
-          <CardDescription className="text-xs">展示方法在多个维度上的综合表现</CardDescription>
-        </CardHeader>
+        <PanelHeader title="③ 多维雷达图对比" description="展示方法在多个维度上的综合表现" />
         <CardContent>
           <ResponsiveContainer width="100%" height={280}>
             <RadarChart data={radarData}>
-              <PolarGrid stroke="hsl(var(--border))" opacity={0.4} />
-              <PolarAngleAxis dataKey="metric" fontSize={10} />
-              <PolarRadiusAxis domain={[0, 10]} fontSize={9} />
-              <Radar name="WMMSE" dataKey="WMMSE" stroke="#6b7280" fill="#6b7280" fillOpacity={0.3} />
-              <Radar name="Ours" dataKey="Ours" stroke="#10b981" fill="#10b981" fillOpacity={0.4} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <PolarGrid stroke="var(--border)" />
+              <PolarAngleAxis dataKey="metric" fontSize={11} />
+              <PolarRadiusAxis domain={[0, 10]} fontSize={11} />
+              <Radar name="WMMSE" dataKey="WMMSE" stroke="var(--muted-foreground)" fill="var(--muted-foreground)" fillOpacity={0.2} />
+              <Radar name="Ours" dataKey="Ours" stroke="var(--chart-1)" fill="var(--chart-1)" fillOpacity={0.35} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Tooltip contentStyle={{ fontSize: 12 }} />
             </RadarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -837,34 +828,27 @@ function VisualizationTemplates() {
 function MetricsReference() {
   return (
     <div className="space-y-3">
-      <Card className="bg-emerald-500/5 border-emerald-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          📐 <strong className="text-emerald-700 dark:text-emerald-400">通信 AI 常用性能指标</strong>
-          （方法论 §3.4.1）—— 7 大常用指标速查
-        </CardContent>
-      </Card>
+      <MethodNote>
+        📐 <strong>通信 AI 常用性能指标</strong>
+        （方法论 §3.4.1）—— 7 大常用指标速查
+      </MethodNote>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {METRICS.map((m) => (
-          <Card key={m.name}>
-            <CardContent className="p-3">
-              <div className="flex items-start justify-between mb-1">
-                <div>
-                  <div className="text-sm font-semibold">{m.name}</div>
-                  <div className="text-[11px] text-muted-foreground">{m.fullName}</div>
-                </div>
-                <Badge variant="outline" className="text-[11px]">{m.scene}</Badge>
+          <div key={m.name} className="list-row p-3">
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <h3 className="text-sm font-semibold">{m.name}</h3>
+                <div className="text-[12px] text-muted-foreground">{m.fullName}</div>
               </div>
-              <div className="rounded bg-muted/50 p-2 font-mono text-[11px] mt-2">{m.formula}</div>
-            </CardContent>
-          </Card>
+              <Badge variant="outline" className="rounded-sm text-[11px] font-normal">{m.scene}</Badge>
+            </div>
+            <div className="rounded-sm border border-border bg-muted/50 p-2 font-mono text-[12px] mt-2 overflow-x-auto">{m.formula}</div>
+          </div>
         ))}
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">结果分析检查清单</CardTitle>
-          <CardDescription className="text-xs">方法论 §3.4.3</CardDescription>
-        </CardHeader>
+        <PanelHeader eyebrow="方法论 §3.4.3" title="结果分析检查清单" />
         <CardContent className="space-y-2 text-xs">
           {[
             '你的方法在所有实验条件下都比基线好？如果某个条件下降，解释原因',
@@ -875,10 +859,10 @@ function MetricsReference() {
             '结果是否可复现？固定种子后能否得到相同结果？',
           ].map((q, i) => (
             <div key={i} className="flex items-start gap-2">
-              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-[11px] font-bold mt-0.5">
+              <div className="tabular flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-accent font-mono text-accent-foreground text-[11px] font-semibold mt-0.5" aria-hidden="true">
                 {i + 1}
               </div>
-              <span className="text-muted-foreground">{q}</span>
+              <span className="leading-relaxed text-muted-foreground">{q}</span>
             </div>
           ))}
         </CardContent>

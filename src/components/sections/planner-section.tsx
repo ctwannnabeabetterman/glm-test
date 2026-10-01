@@ -2,13 +2,7 @@
 
 import { useFetch, useApi } from '@/lib/hooks'
 import { useState, useMemo, useCallback } from 'react'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,7 +18,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { SectionHeader } from '@/components/section-header'
+import { SectionHeader, PanelHeader, MethodNote } from '@/components/section-header'
 import { WRITING_MILESTONES, WEEKLY_PLAN_TEMPLATE, VENUES } from '@/lib/methodology-data'
 import {
   Calendar,
@@ -370,38 +364,25 @@ function GanttChart() {
 
   return (
     <div className="space-y-3">
-      <Card className="bg-blue-500/5 border-blue-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span>📅 <strong className="text-blue-700 dark:text-blue-400">研究 Gantt 图</strong> · 40 周研究计划</span>
-            {hasStart ? (
-              <Badge variant="outline" className="text-[11px]">
-                起点 {projectStart}
-                {currentWeek !== null && currentWeek >= 0 && ` · 当前第 ${currentWeek + 1} 周`}
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="text-[11px] border-amber-500/40 text-amber-600">
-                未设起始日 —— 无法换算真实日期
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
+      <MethodNote
+        action={
+          <div className="flex flex-wrap items-center gap-2">
             <ProjectSettingsDialog
               config={config}
               onSaved={refetchConfig}
               trigger={
                 <Button size="sm" variant="ghost">
-                  <Settings2 className="h-3.5 w-3.5 mr-1" /> 项目设置
+                  <Settings2 className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> 项目设置
                 </Button>
               }
             />
-            <Button size="sm" variant="ghost" onClick={handleSync} disabled={syncing}>
-              <RefreshCw className={cn('h-3.5 w-3.5 mr-1', syncing && 'animate-spin')} /> 同步实验/稿件
+            <Button size="sm" variant="ghost" onClick={handleSync} disabled={syncing} aria-busy={syncing}>
+              <RefreshCw className={cn('h-3.5 w-3.5 mr-1', syncing && 'animate-spin')} aria-hidden="true" /> 同步实验/稿件
             </Button>
             <Dialog open={addOpen} onOpenChange={setAddOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" variant="outline">
-                  <Plus className="h-3.5 w-3.5 mr-1" /> 添加任务
+                  <Plus className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> 添加任务
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -476,8 +457,23 @@ function GanttChart() {
               </DialogContent>
             </Dialog>
           </div>
-        </CardContent>
-      </Card>
+        }
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <span>📅 <strong>研究 Gantt 图</strong> · 40 周研究计划</span>
+          {hasStart ? (
+            <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal">
+              起点 {projectStart}
+              {currentWeek !== null && currentWeek >= 0 && ` · 当前第 ${currentWeek + 1} 周`}
+            </Badge>
+          ) : (
+            /* 缺起始日会让日期与偏差都无法计算 ⇒ 警示，走 destructive 令牌（原为琥珀色） */
+            <Badge variant="outline" className="rounded-sm text-[11px] font-normal border-destructive/30 text-destructive">
+              未设起始日 —— 无法换算真实日期
+            </Badge>
+          )}
+        </div>
+      </MethodNote>
 
       <Card>
         <CardContent className="p-3">
@@ -488,9 +484,10 @@ function GanttChart() {
               {Array.from({ length: 10 }, (_, i) => {
                 const range = hasStart ? weekRangeLabel(projectStart, i * 4, i * 4 + 3) : null
                 return (
-                  <div key={i} className="text-center border-l border-border/40 leading-tight">
+                  <div key={i} className="tabular text-center border-l border-border/40 leading-tight">
                     <div>{i * 4 + 1}-{(i + 1) * 4} 周</div>
-                    {range && <div className="text-[8px] opacity-70">{range}</div>}
+                    {/* 原 8px 低于可读下限；11px 在窄屏可能换行，用 truncate 兜住 */}
+                    {range && <div className="truncate text-[11px] opacity-80">{range}</div>}
                   </div>
                 )
               })}
@@ -512,19 +509,20 @@ function GanttChart() {
                     <div className="flex items-center gap-1">
                       <span className="text-xs truncate flex-1" title={m.title}>{m.title}</span>
                       <button
+                        type="button"
                         onClick={() => handleDelete(m)}
                         aria-label={`删除 ${m.title}`}
-                        className="opacity-0 group-hover:opacity-100 text-destructive"
+                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-destructive"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3 w-3" aria-hidden="true" />
                       </button>
                     </div>
-                    <div className="text-[11px] text-muted-foreground truncate">
+                    <div className="tabular text-[11px] text-muted-foreground truncate">
                       第 {start + 1}-{end} 周{range ? ` · ${range}` : ''}
                     </div>
                     {m.refLabel && (
-                      <div className={cn('text-[11px] truncate flex items-center gap-0.5', canSync ? 'text-amber-600' : 'text-muted-foreground')}>
-                        <Link2 className="h-2.5 w-2.5 shrink-0" />
+                      <div className={cn('tabular text-[11px] truncate flex items-center gap-0.5', canSync ? 'text-primary' : 'text-muted-foreground')}>
+                        <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                         {m.refLabel}
                         {canSync && ` · 可推进到 ${m.derivedProgress}%`}
                       </div>
@@ -539,15 +537,16 @@ function GanttChart() {
                     {cursorPct !== null && (
                       <div className="absolute inset-y-0 w-px bg-primary/60 z-20" style={{ left: `${cursorPct}%` }} title="当前周" />
                     )}
+                    {/* 条形颜色是用户为每个任务存的数据（m.color），保持原样，不收敛到令牌 */}
                     <div
-                      className="absolute top-1 h-5 rounded flex items-center px-1.5 text-[11px] text-white font-medium overflow-hidden shadow-sm"
+                      className="tabular absolute top-1 h-5 rounded-sm flex items-center px-1.5 text-[11px] text-white font-medium overflow-hidden"
                       style={{ left: `${left}%`, width: `${Math.max(width, 1.5)}%`, background: m.color }}
                       title={`${m.title}（第 ${start + 1}-${end} 周，进度 ${m.progress}%）`}
                     >
                       <div className="absolute inset-y-0 left-0 bg-black/20 rounded-l" style={{ width: `${m.progress}%` }} />
                       <span className="relative z-10 truncate">{m.progress > 0 ? `${m.progress}%` : ''}</span>
                     </div>
-                    <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex gap-0.5 items-center">
+                    <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex gap-0.5 items-center">
                       <ProgressStepper progress={m.progress} onCommit={(next) => handleProgress(m, next)} />
                     </div>
                   </div>
@@ -634,39 +633,35 @@ function WritingTimeline() {
 
   return (
     <div className="space-y-3">
-      <Card className="bg-purple-500/5 border-purple-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          ⏰ <strong className="text-purple-700 dark:text-purple-400">论文写作时间线</strong>
-          （方法论 §5.2.1）—— 6 周写一篇会议论文的倒推时间表。已匹配 {linkedCount}/{WRITING_MILESTONES.length} 个里程碑。
-        </CardContent>
-      </Card>
+      <MethodNote>
+        ⏰ <strong>论文写作时间线</strong>
+        （方法论 §5.2.1）—— 6 周写一篇会议论文的倒推时间表。已匹配 <span className="tabular">{linkedCount}/{WRITING_MILESTONES.length}</span> 个里程碑。
+      </MethodNote>
 
       {linkedCount < WRITING_MILESTONES.length && (
-        <Card className="bg-amber-500/10 border-amber-500/30">
-          <CardContent className="p-3 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
-            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <span>
-              有 {WRITING_MILESTONES.length - linkedCount} 个写作里程碑在库里还没有对应记录，进度无法记录。
-              请到「系统设置」或重新初始化示例数据后再试（写作里程碑由示例数据创建）。
-            </span>
-          </CardContent>
-        </Card>
+        <MethodNote tone="warning" icon={AlertTriangle}>
+          <span className="text-destructive">
+            有 <span className="tabular">{WRITING_MILESTONES.length - linkedCount}</span> 个写作里程碑在库里还没有对应记录，进度无法记录。
+            请到「系统设置」或重新初始化示例数据后再试（写作里程碑由示例数据创建）。
+          </span>
+        </MethodNote>
       )}
 
-      <Card>
+      <Card className="py-0">
         <CardContent className="p-3 flex items-center gap-3 flex-wrap">
-          <Label className="text-xs shrink-0">截稿日期：</Label>
+          <Label htmlFor="writing-deadline" className="text-xs shrink-0">截稿日期：</Label>
           <Input
+            id="writing-deadline"
             type="date"
             value={submissionDate}
             onChange={(e) => setSubmissionDate(e.target.value)}
-            className="w-auto h-9"
+            className="tabular w-auto h-9"
           />
-          <Badge variant="outline" className="text-xs">总工时 {totalHours}h ({(totalHours / 40).toFixed(1)} 周)</Badge>
+          <Badge variant="outline" className="tabular rounded-sm text-xs font-normal">总工时 {totalHours}h ({(totalHours / 40).toFixed(1)} 周)</Badge>
           <div className="flex-1 min-w-[120px]">
-            <Progress value={overallPct} className="h-2" />
+            <Progress value={overallPct} className="h-1.5" aria-label="写作总进度" />
           </div>
-          <Badge variant="secondary" className="text-xs bg-primary/15 text-primary">{overallPct.toFixed(0)}% 完成</Badge>
+          <Badge variant="outline" className="tabular rounded-sm text-xs font-semibold border-primary/30 bg-accent text-primary">{overallPct.toFixed(0)}% 完成</Badge>
         </CardContent>
       </Card>
 
@@ -683,41 +678,44 @@ function WritingTimeline() {
                 const daysLeft = Math.ceil((new Date(m.deadline).getTime() - Date.now()) / 86400000)
                 return (
                   <div key={m.name} className="relative pl-10">
+                    {/* 完成 = 实心强调；进行中 = 半透明强调；未开始 = 中性（原为绿 / 琥珀） */}
                     <div
                       className={cn(
-                        'absolute left-1.5 top-2 flex h-4 w-4 items-center justify-center rounded-full border-2 border-background',
-                        isDone ? 'bg-emerald-500' : isInProgress ? 'bg-amber-500' : 'bg-muted',
+                        'absolute left-1 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-background',
+                        isDone ? 'bg-primary text-primary-foreground' : isInProgress ? 'bg-primary/50' : 'bg-muted',
                       )}
+                      aria-hidden="true"
                     >
-                      {isDone && <span className="text-white text-[8px]">✓</span>}
-                      {isInProgress && <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />}
+                      {isDone && <span className="text-[11px] leading-none">✓</span>}
+                      {isInProgress && <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground animate-pulse" />}
                     </div>
 
-                    <div className="rounded-md border border-border/60 p-2.5 hover:border-primary/40 transition-colors">
+                    <div className="list-row card-hover p-2.5">
                       <div className="flex items-center justify-between gap-2 mb-1">
-                        <div className="text-sm font-medium">{m.name}</div>
+                        <h3 className="text-sm font-medium">{m.name}</h3>
                         <div className="flex items-center gap-1.5">
-                          <Badge variant="outline" className={cn('text-[11px]', daysLeft < 0 && 'bg-red-500/10 text-red-600')}>
+                          {/* 已过截稿是警示 ⇒ destructive 令牌 */}
+                          <Badge variant="outline" className={cn('tabular rounded-sm text-[11px] font-normal', daysLeft < 0 && 'border-destructive/30 bg-destructive/10 text-destructive')}>
                             {daysLeft > 0 ? `${daysLeft} 天后` : daysLeft === 0 ? '今天' : `已过 ${-daysLeft} 天`}
                           </Badge>
                           {db ? (
                             <ProgressStepper progress={progress} onCommit={(next) => handleProgress(db.id, next)} />
                           ) : (
-                            <Badge variant="outline" className="text-[11px] text-muted-foreground">无记录</Badge>
+                            <Badge variant="outline" className="rounded-sm text-[11px] font-normal text-muted-foreground">无记录</Badge>
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-2">
+                      <div className="tabular flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground mb-2">
                         <span className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
+                          <Calendar className="h-3 w-3" aria-hidden="true" />
                           {m.deadline}
                         </span>
-                        <span>·</span>
+                        <span aria-hidden="true">·</span>
                         <span>距截稿 {m.daysBefore} 天</span>
-                        <span>·</span>
+                        <span aria-hidden="true">·</span>
                         <span>{m.hours}h 工作量</span>
                       </div>
-                      <Progress value={progress} className="h-1" />
+                      <Progress value={progress} className="h-1" aria-label={`${m.name} 进度`} />
                     </div>
                   </div>
                 )
@@ -727,11 +725,9 @@ function WritingTimeline() {
         </CardContent>
       </Card>
 
-      <Card className="bg-amber-500/5 border-amber-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          💡 <strong>积少成多策略</strong>（方法论 §5.2.2）：不要&quot;集中写作&quot;，每天写一点。上午读论文，下午写一段。4 周累计 40 小时 = 一篇合格会议论文。番茄工作法：25 分钟专注 → 5 分钟休息，每天 2-4 个番茄钟。
-        </CardContent>
-      </Card>
+      <MethodNote>
+        💡 <strong>积少成多策略</strong>（方法论 §5.2.2）：不要&quot;集中写作&quot;，每天写一点。上午读论文，下午写一段。4 周累计 40 小时 = 一篇合格会议论文。番茄工作法：25 分钟专注 → 5 分钟休息，每天 2-4 个番茄钟。
+      </MethodNote>
     </div>
   )
 }
@@ -771,8 +767,8 @@ function TaskRow({
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border/60 p-2">
-      <input type="checkbox" checked={task.done} onChange={onToggle} className="accent-primary" />
+    <div className="list-row flex items-center gap-2 p-2">
+      <input type="checkbox" checked={task.done} onChange={onToggle} aria-label={`完成：${task.name}`} className="accent-primary" />
       <span className={cn('text-xs flex-1 min-w-0 truncate', task.done && 'line-through text-muted-foreground')} title={task.name}>
         {task.name}
       </span>
@@ -783,7 +779,7 @@ function TaskRow({
         value={hours}
         onChange={(e) => setHours(e.target.value)}
         onBlur={commitHours}
-        className="h-7 w-14 text-[11px] px-1"
+        className="tabular h-7 w-14 text-[12px] px-1"
         aria-label="工时"
       />
       <Input
@@ -793,11 +789,16 @@ function TaskRow({
         value={priority}
         onChange={(e) => setPriority(e.target.value)}
         onBlur={commitPriority}
-        className="h-7 w-12 text-[11px] px-1"
+        className="tabular h-7 w-12 text-[12px] px-1"
         aria-label="优先级"
       />
-      <button onClick={onRemove} aria-label={`删除 ${task.name}`} className="text-destructive">
-        <Trash2 className="h-3 w-3" />
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`删除 ${task.name}`}
+        className="flex h-7 w-7 items-center justify-center rounded-sm text-destructive hover:bg-destructive/10"
+      >
+        <Trash2 className="h-3 w-3" aria-hidden="true" />
       </button>
     </div>
   )
@@ -880,56 +881,51 @@ function WeeklyPlanner() {
 
   return (
     <div className="space-y-3">
-      <Card className="bg-emerald-500/5 border-emerald-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground flex items-center justify-between gap-2 flex-wrap">
-          <div>
-            📋 <strong className="text-emerald-700 dark:text-emerald-400">科研周计划</strong>
-            （方法论 §4.4.3）—— 按优先级自动分配每日任务
-          </div>
+      <MethodNote
+        action={
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-[11px]">本周起始 {weekStart}</Badge>
+            <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal">本周起始 {weekStart}</Badge>
             <Button size="sm" variant="ghost" onClick={loadTemplate} disabled={adding}>
               载入模板
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        }
+      >
+        📋 <strong>科研周计划</strong>
+        （方法论 §4.4.3）—— 按优先级自动分配每日任务
+      </MethodNote>
 
-      <div className="grid grid-cols-3 gap-2">
-        <Card>
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-emerald-600">{doneCount}</div>
-            <div className="text-[11px] text-muted-foreground">已完成任务</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 text-center">
-            <div className={cn('text-2xl font-bold', overflow ? 'text-red-600' : 'text-amber-600')}>{totalHours}h</div>
-            <div className="text-[11px] text-muted-foreground">剩余工时</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 text-center">
-            <div className="text-2xl font-bold text-blue-600">{weeklyHours}h</div>
-            <div className="text-[11px] text-muted-foreground">本周可用</div>
-          </CardContent>
-        </Card>
+      {/* 与总览统计格同一形式：gap-px 细线分格；只有「超时」时剩余工时变 destructive */}
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-border bg-border">
+        <div className="bg-card p-3 text-center">
+          <div className="tabular text-2xl font-medium text-primary">{doneCount}</div>
+          <div className="text-[11px] text-muted-foreground">已完成任务</div>
+        </div>
+        <div className="bg-card p-3 text-center">
+          <div className={cn('tabular text-2xl font-medium', overflow && 'text-destructive')}>{totalHours}h</div>
+          <div className="text-[11px] text-muted-foreground">剩余工时</div>
+        </div>
+        <div className="bg-card p-3 text-center">
+          <div className="tabular text-2xl font-medium">{weeklyHours}h</div>
+          <div className="text-[11px] text-muted-foreground">本周可用</div>
+        </div>
       </div>
 
       {overflow && (
-        <Card className="bg-red-500/10 border-red-500/30">
-          <CardContent className="p-3 text-xs text-red-700 dark:text-red-400">
+        <MethodNote tone="warning">
+          <span className="tabular text-destructive">
             ⚠ 超时 {Math.round((totalHours - weeklyHours) * 10) / 10}h，建议削减低优先级任务
-          </CardContent>
-        </Card>
+          </span>
+        </MethodNote>
       )}
 
-      <Card>
+      <Card className="py-0">
         <CardContent className="p-3">
           <div className="flex gap-2 items-end">
             <div className="flex-1">
-              <Label className="text-xs">任务名</Label>
+              <Label htmlFor="weekly-new-name" className="text-xs">任务名</Label>
               <Input
+                id="weekly-new-name"
                 value={newTask.name}
                 onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
                 className="h-8 text-xs"
@@ -937,27 +933,22 @@ function WeeklyPlanner() {
               />
             </div>
             <div className="w-20">
-              <Label className="text-xs">小时</Label>
-              <Input type="number" value={newTask.hours} onChange={(e) => setNewTask({ ...newTask, hours: Number(e.target.value) })} className="h-8 text-xs" />
+              <Label htmlFor="weekly-new-hours" className="text-xs">小时</Label>
+              <Input id="weekly-new-hours" type="number" value={newTask.hours} onChange={(e) => setNewTask({ ...newTask, hours: Number(e.target.value) })} className="tabular h-8 text-xs" />
             </div>
             <div className="w-20">
-              <Label className="text-xs">优先级</Label>
-              <Input type="number" min="1" max="5" value={newTask.priority} onChange={(e) => setNewTask({ ...newTask, priority: Number(e.target.value) })} className="h-8 text-xs" />
+              <Label htmlFor="weekly-new-priority" className="text-xs">优先级</Label>
+              <Input id="weekly-new-priority" type="number" min="1" max="5" value={newTask.priority} onChange={(e) => setNewTask({ ...newTask, priority: Number(e.target.value) })} className="tabular h-8 text-xs" />
             </div>
-            <Button size="sm" className="h-8" onClick={addTask} disabled={adding}>
-              <Plus className="h-3 w-3" />
+            <Button size="sm" className="h-8" onClick={addTask} disabled={adding} aria-label="添加任务">
+              <Plus className="h-3 w-3" aria-hidden="true" />
             </Button>
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">任务列表</CardTitle>
-          <CardDescription className="text-xs">
-            工时与优先级可直接改；勾选完成会自动重排本周计划
-          </CardDescription>
-        </CardHeader>
+        <PanelHeader title="任务列表" description="工时与优先级可直接改；勾选完成会自动重排本周计划" />
         <CardContent className="space-y-1.5">
           {loading && <div className="text-xs text-muted-foreground text-center py-4">加载中…</div>}
           {!loading && !tasks.length && (
@@ -978,25 +969,23 @@ function WeeklyPlanner() {
       </Card>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">本周计划（按优先级自动分配）</CardTitle>
-          <CardDescription className="text-xs">
-            每日可用工时来自「项目设置」，当前 {dailyHours.join(' / ')} 小时
-          </CardDescription>
-        </CardHeader>
+        <PanelHeader
+          title="本周计划（按优先级自动分配）"
+          description={<span className="tabular">每日可用工时来自「项目设置」，当前 {dailyHours.join(' / ')} 小时</span>}
+        />
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2">
             {plan.map((day) => (
-              <div key={day.name} className="rounded-md border border-border/60 p-2 min-h-[100px]">
+              <div key={day.name} className="list-row p-2 min-h-[100px]">
                 <div className="flex items-center justify-between mb-1.5">
-                  <div className="text-xs font-semibold">{day.name}</div>
-                  <Badge variant="outline" className="text-[11px]">{day.capacity}h</Badge>
+                  <h3 className="text-xs font-semibold">{day.name}</h3>
+                  <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal">{day.capacity}h</Badge>
                 </div>
                 <div className="space-y-1">
                   {day.items.map((item, i) => (
-                    <div key={i} className="rounded bg-primary/10 p-1 text-[11px]">
-                      <div className="font-medium text-primary truncate">{item.name}</div>
-                      <div className="text-muted-foreground">{item.hours}h · P{item.priority}</div>
+                    <div key={i} className="rounded-sm bg-accent p-1 text-[11px]">
+                      <div className="font-medium text-accent-foreground truncate">{item.name}</div>
+                      <div className="tabular text-muted-foreground">{item.hours}h · P{item.priority}</div>
                     </div>
                   ))}
                   {day.items.length === 0 && (
@@ -1063,26 +1052,23 @@ function SubmissionScheduler() {
     }
   }
 
+  /* 五个阶段沿「中性 → 浅强调 → 强调」递进，不再用五种颜色 */
   const statusLabels: Record<number, { label: string; color: string }> = {
-    0: { label: '准备中', color: 'bg-amber-500/15 text-amber-600' },
-    25: { label: '撰写中', color: 'bg-blue-500/15 text-blue-600' },
-    50: { label: '已投稿', color: 'bg-purple-500/15 text-purple-600' },
-    75: { label: '审稿中', color: 'bg-cyan-500/15 text-cyan-600' },
-    100: { label: '已录用', color: 'bg-emerald-500/15 text-emerald-600' },
+    0: { label: '准备中', color: 'bg-muted text-muted-foreground' },
+    25: { label: '撰写中', color: 'bg-accent text-accent-foreground' },
+    50: { label: '已投稿', color: 'bg-primary/10 text-primary' },
+    75: { label: '审稿中', color: 'bg-primary/20 text-primary' },
+    100: { label: '已录用', color: 'bg-primary text-primary-foreground' },
   }
 
   return (
     <div className="space-y-3">
-      <Card className="bg-pink-500/5 border-pink-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground flex items-center justify-between">
-          <div>
-            🏆 <strong className="text-pink-700 dark:text-pink-400">投稿时间表</strong>
-            （方法论 §6.1.2）—— 跟踪每篇论文的投稿进度
-          </div>
+      <MethodNote
+        action={
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline">
-                <Plus className="h-3.5 w-3.5 mr-1" /> 新增投稿
+                <Plus className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> 新增投稿
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -1120,27 +1106,27 @@ function SubmissionScheduler() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </CardContent>
-      </Card>
+        }
+      >
+        🏆 <strong>投稿时间表</strong>
+        （方法论 §6.1.2）—— 跟踪每篇论文的投稿进度
+      </MethodNote>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">硕士阶段投稿阶梯</CardTitle>
-          <CardDescription className="text-xs">方法论 §6.1.1</CardDescription>
-        </CardHeader>
+        <PanelHeader eyebrow="方法论 §6.1.1" title="硕士阶段投稿阶梯" />
         <CardContent>
           <div className="flex items-center gap-2 text-xs">
-            <div className="flex-1 rounded-md border border-border p-2 text-center">
+            <div className="list-row flex-1 p-2 text-center">
               <div className="font-semibold">① 小论文练手</div>
               <div className="text-[11px] text-muted-foreground mt-0.5">IEEE CL / ACCESS / 国内核心</div>
             </div>
-            <GitCommitHorizontal className="h-4 w-4 text-muted-foreground rotate-90" />
-            <div className="flex-1 rounded-md border border-border p-2 text-center">
+            <GitCommitHorizontal className="h-4 w-4 shrink-0 text-muted-foreground rotate-90" aria-hidden="true" />
+            <div className="list-row flex-1 p-2 text-center">
               <div className="font-semibold">② 旗舰会议</div>
               <div className="text-[11px] text-muted-foreground mt-0.5">IEEE ICC / GLOBECOM</div>
             </div>
-            <GitCommitHorizontal className="h-4 w-4 text-muted-foreground rotate-90" />
-            <div className="flex-1 rounded-md border border-border p-2 text-center">
+            <GitCommitHorizontal className="h-4 w-4 shrink-0 text-muted-foreground rotate-90" aria-hidden="true" />
+            <div className="list-row flex-1 border-primary/40 bg-accent/40 p-2 text-center">
               <div className="font-semibold">③ 顶级期刊</div>
               <div className="text-[11px] text-muted-foreground mt-0.5">IEEE TCOM / TWC / TVT</div>
             </div>
@@ -1157,41 +1143,48 @@ function SubmissionScheduler() {
             const venueInfo = VENUES.find((v) => v.name === m.targetVenue)
             const daysLeft = m.endDate ? Math.ceil((new Date(m.endDate).getTime() - Date.now()) / 86400000) : null
             return (
-              <Card key={m.id}>
-                <CardContent className="p-3">
+              <div key={m.id} className="list-row p-3">
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium">{m.title}</div>
+                      <h3 className="text-sm font-medium">{m.title}</h3>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <Badge variant="secondary" className={cn('text-[11px]', status.color)}>{status.label}</Badge>
-                        <Badge variant="outline" className="text-[11px]">{m.targetVenue}</Badge>
+                        <Badge variant="secondary" className={cn('rounded-sm text-[11px] font-normal', status.color)}>{status.label}</Badge>
+                        <Badge variant="outline" className="rounded-sm text-[11px] font-normal">{m.targetVenue}</Badge>
                         {venueInfo && <span className="text-[11px] text-muted-foreground">{venueInfo.reviewCycle}</span>}
                         {m.actualEndDate && (
-                          <span className="text-[11px] text-emerald-600">录用日 {m.actualEndDate}</span>
+                          <span className="tabular text-[11px] text-primary">录用日 {m.actualEndDate}</span>
                         )}
                       </div>
                     </div>
-                    <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => handleDelete(m)}>
-                      <Trash2 className="h-3.5 w-3.5" />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      aria-label={`删除投稿计划 ${m.title}`}
+                      onClick={() => handleDelete(m)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
                   </div>
-                  <div className="flex items-center gap-2 mb-2 text-[11px] text-muted-foreground">
+                  <div className="tabular flex flex-wrap items-center gap-2 mb-2 text-[11px] text-muted-foreground">
                     {m.startDate && <span>开始: {m.startDate}</span>}
                     {m.endDate && <span>· 截稿: {m.endDate}</span>}
                     {daysLeft !== null && daysLeft > 0 && (
-                      <Badge variant="outline" className="text-[11px] text-amber-600 border-amber-500/30">
-                        <Clock className="h-2.5 w-2.5 mr-0.5" />{daysLeft} 天
+                      <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal">
+                        <Clock className="h-3 w-3 mr-0.5" aria-hidden="true" />{daysLeft} 天
                       </Badge>
                     )}
                   </div>
-                  <Progress value={m.progress} className="h-1.5 mb-2" />
-                  <div className="flex gap-1">
+                  <Progress value={m.progress} className="h-1.5 mb-2" aria-label={`${m.title} 投稿进度`} />
+                  <div className="flex gap-1" role="group" aria-label="投稿阶段">
                     {Object.keys(statusLabels).map((p) => (
                       <button
                         key={p}
+                        type="button"
                         onClick={() => handleStatus(m, Number(p))}
+                        aria-pressed={m.progress === Number(p)}
                         className={cn(
-                          'flex-1 text-[11px] py-1 rounded border transition-colors',
+                          'flex-1 text-[11px] py-1 rounded-sm border transition-colors',
                           m.progress === Number(p)
                             ? 'bg-primary text-primary-foreground border-primary'
                             : 'border-border hover:border-primary/40',
@@ -1201,20 +1194,17 @@ function SubmissionScheduler() {
                       </button>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
+              </div>
             )
           })
         )}
       </div>
 
-      <Card className="bg-blue-500/5 border-blue-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          💡 <strong>推荐策略</strong>（方法论 §6.1.3）：<strong>&quot;会议首发 → 期刊扩展&quot;</strong>——
-          Step 1: ICC/GLOBECOM 投稿（6页）→ Step 2: 根据反馈大改 → Step 3: 扩展 50% 以上新内容 → TCOM/TWC（12-14页）。
-          优势：会议周期短得反馈快，期刊要求&quot;显著扩展&quot;正好利用反馈，毕业前可累积 2 篇论文。
-        </CardContent>
-      </Card>
+      <MethodNote>
+        💡 <strong>推荐策略</strong>（方法论 §6.1.3）：<strong>&quot;会议首发 → 期刊扩展&quot;</strong>——
+        Step 1: ICC/GLOBECOM 投稿（6页）→ Step 2: 根据反馈大改 → Step 3: 扩展 50% 以上新内容 → TCOM/TWC（12-14页）。
+        优势：会议周期短得反馈快，期刊要求&quot;显著扩展&quot;正好利用反馈，毕业前可累积 2 篇论文。
+      </MethodNote>
     </div>
   )
 }
@@ -1251,77 +1241,66 @@ function DeviationReport() {
     }
   }
 
+  /* 只有「落后」是需要行动的警示 ⇒ destructive；其余沿强调色明度递进 */
   const stateColor: Record<DeviationState, string> = {
-    ahead: 'bg-emerald-500/15 text-emerald-600',
-    'on-time': 'bg-blue-500/15 text-blue-600',
-    behind: 'bg-red-500/15 text-red-600',
-    'in-progress': 'bg-amber-500/15 text-amber-600',
+    ahead: 'bg-primary text-primary-foreground',
+    'on-time': 'bg-primary/10 text-primary',
+    behind: 'bg-destructive/10 text-destructive',
+    'in-progress': 'bg-accent text-accent-foreground',
     unknown: 'bg-muted text-muted-foreground',
   }
 
   return (
     <div className="space-y-3">
-      <Card className="bg-cyan-500/5 border-cyan-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground flex items-center justify-between gap-2 flex-wrap">
-          <div>
-            📊 <strong className="text-cyan-700 dark:text-cyan-400">计划 vs 实际</strong>
-            —— 每个里程碑的计划完成日与实际完成日的偏差
-            {data?.projectStart ? ` · 项目起点 ${data.projectStart}` : ' · 未设项目起始日（甘特里程碑无法计算）'}
-          </div>
+      <MethodNote
+        action={
           <div className="flex items-center gap-2">
             <Button size="sm" variant="ghost" onClick={() => refetch()}>
-              <RefreshCw className="h-3.5 w-3.5 mr-1" /> 刷新
+              <RefreshCw className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> 刷新
             </Button>
-            <Button size="sm" variant="outline" onClick={exportMd} disabled={exporting}>
-              <Download className="h-3.5 w-3.5 mr-1" /> 导出 Markdown
+            <Button size="sm" variant="outline" onClick={exportMd} disabled={exporting} aria-busy={exporting}>
+              <Download className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> 导出 Markdown
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        }
+      >
+        📊 <strong>计划 vs 实际</strong>
+        —— 每个里程碑的计划完成日与实际完成日的偏差
+        {data?.projectStart ? ` · 项目起点 ${data.projectStart}` : ' · 未设项目起始日（甘特里程碑无法计算）'}
+      </MethodNote>
 
       {summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <Card>
-            <CardContent className="p-3 text-center">
-              <div className="text-2xl font-bold">{summary.total}</div>
-              <div className="text-[11px] text-muted-foreground">里程碑总数</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 text-center">
-              <div className="text-2xl font-bold text-emerald-600">{summary.done}</div>
-              <div className="text-[11px] text-muted-foreground">已完成</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 text-center">
-              <div className="text-2xl font-bold text-red-600">{summary.behind}</div>
-              <div className="text-[11px] text-muted-foreground">落后</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 text-center">
-              <div className="text-2xl font-bold text-amber-600">
-                {summary.avgDeviationDays === null ? '—' : `${summary.avgDeviationDays}`}
-              </div>
-              <div className="text-[11px] text-muted-foreground">平均偏差（天）</div>
-            </CardContent>
-          </Card>
+        /* 与总览统计格同一形式；只有「落后」非零时变 destructive */
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-px overflow-hidden rounded-md border border-border bg-border">
+          <div className="bg-card p-3 text-center">
+            <div className="tabular text-2xl font-medium">{summary.total}</div>
+            <div className="text-[11px] text-muted-foreground">里程碑总数</div>
+          </div>
+          <div className="bg-card p-3 text-center">
+            <div className="tabular text-2xl font-medium text-primary">{summary.done}</div>
+            <div className="text-[11px] text-muted-foreground">已完成</div>
+          </div>
+          <div className="bg-card p-3 text-center">
+            <div className={cn('tabular text-2xl font-medium', summary.behind > 0 && 'text-destructive')}>{summary.behind}</div>
+            <div className="text-[11px] text-muted-foreground">落后</div>
+          </div>
+          <div className="bg-card p-3 text-center">
+            <div className="tabular text-2xl font-medium">
+              {summary.avgDeviationDays === null ? '—' : `${summary.avgDeviationDays}`}
+            </div>
+            <div className="text-[11px] text-muted-foreground">平均偏差（天）</div>
+          </div>
         </div>
       )}
 
       {summary && summary.worst.length > 0 && (
-        <Card className="bg-red-500/5 border-red-500/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 text-red-600" /> 最需要处理的
-            </CardTitle>
-          </CardHeader>
+        <Card className="border-destructive/30 bg-destructive/5" role="alert">
+          <PanelHeader icon={AlertTriangle} title="最需要处理的" className="[&_svg]:text-destructive" />
           <CardContent className="space-y-1">
             {summary.worst.map((w) => (
               <div key={w.id} className="flex items-center justify-between text-xs">
                 <span className="truncate">{w.title}</span>
-                <span className="text-red-600 shrink-0 ml-2">
+                <span className="tabular text-destructive shrink-0 ml-2">
                   {w.deviationDays !== null && w.deviationDays > 0 ? `晚 ${w.deviationDays} 天` : DEVIATION_STATE_LABELS[w.state]}
                 </span>
               </div>
@@ -1330,16 +1309,18 @@ function DeviationReport() {
         </Card>
       )}
 
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[11px] text-muted-foreground">筛选:</span>
+      <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="按状态筛选">
+        <span className="text-[11px] text-muted-foreground" aria-hidden="true">筛选:</span>
         {DEVIATION_FILTERS.map((f) => {
           const count = f.value === 'all' ? rows.length : rows.filter((r) => r.state === f.value).length
           return (
             <button
               key={f.value}
+              type="button"
               onClick={() => setFilter(f.value)}
+              aria-pressed={filter === f.value}
               className={cn(
-                'rounded-full border px-2.5 py-0.5 text-[11px] transition-colors',
+                'tabular rounded-sm border px-2.5 py-0.5 text-[11px] transition-colors',
                 filter === f.value ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40',
               )}
             >
@@ -1361,29 +1342,27 @@ function DeviationReport() {
             </Card>
           )}
           {filtered.map((r) => (
-            <Card key={r.id}>
-              <CardContent className="p-3">
+            <div key={r.id} className="list-row p-3">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{r.title}</div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-muted-foreground">
-                      <Badge variant="outline" className="text-[11px]">{r.type}</Badge>
+                    <h3 className="text-sm font-medium truncate">{r.title}</h3>
+                    <div className="tabular flex items-center gap-2 mt-1 flex-wrap text-[11px] text-muted-foreground">
+                      <Badge variant="outline" className="rounded-sm text-[11px] font-mono font-normal">{r.type}</Badge>
                       <span>计划完成 {r.plannedEnd ?? '—'}</span>
                       <span>· 实际完成 {r.actualEnd ?? '—'}</span>
                       {r.deviationDays !== null && (
-                        <span className={cn(r.deviationDays > 0 ? 'text-red-600' : 'text-emerald-600')}>
+                        <span className={cn(r.deviationDays > 0 ? 'text-destructive' : 'text-primary')}>
                           · {r.deviationDays > 0 ? `晚 ${r.deviationDays} 天` : r.deviationDays < 0 ? `早 ${-r.deviationDays} 天` : '当天完成'}
                         </span>
                       )}
                     </div>
                   </div>
-                  <Badge variant="secondary" className={cn('text-[11px] shrink-0', stateColor[r.state])}>
+                  <Badge variant="secondary" className={cn('rounded-sm text-[11px] font-normal shrink-0', stateColor[r.state])}>
                     {DEVIATION_STATE_LABELS[r.state]}
                   </Badge>
                 </div>
-                <Progress value={r.progress} className="h-1.5" />
-              </CardContent>
-            </Card>
+                <Progress value={r.progress} className="h-1.5" aria-label={`${r.title} 进度`} />
+            </div>
           ))}
         </div>
       )}
