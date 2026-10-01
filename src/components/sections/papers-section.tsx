@@ -9,13 +9,7 @@ import {
   type PassKey,
   type ReadingProgress,
 } from '@/lib/library/reading-progress'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -75,7 +69,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { SectionHeader } from '@/components/section-header'
+import { SectionHeader, PanelHeader } from '@/components/section-header'
 import { downloadFromApi } from '@/lib/download'
 import { describeConflicts } from '@/lib/library/merge-conflicts'
 import { AISummary } from '@/components/ai-summary'
@@ -127,10 +121,11 @@ interface Paper {
 
 // ⚠️ 评分公式与优先级的权重表已挪到 `src/lib/library/reading-priority.ts`（唯一定义处）。
 // 这里以前还留着一份 `PRIORITY_RANK`，与排序比较器、行内渲染各写一遍 —— 三份实现必然漂移。
+/* 单一强调色：三档状态靠「中性 → 浅强调 → 强调」的明度递进区分，不再用琥珀/蓝/绿三色 */
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  unread: { label: '未读', color: 'text-amber-700', bg: 'bg-amber-100 dark:bg-amber-900/30' },
-  reading: { label: '阅读中', color: 'text-blue-700', bg: 'bg-blue-100 dark:bg-blue-900/30' },
-  read: { label: '已读', color: 'text-emerald-700', bg: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  unread: { label: '未读', color: 'text-muted-foreground', bg: 'bg-muted' },
+  reading: { label: '阅读中', color: 'text-accent-foreground', bg: 'bg-accent' },
+  read: { label: '已读', color: 'text-primary', bg: 'bg-primary/10' },
 }
 const CATEGORY_LABELS: Record<string, string> = {
   survey: '综述',
@@ -519,10 +514,11 @@ export function PapersSection() {
         <CardContent className="p-3">
           <div className="flex flex-wrap gap-2 items-center">
             <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                aria-label="搜索标题或作者"
                 placeholder="搜索标题或作者..."
                 className="pl-8 h-9"
               />
@@ -562,9 +558,9 @@ export function PapersSection() {
                 <SelectItem value="low">低</SelectItem>
               </SelectContent>
             </Select>
-            <Badge variant="outline" className="h-9 px-3 flex items-center gap-1">
-              <ListChecks className="h-3.5 w-3.5" />
-              {filtered.length} 篇
+            <Badge variant="outline" className="h-9 rounded-sm px-3 flex items-center gap-1 font-normal text-muted-foreground" aria-live="polite">
+              <ListChecks className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="tabular text-foreground">{filtered.length}</span> 篇
             </Badge>
           </div>
         </CardContent>
@@ -621,13 +617,13 @@ export function PapersSection() {
         <TabsContent value="ranked" className="space-y-2">
           <Card className="bg-muted/30">
             <CardContent className="p-3 text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-              <TrendingUp className="h-3.5 w-3.5 text-primary shrink-0" />
+              <TrendingUp className="h-3.5 w-3.5 text-primary shrink-0" aria-hidden="true" />
               评分公式：相关度 × 0.4 + 新颖度 × 0.3 + 开源代码 × 15 + 年份项 × 0.5 + 优先级 × 2
-              <span className="text-[10px] text-muted-foreground/80">
+              <span className="text-[11px] text-muted-foreground">
                 （方法论 §2.3.4 reading_priority.py · 公式只在
-                <code className="mx-0.5">src/lib/library/reading-priority.ts</code>定义一份）
+                <code className="mx-0.5 font-mono">src/lib/library/reading-priority.ts</code>定义一份）
               </span>
-              <span className="ml-auto text-[10px]">相关度 / 新颖度 / 优先级可由 AI 按论文信息重评</span>
+              <span className="ml-auto text-[11px]">相关度 / 新颖度 / 优先级可由 AI 按论文信息重评</span>
             </CardContent>
           </Card>
 
@@ -702,45 +698,54 @@ function PaperRow({ paper, topics, onSelect, onStatusChange, onDelete, selected 
   return (
     <div
       className={cn(
-        'rounded-md border bg-card p-3 transition-colors hover:border-primary/40 cursor-pointer',
-        selected ? 'border-primary ring-1 ring-primary/30' : 'border-border'
+        'list-row card-hover p-3 cursor-pointer',
+        selected && 'border-primary ring-1 ring-primary/30'
       )}
       onClick={onSelect}
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className={cn('inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md font-medium', status.bg, status.color)}>
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />
+            <span className={cn('inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm font-medium', status.bg, status.color)}>
+              <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
               {status.label}
             </span>
             {paper.category && (
-              <Badge variant="outline" className="text-[11px] py-0">{CATEGORY_LABELS[paper.category] ?? paper.category}</Badge>
+              <Badge variant="outline" className="rounded-sm text-[11px] py-0 font-normal">{CATEGORY_LABELS[paper.category] ?? paper.category}</Badge>
             )}
             {paper.priority === 'high' && (
-              <Badge variant="secondary" className="text-[11px] py-0 bg-red-500/15 text-red-600">
-                <Star className="h-2.5 w-2.5 mr-0.5 fill-current" />
+              <Badge variant="outline" className="rounded-sm text-[11px] py-0 font-normal border-destructive/30 text-destructive">
+                <Star className="h-3 w-3 mr-0.5 fill-current" aria-hidden="true" />
                 高优先
               </Badge>
             )}
-            <span className="text-[11px] text-muted-foreground">{paper.year}</span>
+            <span className="tabular text-[11px] text-muted-foreground">{paper.year}</span>
             <TopicBadges topicIds={paper.topicIds || '[]'} topics={topics} />
           </div>
-          <div className="text-sm font-medium leading-snug line-clamp-2">{paper.title}</div>
+          {/* 行内有下拉/链接/删除等交互子元素，整行不能是 button（不允许嵌套交互元素）。
+              这里用无自带处理器的原生 button 承载标题：点击 / Enter / Space 触发的 click
+              冒泡到外层 onClick ⇒ 行为与鼠标点整行完全一致，但键盘终于能聚焦到它。 */}
+          <button
+            type="button"
+            aria-pressed={selected}
+            className="block w-full rounded-sm text-left text-sm font-medium leading-snug line-clamp-2 hover:text-primary"
+          >
+            {paper.title}
+          </button>
           <div className="text-xs text-muted-foreground mt-1 truncate">
             {paper.authors || '未知作者'} · {paper.venue || '未知期刊'}
           </div>
           {paper.tags && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {paper.tags.split(',').slice(0, 4).map((t) => (
-                <Badge key={t} variant="outline" className="text-[11px] py-0 px-1.5 text-muted-foreground">#{t.trim()}</Badge>
+                <Badge key={t} variant="outline" className="rounded-sm text-[11px] py-0 px-1.5 font-normal text-muted-foreground">#{t.trim()}</Badge>
               ))}
             </div>
           )}
         </div>
         <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           <Select value={paper.status} onValueChange={onStatusChange}>
-            <SelectTrigger className="h-7 w-[88px] text-xs">
+            <SelectTrigger className="h-7 w-[88px] text-xs" aria-label="阅读状态">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -750,8 +755,8 @@ function PaperRow({ paper, topics, onSelect, onStatusChange, onDelete, selected 
             </SelectContent>
           </Select>
           {paper.codeUrl && (
-            <a href={paper.codeUrl.startsWith('http') ? paper.codeUrl : `https://${paper.codeUrl}`} target="_blank" rel="noreferrer" className="flex h-7 w-[88px] items-center justify-center gap-1 rounded-md border border-border text-xs hover:bg-muted">
-              <Github className="h-3 w-3" /> Code
+            <a href={paper.codeUrl.startsWith('http') ? paper.codeUrl : `https://${paper.codeUrl}`} target="_blank" rel="noreferrer" className="flex h-7 w-[88px] items-center justify-center gap-1 rounded-sm border border-border text-xs hover:bg-muted transition-colors">
+              <Github className="h-3 w-3" aria-hidden="true" /> Code
             </a>
           )}
           <Button size="sm" variant="ghost" className="h-7 w-[88px] text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={onDelete}>
@@ -773,54 +778,67 @@ function PaperRankedRow({ paper, rank, score, scoreTip, aiScoredAt, onSelect }: 
   aiScoredAt?: string
   onSelect: () => void
 }) {
-  const rankColors = rank === 1 ? 'bg-amber-500 text-white' : rank === 2 ? 'bg-slate-400 text-white' : rank === 3 ? 'bg-orange-700 text-white' : 'bg-muted text-muted-foreground'
+  /* 前三名：实心强调 → 浅强调 → 描边强调；其余中性。不再用金/银/铜三种彩色 */
+  const rankColors =
+    rank === 1
+      ? 'bg-primary text-primary-foreground border-primary'
+      : rank === 2
+        ? 'bg-accent text-accent-foreground border-primary/30'
+        : rank === 3
+          ? 'bg-card text-primary border-primary/40'
+          : 'bg-muted text-muted-foreground border-border'
   const aiTip = aiScoredAt
     ? `这条评分由 AI 按题录与摘要给出（${new Date(aiScoredAt).toLocaleString('zh-CN', { hour12: false })}）；你手工改过分数后标记会自动摘掉`
     : undefined
   return (
-    <div
-      className="flex items-center gap-3 rounded-md border border-border bg-card p-3 transition-colors cursor-pointer hover:border-primary/40"
+    /* 行内无交互子元素 ⇒ 整行直接是 button（原为可点击 div，键盘无法聚焦） */
+    <button
+      type="button"
+      className="list-row card-hover flex w-full items-center gap-3 p-3 text-left"
       onClick={onSelect}
     >
-      <div className={cn('flex h-9 w-9 items-center justify-center rounded-full font-bold text-sm shrink-0', rankColors)}>
-        #{rank}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
+      <span className={cn('tabular flex h-9 w-9 items-center justify-center rounded-sm border font-mono font-semibold text-sm shrink-0', rankColors)}>
+        {rank}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="flex items-center gap-1.5">
           <span className="text-sm font-medium leading-snug line-clamp-1">{paper.title}</span>
           {aiScoredAt && (
             <Badge
-              variant="secondary"
-              className="shrink-0 text-[9px] py-0 bg-primary/15 text-primary gap-0.5"
+              variant="outline"
+              className="shrink-0 rounded-sm text-[11px] py-0 font-normal border-primary/30 bg-accent text-accent-foreground gap-0.5"
               title={aiTip}
             >
-              <Sparkles className="h-2.5 w-2.5" />
+              <Sparkles className="h-3 w-3" aria-hidden="true" />
               AI 评
             </Badge>
           )}
-        </div>
-        <div className="text-xs text-muted-foreground truncate">
-          {paper.authors} · {paper.venue} · {paper.year}
-        </div>
-      </div>
-      <div className="flex items-center gap-3 shrink-0 text-xs">
-        <div className="text-center">
-          <div className="font-bold text-emerald-600">{paper.relevance}</div>
-          <div className="text-[11px] text-muted-foreground">相关</div>
-        </div>
-        <div className="text-center">
-          <div className="font-bold text-blue-600">{paper.novelty}</div>
-          <div className="text-[11px] text-muted-foreground">新颖</div>
-        </div>
-        <div className="text-center">
-          <div className="font-bold text-amber-600">{paper.citations}</div>
-          <div className="text-[11px] text-muted-foreground">引用</div>
-        </div>
-        <Badge variant="secondary" className="bg-primary/15 text-primary font-bold" title={scoreTip}>
+        </span>
+        <span className="block text-xs text-muted-foreground truncate">
+          {paper.authors} · {paper.venue} · <span className="tabular">{paper.year}</span>
+        </span>
+      </span>
+      <span className="flex items-center gap-3 shrink-0 text-xs">
+        <RankMetric value={paper.relevance} label="相关" />
+        <RankMetric value={paper.novelty} label="新颖" />
+        <RankMetric value={paper.citations} label="引用" />
+        <span
+          className="tabular rounded-sm border border-primary/30 bg-accent px-2 py-0.5 font-mono text-[13px] font-semibold text-primary"
+          title={scoreTip}
+        >
           {score.toFixed(1)}
-        </Badge>
-      </div>
-    </div>
+        </span>
+      </span>
+    </button>
+  )
+}
+
+function RankMetric({ value, label }: { value: number; label: string }) {
+  return (
+    <span className="block text-center">
+      <span className="tabular block font-semibold text-foreground">{value}</span>
+      <span className="block text-[11px] text-muted-foreground">{label}</span>
+    </span>
   )
 }
 
@@ -909,49 +927,53 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{paper.title}</CardTitle>
-        <CardDescription className="flex items-center gap-2 flex-wrap text-xs">
-          <span>{paper.authors}</span>
-          <span>·</span>
-          <span>{paper.venue}</span>
-          <span>·</span>
-          <span className="flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
-            {paper.year}
+      {/* 论文标题用 h2（本页 h1 是 SectionHeader「论文库」） */}
+      <PanelHeader
+        title={<span className="font-serif text-base leading-snug">{paper.title}</span>}
+        description={
+          <span className="flex items-center gap-2 flex-wrap">
+            <span>{paper.authors}</span>
+            <span aria-hidden="true">·</span>
+            <span>{paper.venue}</span>
+            <span aria-hidden="true">·</span>
+            <span className="flex items-center gap-1">
+              <Calendar className="h-3 w-3" aria-hidden="true" />
+              <span className="tabular">{paper.year}</span>
+            </span>
           </span>
-        </CardDescription>
-      </CardHeader>
+        }
+      />
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <DetailStat label={aiScoredAt ? '相关度 · AI' : '相关度'} value={`${paper.relevance}/10`} color="text-emerald-600" />
-          <DetailStat label={aiScoredAt ? '新颖度 · AI' : '新颖度'} value={`${paper.novelty}/10`} color="text-blue-600" />
-          <DetailStat label="引用数" value={paper.citations} color="text-amber-600" />
-          <DetailStat label="状态" value={STATUS_LABELS[paper.status]?.label ?? paper.status} color="text-primary" />
+        {/* 与总览统计格同一形式：gap-px 细线分格、墨色数字 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px overflow-hidden rounded-sm border border-border bg-border">
+          <DetailStat label={aiScoredAt ? '相关度 · AI' : '相关度'} value={`${paper.relevance}/10`} />
+          <DetailStat label={aiScoredAt ? '新颖度 · AI' : '新颖度'} value={`${paper.novelty}/10`} />
+          <DetailStat label="引用数" value={paper.citations} />
+          <DetailStat label="状态" value={STATUS_LABELS[paper.status]?.label ?? paper.status} accent />
         </div>
 
         {/* 手动改分的入口 —— 没有它，「AI 打了分但你不认同」就无处下手 */}
         {!editingScores ? (
           <div className="flex flex-wrap items-center gap-2 -mt-1">
-            <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={openScoreEditor}>
-              <Pencil className="h-3 w-3 mr-1" />
+            <Button size="sm" variant="ghost" className="h-7 text-[12px]" onClick={openScoreEditor}>
+              <Pencil className="h-3 w-3 mr-1" aria-hidden="true" />
               改分数与优先级
             </Button>
             {aiScoredAt ? (
-              <span className="text-[10px] text-primary">
+              <span className="text-[11px] text-primary">
                 这项评分由 AI 按题录与摘要给出（{new Date(aiScoredAt).toLocaleString('zh-CN', { hour12: false })}）·
                 你手动改过之后标记会自动摘掉
               </span>
             ) : (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[11px] text-muted-foreground">
                 当前是你自己填的分数（或历史数据）
               </span>
             )}
           </div>
         ) : (
-          <div className="flex flex-wrap items-end gap-2 rounded-md border border-border/60 bg-muted/20 p-2">
+          <div className="flex flex-wrap items-end gap-2 rounded-sm border border-border bg-muted/30 p-2.5">
             <div>
-              <Label className="text-[10px] text-muted-foreground">相关度 1-10</Label>
+              <Label className="text-[11px] text-muted-foreground">相关度 1-10</Label>
               <Input
                 type="number"
                 min={1}
@@ -962,7 +984,7 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
               />
             </div>
             <div>
-              <Label className="text-[10px] text-muted-foreground">新颖度 1-10</Label>
+              <Label className="text-[11px] text-muted-foreground">新颖度 1-10</Label>
               <Input
                 type="number"
                 min={1}
@@ -973,7 +995,7 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
               />
             </div>
             <div>
-              <Label className="text-[10px] text-muted-foreground">优先级</Label>
+              <Label className="text-[11px] text-muted-foreground">优先级</Label>
               <Select
                 value={scoreDraft.priority}
                 onValueChange={(v) => setScoreDraft({ ...scoreDraft, priority: v })}
@@ -995,7 +1017,7 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingScores(false)}>
               取消
             </Button>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground">
               分数会影响「优先级排序」那张榜；改完会摘掉该篇的 AI 标记
             </span>
           </div>
@@ -1011,7 +1033,7 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
         <AISummary paper={paper} />
 
         {/* 所属课题 —— 决定 AI 研究分析/AI 打分会不会用到这篇论文 */}
-        <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+        <div className="rounded-sm border border-border bg-muted/30 p-2.5">
           <TopicLinker
             topicIds={paper.topicIds || '[]'}
             onSave={async (json) => {
@@ -1046,7 +1068,7 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
           </a>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-sm border border-border bg-muted/30 px-3 py-2">
           <input
             ref={attachPdfRef}
             type="file"
@@ -1072,8 +1094,8 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
               <Upload className="h-3 w-3 mr-1" /> 挂载 PDF
             </Button>
           )}
-          {paper.doi && <span className="text-[11px] text-muted-foreground">DOI {paper.doi}</span>}
-          {paper.zoteroKey && <span className="text-[11px] text-muted-foreground">Zotero {paper.zoteroKey}</span>}
+          {paper.doi && <span className="font-mono text-[11px] text-muted-foreground">DOI {paper.doi}</span>}
+          {paper.zoteroKey && <span className="font-mono text-[11px] text-muted-foreground">Zotero {paper.zoteroKey}</span>}
         </div>
 
         <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
@@ -1127,7 +1149,7 @@ function PaperDetail({ paper, onUpdate, aiScoredAt }: { paper: Paper; onUpdate: 
               placeholder="可参考方法论 §2.3.2 论文精读模板..."
             />
           ) : (
-            <div className="rounded-md border border-border bg-muted/30 p-3 text-xs whitespace-pre-wrap min-h-[80px]">
+            <div className="rounded-sm border border-border bg-muted/30 p-3 text-xs leading-relaxed whitespace-pre-wrap min-h-[80px]">
               {paper.notes || '暂无笔记'}
             </div>
           )}
@@ -1143,8 +1165,6 @@ const PASS_INFO = [
     key: 'pass1' as const,
     title: '第一遍 · 快速筛选',
     duration: '5-10 分钟',
-    color: '#3b82f6',
-    bgClass: 'bg-blue-500/10 border-blue-500/30',
     icon: '🔍',
     desc: 'Title → Abstract → Conclusion → 扫图表',
     questions: ['研究什么问题？', '用了什么方法？', '结果如何？', '和课题相关吗？'],
@@ -1154,8 +1174,6 @@ const PASS_INFO = [
     key: 'pass2' as const,
     title: '第二遍 · 理解框架',
     duration: '30-60 分钟',
-    color: '#f59e0b',
-    bgClass: 'bg-amber-500/10 border-amber-500/30',
     icon: '📖',
     desc: 'Intro → Method → Experiment(只看图表)',
     questions: ['动机是什么？', '核心思想？', '实验设置合理吗？', '比 baseline 好多少？'],
@@ -1165,8 +1183,6 @@ const PASS_INFO = [
     key: 'pass3' as const,
     title: '第三遍 · 深度复现',
     duration: '1-2 小时',
-    color: '#10b981',
-    bgClass: 'bg-emerald-500/10 border-emerald-500/30',
     icon: '🔬',
     desc: '全文精读 + 复现核心实验结果',
     questions: ['公式推导自洽？', '代码实现一致？', '可改进的点？', 'limitation？'],
@@ -1228,8 +1244,15 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
           <div className="text-[11px] text-muted-foreground">方法论 §2.3.1 三遍阅读法</div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="text-[11px] text-muted-foreground">{completedCount}/3 完成</div>
-          <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden">
+          <div className="tabular text-[11px] text-muted-foreground">{completedCount}/3 完成</div>
+          <div
+            className="h-1.5 w-20 rounded-full bg-muted overflow-hidden"
+            role="progressbar"
+            aria-label="三遍阅读完成度"
+            aria-valuemin={0}
+            aria-valuemax={3}
+            aria-valuenow={completedCount}
+          >
             <div className="h-full bg-primary transition-all" style={{ width: `${overallPct}%` }} />
           </div>
         </div>
@@ -1245,33 +1268,40 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
             <div
               key={p.key}
               className={cn(
-                'rounded-md border p-2.5 transition-all cursor-pointer',
-                p.bgClass,
-                isDone && 'ring-1 ring-offset-1 ring-offset-background',
+                'list-row card-hover p-2.5 cursor-pointer',
+                isDone && 'border-primary/50 bg-accent/40',
                 isExpanded && 'md:col-span-3'
               )}
-              style={isDone ? { borderColor: p.color, boxShadow: `0 0 0 1px ${p.color}40` } : {}}
               onClick={() => setExpandedPass(isExpanded ? null : p.key)}
             >
               <div className="flex items-start gap-2">
                 <button
+                  type="button"
                   onClick={(e) => { e.stopPropagation(); togglePass(p.key) }}
+                  aria-pressed={isDone}
+                  aria-label={`${p.title}：${isDone ? '已完成，点击取消' : '标记为完成'}`}
                   className={cn(
-                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-all',
-                    isDone ? 'text-white' : 'border-muted-foreground/30 bg-background'
+                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                    isDone
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-muted-foreground/30 bg-background hover:border-primary/60'
                   )}
-                  style={isDone ? { background: p.color, borderColor: p.color } : {}}
                 >
-                  {isDone && <span className="text-[11px]">✓</span>}
+                  {isDone && <span className="text-[11px]" aria-hidden="true">✓</span>}
                 </button>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                {/* 展开/收起：无自带处理器的 button，click 冒泡到外层 onClick（与指标卡同一手法） */}
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  className="flex-1 min-w-0 rounded-sm text-left"
+                >
+                  <span className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-medium">{p.title}</span>
-                    <span className="text-[11px]">{p.icon}</span>
-                  </div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5">{p.duration}</div>
-                  <div className="text-[11px] text-muted-foreground/80 mt-1">{p.desc}</div>
-                </div>
+                    <span className="text-[11px]" aria-hidden="true">{p.icon}</span>
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground mt-0.5">{p.duration}</span>
+                  <span className="block text-[11px] text-muted-foreground mt-1">{p.desc}</span>
+                </button>
               </div>
 
               {isExpanded && (
@@ -1281,7 +1311,7 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
                     <ul className="space-y-0.5">
                       {p.questions.map((q, i) => (
                         <li key={i} className="text-[11px] flex items-start gap-1">
-                          <span style={{ color: p.color }}>•</span>
+                          <span className="text-primary" aria-hidden="true">•</span>
                           <span>{q}</span>
                         </li>
                       ))}
@@ -1320,7 +1350,7 @@ function ThreePassReadingTracker({ paper, onUpdate }: { paper: Paper; onUpdate: 
                         onClick={(e) => e.stopPropagation()}
                       />
                     ) : (
-                      <div className="rounded bg-background/60 p-2 text-[11px] whitespace-pre-wrap min-h-[40px] border border-border/30">
+                      <div className="rounded-sm bg-background p-2 text-[12px] leading-relaxed whitespace-pre-wrap min-h-[40px] border border-border">
                         {passNotes || <span className="text-muted-foreground">暂无笔记</span>}
                       </div>
                     )}
@@ -1403,7 +1433,7 @@ function CitationGenerator({ paper }: { paper: Paper }) {
   }
 
   return (
-    <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
+    <div className="rounded-sm border border-border bg-muted/30 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div>
           <div className="text-xs font-semibold flex items-center gap-1.5">
@@ -1425,17 +1455,17 @@ function CitationGenerator({ paper }: { paper: Paper }) {
       {showCitation && (
         <div className="space-y-2 animate-fade-in">
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="secondary" className="text-[11px] bg-purple-500/15 text-purple-600">
+            <Badge variant="outline" className="rounded-sm text-[11px] font-mono font-normal border-primary/30 bg-accent text-accent-foreground">
               @{type}
             </Badge>
-            <Badge variant="outline" className="text-[11px] font-mono">{key}</Badge>
+            <Badge variant="outline" className="rounded-sm text-[11px] font-mono font-normal">{key}</Badge>
           </div>
-          <pre className="rounded-md bg-background/80 border border-border/40 p-2.5 text-[11px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
+          <pre className="rounded-sm bg-background border border-border p-2.5 text-[12px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
             {content}
           </pre>
           <Button size="sm" variant="outline" className="h-7 text-xs w-full" onClick={copy}>
             {copied ? (
-              <><CheckCircle2 className="h-3 w-3 mr-1 text-emerald-500" /> 已复制</>
+              <><CheckCircle2 className="h-3 w-3 mr-1 text-primary" aria-hidden="true" /> 已复制</>
             ) : (
               <><Copy className="h-3 w-3 mr-1" /> 复制 BibTeX</>
             )}
@@ -1446,20 +1476,20 @@ function CitationGenerator({ paper }: { paper: Paper }) {
   )
 }
 
-function DetailStat({ label, value, color }: { label: string; value: string | number; color: string }) {
+function DetailStat({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
   return (
-    <div className="rounded-md border border-border/60 p-2.5">
-      <div className={cn('text-lg font-bold', color)}>{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
+    <div className="bg-card p-2.5">
+      <div className={cn('tabular text-lg font-semibold leading-tight', accent && 'text-primary')}>{value}</div>
+      <div className="text-[11px] text-muted-foreground mt-0.5">{label}</div>
     </div>
   )
 }
 
 function SkeletonList() {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" aria-busy="true" aria-label="加载中">
       {[1, 2, 3, 4, 5].map((i) => (
-        <div key={i} className="rounded-lg border border-border p-3 animate-pulse">
+        <div key={i} className="rounded-sm border border-border p-3 animate-pulse">
           <div className="h-3 bg-muted rounded w-1/3 mb-2" />
           <div className="h-4 bg-muted rounded w-3/4 mb-1" />
           <div className="h-3 bg-muted rounded w-1/2" />

@@ -2,13 +2,7 @@
 
 import { useFetch, useApi } from '@/lib/hooks'
 import { useState, useMemo, useCallback } from 'react'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -27,10 +21,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { SectionHeader } from '@/components/section-header'
+import { SectionHeader, PanelHeader, MethodNote } from '@/components/section-header'
 import { FullTextSearch } from '@/components/full-text-search'
 import { AIRelatedPapers } from '@/components/ai-related-papers'
 import {
@@ -47,7 +40,6 @@ import {
   ArrowUpRight,
   Database,
   Calendar,
-  Filter,
   Table as TableIcon,
   Download,
   Code,
@@ -73,11 +65,13 @@ interface SearchLog {
   createdAt: string
 }
 
-const DIMENSION_LABELS: Record<string, { label: string; color: string }> = {
-  scenario: { label: '通信场景', color: '#10b981' },
-  method: { label: 'AI 方法', color: '#f59e0b' },
-  problem: { label: '通信子问题', color: '#ef4444' },
+/* 三个维度用「实心 / 半透明 / 空心」圆点区分，不再用绿/琥珀/红三色（红色保留给危险操作） */
+const DIMENSION_LABELS: Record<string, { label: string; dot: string; chip: string }> = {
+  scenario: { label: '通信场景', dot: 'bg-primary', chip: 'border-primary/40 bg-primary/10 text-primary' },
+  method: { label: 'AI 方法', dot: 'bg-primary/45', chip: 'border-primary/30 bg-accent text-accent-foreground' },
+  problem: { label: '通信子问题', dot: 'border border-primary bg-transparent', chip: 'border-border bg-muted text-foreground' },
 }
+
 
 export function SearchSection() {
   return (
@@ -194,15 +188,15 @@ function KeywordMatrix() {
   return (
     <div className="space-y-4">
       {/* Summary card */}
-      <Card className="border-l-2 border-l-primary/60 bg-card">
+      <Card className="border-l-2 border-l-primary/60 bg-card py-0">
         <CardContent className="p-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <div className="text-xs text-muted-foreground mb-1">三维关键词矩阵（方法论 §1.2.1）</div>
-              <div className="text-2xl font-bold gradient-text">
+              <div className="eyebrow mb-1">三维关键词矩阵（方法论 §1.2.1）</div>
+              <div className="tabular font-mono text-2xl font-semibold tracking-tight">
                 {grouped.scenario.length} × {grouped.method.length} × {grouped.problem.length}
               </div>
-              <div className="text-xs text-muted-foreground mt-0.5">共 {totalCombos} 种检索组合</div>
+              <div className="text-xs text-muted-foreground mt-0.5">共 <span className="tabular text-foreground">{totalCombos}</span> 种检索组合</div>
             </div>
             <div className="text-xs text-muted-foreground max-w-md">
               💡 建议每周从矩阵中选 2-3 个组合，在 IEEE Xplore / arXiv 上检索，扫读最新结果
@@ -215,25 +209,28 @@ function KeywordMatrix() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         {(['scenario', 'method', 'problem'] as const).map((dim) => (
           <Card key={dim}>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm flex items-center gap-2" style={{ color: DIMENSION_LABELS[dim].color }}>
-                  <span className="h-2 w-2 rounded-full" style={{ background: DIMENSION_LABELS[dim].color }} />
+            <PanelHeader
+              title={
+                <>
+                  <span className={cn('h-2 w-2 shrink-0 rounded-full', DIMENSION_LABELS[dim].dot)} aria-hidden="true" />
                   {DIMENSION_LABELS[dim].label}
-                </CardTitle>
-                <div className="flex items-center gap-1">
-                  <Badge variant="outline" className="text-[11px]">{grouped[dim].length}</Badge>
+                </>
+              }
+              action={
+                <>
+                  <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal">{grouped[dim].length}</Badge>
                   <Button
                     size="sm"
                     variant="ghost"
                     className="h-7 w-7 p-0"
+                    aria-label={`添加${DIMENSION_LABELS[dim].label}关键词`}
                     onClick={() => { setAddDialog({ open: true, dim }); setNewText('') }}
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
-                </div>
-              </div>
-            </CardHeader>
+                </>
+              }
+            />
             <CardContent className="pt-0">
               <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
                 {grouped[dim].map((kw) => {
@@ -243,20 +240,23 @@ function KeywordMatrix() {
                     <div
                       key={kw}
                       className={cn(
-                        'group flex items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-xs cursor-pointer transition-all',
-                        isSelected
-                          ? 'border-primary bg-primary/10 text-primary font-medium'
-                          : 'border-border hover:border-primary/40'
+                        'list-row card-hover group flex items-center justify-between gap-2 px-2 py-1.5 text-xs cursor-pointer',
+                        isSelected && 'border-primary bg-primary/10 text-primary font-medium'
                       )}
                       onClick={() => setSelected({ ...selected, [dim]: isSelected ? undefined : kw })}
                     >
-                      <span className="truncate">{kw}</span>
+                      {/* 行内有删除按钮 ⇒ 外层保持 div；关键词本身用无处理器的 button，click 冒泡到外层 */}
+                      <button type="button" aria-pressed={isSelected} className="min-w-0 flex-1 truncate rounded-sm text-left">
+                        {kw}
+                      </button>
                       {isCustom && (
                         <button
+                          type="button"
                           onClick={(e) => { e.stopPropagation(); handleDelete(kw, dim) }}
-                          className="opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
+                          aria-label={`删除关键词 ${kw}`}
+                          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-destructive hover:text-destructive"
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-3 w-3" aria-hidden="true" />
                         </button>
                       )}
                     </div>
@@ -270,26 +270,24 @@ function KeywordMatrix() {
 
       {/* Selected combination preview */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">已选组合</CardTitle>
-        </CardHeader>
+        <PanelHeader title="已选组合" />
         <CardContent>
           <div className="flex items-center gap-2 flex-wrap mb-3">
-            <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+            <Badge variant="outline" className={cn('rounded-sm font-normal', DIMENSION_LABELS.scenario.chip)}>
               {selected.scenario ?? '— 场景 —'}
             </Badge>
-            <span className="text-muted-foreground">×</span>
-            <Badge variant="secondary" className="bg-amber-500/15 text-amber-700 dark:text-amber-400">
+            <span className="text-muted-foreground" aria-hidden="true">×</span>
+            <Badge variant="outline" className={cn('rounded-sm font-normal', DIMENSION_LABELS.method.chip)}>
               {selected.method ?? '— 方法 —'}
             </Badge>
-            <span className="text-muted-foreground">×</span>
-            <Badge variant="secondary" className="bg-red-500/15 text-red-700 dark:text-red-400">
+            <span className="text-muted-foreground" aria-hidden="true">×</span>
+            <Badge variant="outline" className={cn('rounded-sm font-normal', DIMENSION_LABELS.problem.chip)}>
               {selected.problem ?? '— 问题 —'}
             </Badge>
           </div>
           {selected.scenario && selected.method && selected.problem ? (
             <div className="space-y-2">
-              <div className="rounded-md bg-muted p-3 font-mono text-xs">
+              <div className="rounded-sm border border-border bg-muted p-3 font-mono text-xs break-all">
                 {`("${selected.scenario}") AND ("${selected.method}") AND ("${selected.problem}")`}
               </div>
               <div className="flex gap-2">
@@ -304,9 +302,9 @@ function KeywordMatrix() {
                   href={`https://ieeexplore.ieee.org/search/searchresult.jsp?queryText=${encodeURIComponent(`("${selected.scenario}") AND ("${selected.method}") AND ("${selected.problem}")`)}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+                  className="inline-flex items-center gap-1 rounded-sm border border-border px-3 py-1.5 text-xs hover:bg-muted transition-colors"
                 >
-                  <ExternalLink className="h-3 w-3" /> 在 IEEE Xplore 中打开
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" /> 在 IEEE Xplore 中打开
                 </a>
               </div>
             </div>
@@ -377,38 +375,52 @@ function QueryBuilder() {
 
   return (
     <div className="space-y-4">
-      <Card className="bg-blue-500/5 border-blue-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          <strong className="text-blue-700 dark:text-blue-400">三层递进检索策略</strong>（方法论 §2.1.2）
-          <ul className="mt-1 ml-4 space-y-0.5 list-disc">
-            <li>第一层：宽泛检索（找综述）</li>
-            <li>第二层：精准检索（定位核心论文）</li>
-            <li>第三层：追溯检索（扩展引用网络）</li>
-          </ul>
-        </CardContent>
-      </Card>
+      <MethodNote>
+        <strong>三层递进检索策略</strong>（方法论 §2.1.2）
+        <ul className="mt-1 ml-4 space-y-0.5 list-disc">
+          <li>第一层：宽泛检索（找综述）</li>
+          <li>第二层：精准检索（定位核心论文）</li>
+          <li>第三层：追溯检索（扩展引用网络）</li>
+        </ul>
+      </MethodNote>
 
       <div className="space-y-3">
         {groups.map((g) => (
           <Card key={g.name}>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-mono text-primary">{g.name}</span>
-                  <span className="text-xs text-muted-foreground">{g.keywords.length} 关键词 · OR 连接</span>
-                </CardTitle>
-                <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => removeGroup(g.name)}>
-                  <Trash2 className="h-3.5 w-3.5" />
+            <PanelHeader
+              as="h3"
+              title={
+                <>
+                  <span className="rounded-sm bg-accent px-2 py-0.5 text-xs font-mono text-accent-foreground">{g.name}</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    <span className="tabular">{g.keywords.length}</span> 关键词 · OR 连接
+                  </span>
+                </>
+              }
+              action={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  aria-label={`删除关键词组 ${g.name}`}
+                  onClick={() => removeGroup(g.name)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
-              </div>
-            </CardHeader>
+              }
+            />
             <CardContent className="pt-0 space-y-2">
               <div className="flex flex-wrap gap-1">
                 {g.keywords.map((kw) => (
-                  <Badge key={kw} variant="secondary" className="text-xs gap-1 pr-1">
+                  <Badge key={kw} variant="secondary" className="rounded-sm text-xs font-normal gap-1 pr-1">
                     "{kw}"
-                    <button onClick={() => removeKw(g.name, kw)} className="hover:text-destructive">
-                      <Trash2 className="h-2.5 w-2.5" />
+                    <button
+                      type="button"
+                      onClick={() => removeKw(g.name, kw)}
+                      aria-label={`移除 ${kw}`}
+                      className="rounded-sm hover:text-destructive"
+                    >
+                      <Trash2 className="h-3 w-3" aria-hidden="true" />
                     </button>
                   </Badge>
                 ))}
@@ -424,8 +436,8 @@ function QueryBuilder() {
                   className="h-8 text-xs"
                   onKeyDown={(e) => e.key === 'Enter' && addKw(g.name)}
                 />
-                <Button size="sm" variant="outline" className="h-8" onClick={() => addKw(g.name)}>
-                  <Plus className="h-3 w-3" />
+                <Button size="sm" variant="outline" className="h-8" aria-label={`添加关键词到 ${g.name}`} onClick={() => addKw(g.name)}>
+                  <Plus className="h-3 w-3" aria-hidden="true" />
                 </Button>
               </div>
             </CardContent>
@@ -447,15 +459,12 @@ function QueryBuilder() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">生成检索式</CardTitle>
-          <CardDescription className="text-xs">组间用 AND 连接，组内用 OR 连接</CardDescription>
-        </CardHeader>
+        <PanelHeader title="生成检索式" description="组间用 AND 连接，组内用 OR 连接" />
         <CardContent>
-          <div className="rounded-md bg-muted p-3 font-mono text-xs break-all min-h-[60px]">
+          <div className="rounded-sm border border-border bg-muted p-3 font-mono text-xs break-all min-h-[60px]">
             {query || '— 暂无 —'}
           </div>
-          <div className="flex gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-3">
             <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(query); toast.success('已复制') }} disabled={!query}>
               <Copy className="h-3 w-3 mr-1" /> 复制
             </Button>
@@ -463,25 +472,25 @@ function QueryBuilder() {
               href={`https://ieeexplore.ieee.org/search/searchresult.jsp?queryText=${encodeURIComponent(query)}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+              className="inline-flex items-center gap-1 rounded-sm border border-border px-3 py-1.5 text-xs hover:bg-muted transition-colors"
             >
-              <ExternalLink className="h-3 w-3" /> IEEE Xplore
+              <ExternalLink className="h-3 w-3" aria-hidden="true" /> IEEE Xplore
             </a>
             <a
               href={`https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+              className="inline-flex items-center gap-1 rounded-sm border border-border px-3 py-1.5 text-xs hover:bg-muted transition-colors"
             >
-              <ExternalLink className="h-3 w-3" /> Google Scholar
+              <ExternalLink className="h-3 w-3" aria-hidden="true" /> Google Scholar
             </a>
             <a
               href={`http://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&max_results=20`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+              className="inline-flex items-center gap-1 rounded-sm border border-border px-3 py-1.5 text-xs hover:bg-muted transition-colors"
             >
-              <ExternalLink className="h-3 w-3" /> arXiv
+              <ExternalLink className="h-3 w-3" aria-hidden="true" /> arXiv
             </a>
           </div>
         </CardContent>
@@ -528,12 +537,10 @@ function ArxivMonitor() {
 
   return (
     <div className="space-y-4">
-      <Card className="bg-emerald-500/5 border-emerald-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          <strong className="text-emerald-700 dark:text-emerald-400">📡 arXiv 监控</strong>
-          （方法论 §1.2.4 arxiv_monitor.py）—— 每周一早上运行，生成本周新论文报告，花 30 分钟扫读标题+摘要
-        </CardContent>
-      </Card>
+      <MethodNote>
+        <strong>📡 arXiv 监控</strong>
+        （方法论 §1.2.4 arxiv_monitor.py）—— 每周一早上运行，生成本周新论文报告，花 30 分钟扫读标题+摘要
+      </MethodNote>
 
       <Card>
         <CardContent className="p-3 space-y-2">
@@ -560,21 +567,19 @@ function ArxivMonitor() {
       {results.length > 0 && (
         <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
           {results.map((p, i) => (
-            <Card key={i} className="card-hover">
-              <CardContent className="p-3">
-                <div className="flex items-start gap-2 mb-1.5">
-                  <Badge variant="secondary" className="text-[11px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 shrink-0">
-                    {p.published}
-                  </Badge>
-                  <div className="text-sm font-medium leading-snug flex-1">{p.title}</div>
-                </div>
-                <div className="text-xs text-muted-foreground mb-2">{p.authors}</div>
-                <div className="text-xs text-muted-foreground line-clamp-2 mb-2">{p.summary}...</div>
-                <a href={p.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                  <ExternalLink className="h-3 w-3" /> 查看原文
-                </a>
-              </CardContent>
-            </Card>
+            <article key={i} className="list-row card-hover p-3">
+              <div className="flex items-start gap-2 mb-1.5">
+                <Badge variant="outline" className="tabular rounded-sm text-[11px] font-mono font-normal border-primary/30 bg-accent text-accent-foreground shrink-0">
+                  {p.published}
+                </Badge>
+                <h3 className="text-sm font-medium leading-snug flex-1">{p.title}</h3>
+              </div>
+              <div className="text-xs text-muted-foreground mb-2">{p.authors}</div>
+              <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2 mb-2">{p.summary}...</p>
+              <a href={p.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                <ExternalLink className="h-3 w-3" aria-hidden="true" /> 查看原文
+              </a>
+            </article>
           ))}
         </div>
       )}
@@ -616,12 +621,10 @@ function SnowballMethod() {
 
   return (
     <div className="space-y-4">
-      <Card className="bg-purple-500/5 border-purple-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          <strong className="text-purple-700 dark:text-purple-400">文献雪球法</strong>
-          （方法论 §1.2.5 + §2.1.3）—— 从核心论文出发，向两个方向扩展引用网络
-        </CardContent>
-      </Card>
+      <MethodNote>
+        <strong>文献雪球法</strong>
+        （方法论 §1.2.5 + §2.1.3）—— 从核心论文出发，向两个方向扩展引用网络
+      </MethodNote>
 
       <Card>
         <CardContent className="p-3 space-y-2">
@@ -640,7 +643,7 @@ function SnowballMethod() {
             <CardContent className="p-6">
               <div className="flex flex-col items-center gap-4">
                 {/* Seed */}
-                <div className="rounded-lg border-2 border-primary bg-primary/10 px-4 py-2 text-center max-w-md">
+                <div className="rounded-md border-2 border-primary bg-primary/10 px-4 py-2 text-center max-w-md">
                   <div className="text-[11px] text-primary font-semibold mb-0.5">🌱 种子论文</div>
                   <div className="text-xs font-medium">{seedPaper}</div>
                 </div>
@@ -649,15 +652,16 @@ function SnowballMethod() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                   {/* Forward snowball (newer) */}
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
-                      <ArrowUpRight className="h-4 w-4" />
+                    <h3 className="flex items-center gap-2 text-sm font-medium text-primary">
+                      <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
                       向后雪球（最新进展）
-                    </div>
+                    </h3>
                     <div className="text-[11px] text-muted-foreground ml-6">查看谁引用了它</div>
+                    {/* 原为 cursor-pointer 的 div 但没有点击处理 ⇒ 去掉误导性的指针样式，保留为静态条目 */}
                     {tree.newer.map((p, i) => (
-                      <div key={i} className="rounded-md border border-border bg-card p-2 text-xs transition-colors hover:border-primary/40 cursor-pointer">
+                      <div key={i} className="list-row p-2 text-xs">
                         <div className="flex items-start gap-1.5">
-                          <span className="text-emerald-600 mt-0.5">→</span>
+                          <span className="text-primary mt-0.5" aria-hidden="true">→</span>
                           <span>{p}</span>
                         </div>
                       </div>
@@ -666,15 +670,15 @@ function SnowballMethod() {
 
                   {/* Backward snowball (foundational) */}
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
-                      <ArrowDownRight className="h-4 w-4" />
+                    <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <ArrowDownRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                       向前雪球（理论基础）
-                    </div>
+                    </h3>
                     <div className="text-[11px] text-muted-foreground ml-6">查看它引用的论文</div>
                     {tree.foundational.map((p, i) => (
-                      <div key={i} className="rounded-md border border-border bg-card p-2 text-xs transition-colors hover:border-primary/40 cursor-pointer">
+                      <div key={i} className="list-row p-2 text-xs">
                         <div className="flex items-start gap-1.5">
-                          <span className="text-amber-600 mt-0.5">←</span>
+                          <span className="text-muted-foreground mt-0.5" aria-hidden="true">←</span>
                           <span>{p}</span>
                         </div>
                       </div>
@@ -735,17 +739,16 @@ function SearchLogs() {
 
   return (
     <div className="space-y-4">
-      <Card className="bg-amber-500/5 border-amber-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground flex items-center justify-between">
-          <div>
-            <strong className="text-amber-700 dark:text-amber-400">检索记录卡</strong>
-            （方法论 §2.1.2）—— 记录每次检索的数据库、检索式、结果数和收获，便于复盘
-          </div>
+      <MethodNote
+        action={
           <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> 新增记录
+            <Plus className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> 新增记录
           </Button>
-        </CardContent>
-      </Card>
+        }
+      >
+        <strong>检索记录卡</strong>
+        （方法论 §2.1.2）—— 记录每次检索的数据库、检索式、结果数和收获，便于复盘
+      </MethodNote>
 
       {!logs || logs.length === 0 ? (
         <Card className="border-dashed">
@@ -756,34 +759,38 @@ function SearchLogs() {
       ) : (
         <div className="space-y-2">
           {logs.map((log) => (
-            <Card key={log.id}>
-              <CardContent className="p-3">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-xs bg-blue-500/15 text-blue-700 dark:text-blue-400">
-                      <Database className="h-3 w-3 mr-1" />
-                      {log.database}
-                    </Badge>
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {new Date(log.createdAt).toLocaleDateString('zh-CN')}
-                    </span>
-                  </div>
-                  <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => handleDelete(log.id)}>
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
+            <div key={log.id} className="list-row p-3">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="rounded-sm text-xs font-normal border-primary/30 bg-accent text-accent-foreground">
+                    <Database className="h-3 w-3 mr-1" aria-hidden="true" />
+                    {log.database}
+                  </Badge>
+                  <span className="tabular text-[11px] text-muted-foreground flex items-center gap-1">
+                    <Calendar className="h-3 w-3" aria-hidden="true" />
+                    {new Date(log.createdAt).toLocaleDateString('zh-CN')}
+                  </span>
                 </div>
-                <div className="rounded-md bg-muted p-2 font-mono text-xs mb-2">{log.query}</div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>结果数: <strong className="text-foreground">{log.resultsCount}</strong></span>
-                  <span>保留: <strong className="text-emerald-600">{log.keptCount}</strong></span>
-                  <span>保留率: {log.resultsCount > 0 ? ((log.keptCount / log.resultsCount) * 100).toFixed(0) : 0}%</span>
-                </div>
-                {log.notes && (
-                  <div className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">{log.notes}</div>
-                )}
-              </CardContent>
-            </Card>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  aria-label="删除这条检索记录"
+                  onClick={() => handleDelete(log.id)}
+                >
+                  <Trash2 className="h-3 w-3" aria-hidden="true" />
+                </Button>
+              </div>
+              <div className="rounded-sm border border-border bg-muted p-2 font-mono text-xs break-all mb-2">{log.query}</div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <span>结果数: <strong className="tabular text-foreground">{log.resultsCount}</strong></span>
+                <span>保留: <strong className="tabular text-primary">{log.keptCount}</strong></span>
+                <span>保留率: <span className="tabular">{log.resultsCount > 0 ? ((log.keptCount / log.resultsCount) * 100).toFixed(0) : 0}%</span></span>
+              </div>
+              {log.notes && (
+                <div className="text-xs leading-relaxed text-muted-foreground mt-2 pt-2 border-t border-border">{log.notes}</div>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -959,18 +966,16 @@ function ComparisonTableGenerator() {
 
   return (
     <div className="space-y-3">
-      <Card className="bg-cyan-500/5 border-cyan-500/20">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          📊 <strong className="text-cyan-700 dark:text-cyan-400">文献对比表自动生成</strong>
-          （方法论 §2.4.2 comparison_table.py）—— 从论文库选择论文，自动生成 Markdown / LaTeX 对比表
-        </CardContent>
-      </Card>
+      <MethodNote>
+        📊 <strong>文献对比表自动生成</strong>
+        （方法论 §2.4.2 comparison_table.py）—— 从论文库选择论文，自动生成 Markdown / LaTeX 对比表
+      </MethodNote>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">① 选择论文（已选 {selectedIds.length} 篇）</CardTitle>
-          <CardDescription className="text-xs">从论文库中选择要对比的论文</CardDescription>
-        </CardHeader>
+        <PanelHeader
+          title={<>① 选择论文（已选 <span className="tabular">{selectedIds.length}</span> 篇）</>}
+          description="从论文库中选择要对比的论文"
+        />
         <CardContent>
           <div className="space-y-1 max-h-60 overflow-y-auto">
             {(papers || []).map((p) => {
@@ -978,23 +983,28 @@ function ComparisonTableGenerator() {
               return (
                 <button
                   key={p.id}
+                  type="button"
                   onClick={() => togglePaper(p.id)}
+                  aria-pressed={isSelected}
                   className={cn(
-                    'flex items-center gap-2 w-full text-left rounded-md border p-2 transition-all',
-                    isSelected ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                    'list-row card-hover flex items-center gap-2 w-full text-left p-2',
+                    isSelected && 'border-primary bg-primary/10'
                   )}
                 >
-                  <div className={cn(
-                    'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                    isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
-                  )}>
+                  <span
+                    className={cn(
+                      'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border',
+                      isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
+                    )}
+                    aria-hidden="true"
+                  >
                     {isSelected && <span className="text-[11px]">✓</span>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium truncate">{p.title}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">{p.authors} · {p.venue}</div>
-                  </div>
-                  <Badge variant="outline" className="text-[11px] shrink-0">{p.year}</Badge>
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-xs font-medium truncate">{p.title}</span>
+                    <span className="block text-[11px] text-muted-foreground truncate">{p.authors} · {p.venue}</span>
+                  </span>
+                  <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal shrink-0">{p.year}</Badge>
                 </button>
               )
             })}
@@ -1007,14 +1017,11 @@ function ComparisonTableGenerator() {
 
       {selectedPapers.length > 0 && (
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">② 填写对比维度</CardTitle>
-            <CardDescription className="text-xs">为每篇论文填写方法、类型、性能等对比信息</CardDescription>
-          </CardHeader>
+          <PanelHeader title="② 填写对比维度" description="为每篇论文填写方法、类型、性能等对比信息" />
           <CardContent>
             <div className="space-y-2">
               {selectedPapers.map((p) => (
-                <div key={p.id} className="rounded-md border border-border/60 p-2">
+                <div key={p.id} className="list-row p-2.5">
                   <div className="text-xs font-medium mb-2 truncate">{p.title}</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {COMPARISON_COLUMNS.map((c) => (
@@ -1038,14 +1045,15 @@ function ComparisonTableGenerator() {
 
       {selectedPapers.length > 0 && (
         <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">③ 生成结果</CardTitle>
-              <div className="flex gap-1">
+          <PanelHeader
+            title="③ 生成结果"
+            action={
+              <div className="flex gap-1" role="group" aria-label="输出格式">
                 <Button
                   size="sm"
                   variant={viewMode === 'markdown' ? 'default' : 'outline'}
                   className="h-7 text-xs"
+                  aria-pressed={viewMode === 'markdown'}
                   onClick={() => setViewMode('markdown')}
                 >
                   Markdown
@@ -1054,15 +1062,16 @@ function ComparisonTableGenerator() {
                   size="sm"
                   variant={viewMode === 'latex' ? 'default' : 'outline'}
                   className="h-7 text-xs"
+                  aria-pressed={viewMode === 'latex'}
                   onClick={() => setViewMode('latex')}
                 >
-                  <Code className="h-3 w-3 mr-1" /> LaTeX
+                  <Code className="h-3 w-3 mr-1" aria-hidden="true" /> LaTeX
                 </Button>
               </div>
-            </div>
-          </CardHeader>
+            }
+          />
           <CardContent className="space-y-2">
-            <pre className="rounded-md bg-muted/50 border border-border/40 p-3 text-[11px] font-mono overflow-x-auto whitespace-pre">
+            <pre className="rounded-sm bg-muted/50 border border-border p-3 text-[12px] font-mono overflow-x-auto whitespace-pre">
               {generatedContent}
             </pre>
             <div className="flex gap-2">
@@ -1080,7 +1089,7 @@ function ComparisonTableGenerator() {
       {selectedPapers.length === 0 && (
         <Card className="border-dashed">
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            <TableIcon className="h-10 w-10 mx-auto mb-2 opacity-30" />
+            <TableIcon className="h-10 w-10 mx-auto mb-2 opacity-30" aria-hidden="true" />
             从上方选择论文开始生成对比表
           </CardContent>
         </Card>

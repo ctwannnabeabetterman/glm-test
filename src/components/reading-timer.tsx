@@ -159,28 +159,30 @@ function PaperTimer({ paperId, initialTime }: { paperId: string; initialTime: nu
 
   return (
     <div className={cn(
-      'rounded-lg border p-3 transition-all',
-      isRunning ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-card'
+      'rounded-sm border p-3 transition-colors',
+      isRunning ? 'border-primary/40 bg-accent' : 'border-border bg-card'
     )}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <div className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-md',
-            isRunning ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
-          )}>
+            'flex h-8 w-8 items-center justify-center rounded-sm',
+            isRunning ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+          )}
+            aria-hidden="true"
+          >
             <Timer className="h-4 w-4" />
           </div>
           <div>
             <div className="text-xs font-medium flex items-center gap-1.5">
               阅读计时器
               {isRunning && (
-                <span className="flex items-center gap-1 text-[10px] text-primary">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                <span className="flex items-center gap-1 text-[11px] text-primary">
+                  <span className="h-2 w-2 rounded-full bg-primary animate-pulse" aria-hidden="true" />
                   进行中
                 </span>
               )}
             </div>
-            <div className="text-[10px] text-muted-foreground">方法论 §2.3 三遍阅读法 · 追踪阅读时长</div>
+            <div className="caption">方法论 §2.3 三遍阅读法 · 追踪阅读时长</div>
           </div>
         </div>
 
@@ -188,13 +190,13 @@ function PaperTimer({ paperId, initialTime }: { paperId: string; initialTime: nu
           {/* Time display */}
           <div className="text-right">
             <div className={cn(
-              'text-lg font-bold font-mono tabular-nums',
+              'tabular text-lg font-semibold font-mono',
               isRunning ? 'text-primary' : 'text-foreground'
             )}>
               {formatTime(elapsed)}
             </div>
             {sessionTime > 0 && (
-              <div className="text-[9px] text-muted-foreground">
+              <div className="tabular text-[11px] text-muted-foreground">
                 本次: {formatTime(sessionTime)}
               </div>
             )}
@@ -207,47 +209,50 @@ function PaperTimer({ paperId, initialTime }: { paperId: string; initialTime: nu
                 size="sm"
                 variant="default"
                 className="h-8 px-2.5"
+                aria-label="开始计时"
                 onClick={handleStart}
               >
-                <Play className="h-3.5 w-3.5" />
+                <Play className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             ) : (
               <Button
                 size="sm"
                 variant="outline"
                 className="h-8 px-2.5"
+                aria-label="暂停计时"
                 onClick={handlePause}
               >
-                <Pause className="h-3.5 w-3.5" />
+                <Pause className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             )}
             <Button
               size="sm"
               variant="ghost"
-              className="h-8 px-2.5 text-destructive hover:text-destructive"
+              className="h-8 px-2.5 text-destructive hover:text-destructive hover:bg-destructive/10"
+              aria-label="停止计时"
               onClick={handleStop}
               disabled={!isRunning && sessionTime === 0}
             >
-              <Square className="h-3.5 w-3.5" />
+              <Square className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
         </div>
       </div>
 
-      {/* Session stats */}
+      {/* Session stats（深度 / 认真阅读走主题色，不再是琥珀 / 蓝色） */}
       {elapsed > 0 && (
-        <div className="mt-2 pt-2 border-t border-border/40 flex items-center gap-3 text-[10px] text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Clock className="h-2.5 w-2.5" />
+        <div className="mt-2 pt-2 border-t border-border/50 flex items-center gap-3 text-[11px] text-muted-foreground">
+          <span className="tabular flex items-center gap-1">
+            <Clock className="h-3 w-3" aria-hidden="true" />
             累计 {formatTime(elapsed)}
           </span>
           {elapsed >= 3600 && (
-            <Badge variant="secondary" className="text-[9px] bg-amber-500/15 text-amber-600">
+            <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal border-primary/40 text-primary">
               深度阅读 {Math.floor(elapsed / 3600)}h+
             </Badge>
           )}
           {elapsed >= 1800 && elapsed < 3600 && (
-            <Badge variant="secondary" className="text-[9px] bg-blue-500/15 text-blue-600">
+            <Badge variant="outline" className="tabular rounded-sm text-[11px] font-normal border-primary/30 bg-accent text-accent-foreground">
               认真阅读 30min+
             </Badge>
           )}

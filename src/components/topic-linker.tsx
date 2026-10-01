@@ -92,9 +92,13 @@ export function TopicLinker({ topicIds, onSave, compact = false, className }: To
     }
   }
 
+  /* 零课题时走引导提示（MethodNote tone='warning' 在 section-header 定义） */
   if (list.length === 0) {
     return (
-      <div className={cn('rounded-md border border-dashed border-amber-500/40 bg-amber-500/5 px-2.5 py-2 text-[10px] text-amber-700 dark:text-amber-400', className)}>
+      <div
+        role="alert"
+        className={cn('rounded-sm border-l-2 border-l-destructive/70 border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[11px] leading-relaxed text-destructive', className)}
+      >
         还没有任何课题。所属课题决定 AI 研究分析用哪些材料 —— 请先到「选题评估」新建一个课题。
       </div>
     )
@@ -103,20 +107,22 @@ export function TopicLinker({ topicIds, onSave, compact = false, className }: To
   return (
     <div className={cn(compact ? 'space-y-1' : 'space-y-1.5', className)}>
       <div className="flex items-center gap-1.5">
-        <Label className={cn('flex items-center gap-1', compact ? 'text-[10px]' : 'text-xs')}>
-          <Layers className="h-3 w-3" />
+        <Label className={cn('flex items-center gap-1', compact ? 'text-[11px]' : 'text-xs')}>
+          <Layers className="h-3 w-3" aria-hidden="true" />
           所属课题
         </Label>
-        {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+        {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />}
         {linkedIds.length === 0 && (
-          <span className="text-[10px] text-amber-600">未挂课题 → AI 分析不会用到本条目</span>
+          <span className="text-[11px] text-destructive">未挂课题 → AI 分析不会用到本条目</span>
         )}
         <button
+          type="button"
           onClick={createAndLink}
           disabled={creating}
-          className="ml-auto flex items-center gap-0.5 text-[10px] text-primary hover:underline disabled:opacity-50"
+          aria-busy={creating}
+          className="ml-auto flex items-center gap-0.5 rounded-sm text-[11px] text-primary hover:underline disabled:opacity-50"
         >
-          {creating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Plus className="h-2.5 w-2.5" />}
+          {creating ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : <Plus className="h-3 w-3" aria-hidden="true" />}
           新建课题
         </button>
       </div>
@@ -127,9 +133,9 @@ export function TopicLinker({ topicIds, onSave, compact = false, className }: To
             <label
               key={t.id}
               className={cn(
-                'flex cursor-pointer items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] transition-colors',
+                'flex cursor-pointer items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] transition-colors',
                 checked
-                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  ? 'border-primary/40 bg-accent text-accent-foreground'
                   : 'border-border text-muted-foreground hover:border-primary/30'
               )}
             >
@@ -140,9 +146,9 @@ export function TopicLinker({ topicIds, onSave, compact = false, className }: To
         })}
       </div>
       {!compact && (
-        <p className="text-[10px] text-muted-foreground">
+        <p className="caption">
           勾选后立即保存。一篇论文/笔记可以同时属于多个课题（AI 分析会分别用到）。
-          {local.length > 0 && <span className="ml-1">已挂 {local.length} 个。</span>}
+          {local.length > 0 && <span className="tabular ml-1">已挂 {local.length} 个。</span>}
         </p>
       )}
     </div>
@@ -157,8 +163,8 @@ export function TopicBadges({ topicIds, topics }: { topicIds: string; topics: re
   return (
     <>
       {names.map((n) => (
-        <Badge key={n} variant="outline" className="text-[9px] px-1 py-0 h-4 font-normal border-primary/30 text-primary">
-          <Layers className="h-2 w-2 mr-0.5" />
+        <Badge key={n} variant="outline" className="rounded-sm text-[11px] font-normal px-1 py-0 h-4 border-primary/30 text-primary">
+          <Layers className="h-3 w-3 mr-0.5" aria-hidden="true" />
           {n}
         </Badge>
       ))}
