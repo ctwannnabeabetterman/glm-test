@@ -359,6 +359,37 @@ html[data-result-density='paper'] {
   background: var(--muted);
 }
 
+/* ⚠️ 以下两个放 @layer components：不分层会盖掉工具类，调用处的 border-primary 等就压不住了 */
+@layer components {
+  /* 可点击卡片：只变边框色，不上浮、不加阴影（此前被引用但从未定义） */
+  .card-hover {
+    transition: background-color 0.14s ease, border-color 0.14s ease;
+  }
+  .card-hover:hover {
+    border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+  }
+
+  /* 列表条目：细边框 + 小圆角的一行；作为 button 时 hover 换底色 */
+  .list-row {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--card);
+    transition: background-color 0.14s ease, border-color 0.14s ease;
+  }
+  button.list-row:hover {
+    background: var(--muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ============================================================
    滚动条 —— 细窄、低对比，不抢视线
    ============================================================ */
