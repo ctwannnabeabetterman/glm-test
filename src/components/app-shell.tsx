@@ -95,7 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="font-serif text-[15px] font-semibold tracking-tight">
               AI Network Lab
             </span>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="rounded-sm border border-border px-1.5 py-px font-mono text-[11px] leading-4 text-muted-foreground">
               v{process.env.NEXT_PUBLIC_APP_VERSION}
             </span>
           </div>
@@ -105,13 +105,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               onClick={() =>
                 window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
               }
-              className="hidden md:flex items-center gap-2 h-8 rounded-sm border border-border px-2.5 text-[12px] text-muted-foreground hover:border-border hover:bg-muted transition-colors"
-              aria-label="搜索"
+              className="hidden md:flex items-center gap-2 h-8 w-56 rounded-sm border border-border bg-card px-2.5 text-[13px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+              aria-label="搜索（Ctrl/⌘ + K）"
             >
-              <Search className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <Search className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
               <span>搜索</span>
-              <kbd className="ml-1 flex items-center gap-0.5 font-mono text-[10px] text-muted-foreground/70">
-                <Command className="h-2.5 w-2.5" />K
+              <kbd className="ml-auto flex items-center gap-0.5 rounded-sm border border-border bg-muted px-1 font-mono text-[11px] leading-4 text-muted-foreground">
+                <Command className="h-2.5 w-2.5" aria-hidden="true" />K
               </kbd>
             </button>
             <NotificationBell />
@@ -141,7 +141,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
           style={{ height: 'calc(100vh - 3rem)' }}
         >
-          <nav className="flex-1 overflow-y-auto py-4 px-2.5">
+          <nav className="flex-1 overflow-y-auto py-4 px-2.5" aria-label="主导航">
             {Object.entries(grouped).map(([group, items], gi) => (
               <div key={group} className={gi > 0 ? 'mt-5' : ''}>
                 {!sidebarCollapsed && <div className="px-2.5 mb-1.5 eyebrow">{group}</div>}
@@ -157,15 +157,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         aria-current={isActive ? 'page' : undefined}
                         onClick={() => setSection(item.id)}
                         title={sidebarCollapsed ? item.label : item.hint}
+                        aria-label={sidebarCollapsed ? item.label : undefined}
                         className={cn(
-                          'flex w-full items-center gap-2.5 rounded-sm px-2.5 py-[7px] text-left transition-colors',
+                          // 选中态：左侧 2px 强调竖条 + 浅底，比单纯换底色更易扫读
+                          'relative flex w-full items-center gap-2.5 rounded-sm px-2.5 py-[7px] text-left transition-colors',
+                          'before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[2px] before:rounded-full before:bg-transparent',
                           isActive
-                            ? 'bg-sidebar-accent text-primary font-medium'
+                            ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium before:bg-primary'
                             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                           sidebarCollapsed && 'justify-center px-0'
                         )}
                       >
-                        <Icon className="h-4 w-4 shrink-0" strokeWidth={isActive ? 2 : 1.75} />
+                        <Icon
+                          className={cn('h-4 w-4 shrink-0', isActive && 'text-primary')}
+                          strokeWidth={isActive ? 2 : 1.75}
+                          aria-hidden="true"
+                        />
                         {!sidebarCollapsed && <span className="text-[13px] truncate">{item.label}</span>}
                       </button>
                     )
@@ -180,11 +187,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="border-t border-border p-2">
             <button
               onClick={() => useAppStore.getState().setSidebarCollapsed(!sidebarCollapsed)}
-              className="flex w-full items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-muted transition-colors"
+              aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+              aria-expanded={!sidebarCollapsed}
+              className="flex w-full items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             >
               <ChevronLeft
                 className={cn('h-3.5 w-3.5 transition-transform', sidebarCollapsed && 'rotate-180')}
                 strokeWidth={1.75}
+                aria-hidden="true"
               />
               {!sidebarCollapsed && <span>收起</span>}
             </button>
@@ -192,7 +202,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* 移动端底部导航 */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 backdrop-blur">
+        <nav
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 backdrop-blur pb-[env(safe-area-inset-bottom)]"
+          aria-label="主导航（移动端）"
+        >
           <div className="flex overflow-x-auto">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon
@@ -201,13 +214,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <button
                   key={item.id}
                   data-section={item.id}
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => setSection(item.id)}
                   className={cn(
-                    'flex flex-1 min-w-[60px] flex-col items-center gap-0.5 py-2 text-[10px]',
-                    isActive ? 'text-primary' : 'text-muted-foreground'
+                    // 最小 44px 触控高度；选中项顶部 2px 强调线
+                    'relative flex flex-1 min-w-[64px] min-h-[52px] flex-col items-center justify-center gap-0.5 py-2 text-[11px] transition-colors',
+                    isActive
+                      ? 'text-primary font-medium before:absolute before:inset-x-3 before:top-0 before:h-[2px] before:rounded-full before:bg-primary'
+                      : 'text-muted-foreground'
                   )}
                 >
-                  <Icon className="h-4 w-4" strokeWidth={1.75} />
+                  <Icon className="h-4 w-4" strokeWidth={isActive ? 2 : 1.75} aria-hidden="true" />
                   <span className="truncate max-w-[56px]">{item.label}</span>
                 </button>
               )
@@ -219,16 +236,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 min-w-0 pb-16 md:pb-0" data-active-section={activeSection}>
           {/* 面包屑：给阅读一个"位置感" */}
           <div className="border-b border-border/60">
-            <div className="mx-auto max-w-[1180px] px-6 lg:px-10 py-2.5">
-              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <div className="mx-auto max-w-[1180px] px-4 sm:px-6 lg:px-10 py-2.5">
+              <nav aria-label="面包屑" className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
                 <span>AI Network Lab</span>
-                <span className="text-border">/</span>
-                <span className="text-foreground">{currentLabel}</span>
-              </div>
+                <span className="text-muted-foreground/50" aria-hidden="true">/</span>
+                <span className="text-foreground" aria-current="page">{currentLabel}</span>
+              </nav>
             </div>
           </div>
 
-          <div className="mx-auto max-w-[1180px] px-6 lg:px-10 py-7">
+          <div className="mx-auto max-w-[1180px] px-4 sm:px-6 lg:px-10 py-6 lg:py-8">
             <div key={activeSection} className="animate-fade-in">
               {children}
             </div>
@@ -238,16 +255,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* ── 页脚：一行元信息，不占视觉重量 ─────────────────── */}
       <footer className="mt-auto border-t border-border">
-        <div className="mx-auto max-w-[1180px] px-6 lg:px-10 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <div className="mx-auto max-w-[1180px] px-4 sm:px-6 lg:px-10 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
           <span>数据持久化于本地 SQLite</span>
-          <span className="text-border">·</span>
+          <span className="text-muted-foreground/50" aria-hidden="true">·</span>
           <span>方法论源：AI_Networking_Research_Methodology.md</span>
           <span className="ml-auto">MIT License</span>
         </div>
       </footer>
 
       {seededToast && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 rounded-sm border border-border bg-card px-4 py-2 text-[13px] shadow-sm animate-fade-in">
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 rounded-sm border border-border bg-card px-4 py-2 text-[13px] shadow-sm animate-fade-in"
+        >
           {seededToast}
         </div>
       )}
