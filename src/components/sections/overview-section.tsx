@@ -2,13 +2,8 @@
 
 import { useFetch } from '@/lib/hooks'
 import { LAYER_ARCHITECTURE, VENUES, SCHOLARS } from '@/lib/methodology-data'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
+import { PanelHeader } from '@/components/section-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -19,14 +14,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import {
   BookOpen,
   Target,
   FlaskConical,
   Calendar,
-  TrendingUp,
   ArrowRight,
   Radio,
   Network,
@@ -146,8 +139,7 @@ export function OverviewSection() {
       {/* ── 统计：空数据时整体收起，避免零值占版面 ─────────── */}
       {isVisible('quickStats') && !loading && stats && stats.papers.total + stats.topics.total + stats.experiments.total + stats.milestones.total > 0 && (
         <section>
-          <hr className="rule mb-4" />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px overflow-hidden rounded-md border border-border bg-border">
             <StatCard
               icon={BookOpen}
               label="论文总数"
@@ -194,12 +186,12 @@ export function OverviewSection() {
           </div>
 
           <div className="space-y-2">
-            {[...LAYER_ARCHITECTURE].reverse().map((layer, idx) => {
+            {[...LAYER_ARCHITECTURE].reverse().map((layer) => {
               const Icon = LAYER_ICONS[layer.id] ?? Radio
               return (
                 <div
                   key={layer.id}
-                  className="rounded-sm border border-border bg-card"
+                  className="rounded-md border border-border bg-card"
                 >
                   <div className="flex flex-col lg:flex-row lg:items-stretch">
                     {/* 层标识：左侧竖条用中性色，不用彩色渐变 */}
@@ -226,7 +218,7 @@ export function OverviewSection() {
                       {layer.metrics.map((m) => (
                         <span
                           key={m}
-                          className="inline-flex items-center rounded-sm border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                          className="inline-flex items-center rounded-sm border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
                         >
                           {m}
                         </span>
@@ -249,32 +241,28 @@ export function OverviewSection() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Top topics */}
         <Card className="lg:col-span-1">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Trophy className="h-4 w-4 text-amber-500" />
-              课题评估 Top
-            </CardTitle>
-            <CardDescription className="text-xs">方法论 §1.3 选题评估矩阵</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 pt-0">
+          <PanelHeader icon={Trophy} eyebrow="方法论 §1.3 选题评估矩阵" title="课题评估 Top" />
+          <CardContent className="space-y-1.5 pt-0">
             {stats?.topics.top.length ? (
               stats.topics.top.map((t, i) => (
-                <div
+                /* 原为可点击 div，键盘无法聚焦 —— 改成 button，行为不变 */
+                <button
                   key={t.id}
-                  className="flex items-center gap-2 rounded-md border border-border/60 p-2 hover:border-primary/40 cursor-pointer transition-colors"
+                  type="button"
+                  className="list-row card-hover flex w-full items-center gap-2.5 p-2 text-left"
                   onClick={() => setSection('topics')}
                 >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 text-xs font-bold">
-                    #{i + 1}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium truncate">{t.name}</div>
-                    <div className="text-[11px] text-muted-foreground">{t.direction}</div>
-                  </div>
-                  <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
+                  <span className="tabular flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-border font-mono text-[12px] text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-medium truncate">{t.name}</span>
+                    <span className="block text-[12px] text-muted-foreground truncate">{t.direction}</span>
+                  </span>
+                  <span className="tabular font-mono text-[13px] font-semibold text-primary">
                     {t.totalScore.toFixed(1)}
-                  </Badge>
-                </div>
+                  </span>
+                </button>
               ))
             ) : (
               <EmptyHint text="暂无课题评分" onClick={() => setSection('topics')} />
@@ -284,40 +272,34 @@ export function OverviewSection() {
 
         {/* Upcoming venues */}
         <Card className="lg:col-span-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Users className="h-4 w-4 text-blue-500" />
-              顶会顶刊时间表
-            </CardTitle>
-            <CardDescription className="text-xs">方法论 §1.2.2 + §6.1 投稿阶梯</CardDescription>
-          </CardHeader>
+          <PanelHeader icon={Users} eyebrow="方法论 §1.2.2 + §6.1 投稿阶梯" title="顶会顶刊时间表" />
           <CardContent className="pt-0">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {VENUES.slice(0, 6).map((v) => (
-                <div
-                  key={v.name}
-                  className="rounded-md border border-border/60 p-2.5 hover:border-primary/40 transition-colors"
-                >
+                <div key={v.name} className="list-row p-2.5">
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <div className="text-xs font-semibold truncate">{v.name}</div>
+                    <div className="text-[13px] font-semibold truncate">{v.name}</div>
+                    {/* 会议 = 实心强调、期刊 = 描边中性：单一强调色下仍可区分 */}
                     <Badge
                       variant="outline"
                       className={cn(
-                        'text-[11px] py-0 px-1.5',
-                        v.type === 'conference' ? 'border-blue-500/30 text-blue-600' : 'border-purple-500/30 text-purple-600'
+                        'rounded-sm text-[11px] py-0 px-1.5 font-normal',
+                        v.type === 'conference'
+                          ? 'border-primary/30 bg-accent text-accent-foreground'
+                          : 'border-border text-muted-foreground'
                       )}
                     >
                       {v.type === 'conference' ? '会议' : '期刊'}
                     </Badge>
                   </div>
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                    <Clock className="h-3 w-3" />
+                  <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                    <Clock className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                     <span>{v.reviewCycle}</span>
-                    <span>·</span>
+                    <span aria-hidden="true">·</span>
                     <span>{v.level}</span>
                   </div>
                   {v.note && (
-                    <div className="text-[11px] text-muted-foreground/80 mt-1 line-clamp-1">{v.note}</div>
+                    <div className="text-[12px] text-muted-foreground mt-1 line-clamp-1">{v.note}</div>
                   )}
                 </div>
               ))}
@@ -331,13 +313,7 @@ export function OverviewSection() {
       {isVisible('readingProgress') && isVisible('scholars') && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-1">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              阅读进度
-            </CardTitle>
-            <CardDescription className="text-xs">方法论 §2.2.4 阅读跟踪</CardDescription>
-          </CardHeader>
+          <PanelHeader icon={CheckCircle2} eyebrow="方法论 §2.2.4 阅读跟踪" title="阅读进度" />
           <CardContent className="space-y-3 pt-0">
             {stats && (() => {
               const total = stats.papers.total || 1
@@ -346,23 +322,24 @@ export function OverviewSection() {
               return (
                 <>
                   <div>
-                    <div className="flex items-center justify-between text-xs mb-1.5">
+                    <div className="flex items-center justify-between text-[13px] mb-1.5">
                       <span>已读</span>
-                      <span className="font-medium">{stats.papers.read} / {stats.papers.total}</span>
+                      <span className="tabular font-medium">{stats.papers.read} / {stats.papers.total}</span>
                     </div>
-                    <Progress value={readPct} className="h-2" />
+                    <Progress value={readPct} className="h-1.5" aria-label="已读比例" />
                   </div>
                   <div>
-                    <div className="flex items-center justify-between text-xs mb-1.5">
+                    <div className="flex items-center justify-between text-[13px] mb-1.5">
                       <span>阅读中</span>
-                      <span className="font-medium">{stats.papers.reading}</span>
+                      <span className="tabular font-medium">{stats.papers.reading}</span>
                     </div>
-                    <Progress value={readingPct} className="h-2" />
+                    <Progress value={readingPct} className="h-1.5" aria-label="阅读中比例" />
                   </div>
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    <MiniStat label="高优先级" value={stats.papers.highPriority} color="text-red-500" />
-                    <MiniStat label="未读" value={stats.papers.unread} color="text-amber-500" />
-                    <MiniStat label="笔记" value={stats.notes.total} color="text-blue-500" />
+                  {/* 与首屏统计格同一形式：gap-px 细线分格，不再用三种彩色数字 */}
+                  <div className="grid grid-cols-3 gap-px overflow-hidden rounded-sm border border-border bg-border">
+                    <MiniStat label="高优先级" value={stats.papers.highPriority} emphasis />
+                    <MiniStat label="未读" value={stats.papers.unread} />
+                    <MiniStat label="笔记" value={stats.notes.total} />
                   </div>
                 </>
               )
@@ -372,27 +349,21 @@ export function OverviewSection() {
 
         {/* Scholars */}
         <Card className="lg:col-span-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Users className="h-4 w-4 text-purple-500" />
-              推荐追踪学者
-            </CardTitle>
-            <CardDescription className="text-xs">方法论 §1.2.3 学者追踪清单</CardDescription>
-          </CardHeader>
+          <PanelHeader icon={Users} eyebrow="方法论 §1.2.3 学者追踪清单" title="推荐追踪学者" />
           <CardContent className="pt-0">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {SCHOLARS.slice(0, 6).map((s) => (
-                <div
-                  key={s.name}
-                  className="flex items-start gap-2 rounded-md border border-border/60 p-2 hover:border-primary/40 transition-colors"
-                >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-border font-mono text-[11px] font-medium text-primary">
+                <div key={s.name} className="list-row flex items-start gap-2.5 p-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-accent font-mono text-[12px] font-medium text-accent-foreground"
+                    aria-hidden="true"
+                  >
                     {s.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs font-medium">{s.name}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">{s.institution}</div>
-                    <div className="text-[11px] text-muted-foreground/80 truncate">{s.direction}</div>
+                    <div className="text-[13px] font-medium">{s.name}</div>
+                    <div className="text-[12px] text-muted-foreground truncate">{s.institution}</div>
+                    <div className="text-[12px] text-muted-foreground truncate">{s.direction}</div>
                   </div>
                 </div>
               ))}
@@ -405,10 +376,7 @@ export function OverviewSection() {
       {/* Quick access to all sections */}
       {isVisible('quickAccess') && (
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">快捷入口 · 6 模块全流程</CardTitle>
-          <CardDescription className="text-xs">点击进入对应研究阶段</CardDescription>
-        </CardHeader>
+        <PanelHeader eyebrow="点击进入对应研究阶段" title="快捷入口 · 6 模块全流程" />
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
             <QuickLink label="文献检索工具" desc="关键词矩阵 · arXiv 监控" onClick={() => setSection('search')} icon={SearchIcon} />
@@ -460,24 +428,32 @@ function StatCard({ icon: Icon, label, value, sub, onClick }: {
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="text-left bg-card p-4 transition-colors hover:bg-muted/60"
+      className="group text-left bg-card p-4 lg:p-5 transition-colors hover:bg-muted/60 focus-visible:relative focus-visible:z-10"
     >
       <div className="flex items-center gap-2 mb-2.5 text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+        <Icon className="h-3.5 w-3.5 transition-colors group-hover:text-primary" strokeWidth={1.75} aria-hidden="true" />
         <span className="text-[12px]">{label}</span>
+        <ArrowRight
+          className="ml-auto h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 text-primary"
+          aria-hidden="true"
+        />
       </div>
-      <div className="tabular text-[26px] font-medium leading-none tracking-tight">{value}</div>
-      <div className="text-[11px] text-muted-foreground mt-2 truncate">{sub}</div>
+      <div className="tabular text-[28px] font-medium leading-none tracking-tight">{value}</div>
+      <div className="text-[12px] text-muted-foreground mt-2 truncate">{sub}</div>
     </button>
   )
 }
 
-function MiniStat({ label, value, color }: { label: string; value: number; color: string }) {
+function MiniStat({ label, value, emphasis }: { label: string; value: number; emphasis?: boolean }) {
   return (
-    <div className="rounded-md bg-muted/40 p-2 text-center">
-      <div className={cn('text-lg font-bold', color)}>{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
+    <div className="bg-card px-2 py-2 text-center">
+      {/* 仅「高优先级」在非零时用强调色，其余保持墨色 —— 颜色只用来提示需要行动的数字 */}
+      <div className={cn('tabular text-lg font-semibold leading-tight', emphasis && value > 0 && 'text-destructive')}>
+        {value}
+      </div>
+      <div className="text-[12px] text-muted-foreground">{label}</div>
     </div>
   )
 }
@@ -490,17 +466,24 @@ function QuickLink({ label, desc, onClick, icon: Icon }: {
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="group flex items-start gap-2.5 rounded-lg border border-border bg-card p-3 text-left transition-all hover:border-primary/40 hover:bg-accent/30 card-hover"
+      className="group list-row card-hover flex items-start gap-2.5 p-3 text-left"
     >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+      <div
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-accent text-accent-foreground transition-colors group-hover:bg-primary group-hover:text-primary-foreground"
+        aria-hidden="true"
+      >
         <Icon className="h-4 w-4" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-medium">{label}</div>
-        <div className="text-[11px] text-muted-foreground truncate">{desc}</div>
+        <div className="text-[13px] font-medium">{label}</div>
+        <div className="text-[12px] text-muted-foreground truncate">{desc}</div>
       </div>
-      <ArrowRight className="h-3 w-3 text-muted-foreground/40 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+      <ArrowRight
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary"
+        aria-hidden="true"
+      />
     </button>
   )
 }
@@ -508,8 +491,9 @@ function QuickLink({ label, desc, onClick, icon: Icon }: {
 function EmptyHint({ text, onClick }: { text: string; onClick: () => void }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="w-full rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+      className="w-full rounded-sm border border-dashed border-border p-4 text-[13px] text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
     >
       {text} → 点击进入
     </button>
@@ -597,20 +581,19 @@ function DataManagement() {
 
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <DatabaseIcon className="h-4 w-4 text-primary" />
-          数据管理
-        </CardTitle>
-        <CardDescription className="text-xs">导出/导入含 PDF 的科研数据备份；API Key 等敏感设置不会导出</CardDescription>
-      </CardHeader>
+      <PanelHeader
+        icon={DatabaseIcon}
+        eyebrow="备份与恢复"
+        title="数据管理"
+        description="导出/导入含 PDF 的科研数据备份；API Key 等敏感设置不会导出"
+      />
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Export */}
-          <div className="rounded-lg border border-border/60 p-3 hover:border-primary/40 transition-colors">
+          <div className="list-row p-3">
             <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 shrink-0">
-                <Download className="h-5 w-5" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-sm bg-accent text-accent-foreground shrink-0" aria-hidden="true">
+                <Download className="h-4 w-4" strokeWidth={1.75} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium">导出备份</div>
@@ -634,10 +617,10 @@ function DataManagement() {
           </div>
 
           {/* Import */}
-          <div className="rounded-lg border border-border/60 p-3 hover:border-primary/40 transition-colors">
+          <div className="list-row p-3">
             <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 shrink-0">
-                <Upload className="h-5 w-5" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-sm bg-muted text-muted-foreground shrink-0" aria-hidden="true">
+                <Upload className="h-4 w-4" strokeWidth={1.75} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium">导入备份</div>
@@ -673,13 +656,13 @@ function DataManagement() {
             </DialogHeader>
             {importData && (
               <div className="space-y-3">
-                <div className="rounded-md bg-muted/50 p-3">
+                <div className="rounded-sm border border-border bg-muted/50 p-3">
                   <div className="text-xs font-medium mb-2">备份内容：</div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {Object.entries(importData.meta).map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between">
                         <span className="text-muted-foreground">{k}:</span>
-                        <span className="font-medium">{v as number}</span>
+                        <span className="tabular font-medium">{v as number}</span>
                       </div>
                     ))}
                   </div>
@@ -689,11 +672,13 @@ function DataManagement() {
                   <div className="text-xs font-medium mb-2">导入模式：</div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
+                      type="button"
                       onClick={() => setImportMode('merge')}
+                      aria-pressed={importMode === 'merge'}
                       className={cn(
-                        'rounded-md border p-2 text-left transition-all',
+                        'rounded-sm border p-2.5 text-left transition-colors',
                         importMode === 'merge'
-                          ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
+                          ? 'border-primary bg-accent ring-1 ring-primary/30'
                           : 'border-border hover:border-primary/40'
                       )}
                     >
@@ -703,16 +688,18 @@ function DataManagement() {
                       </div>
                     </button>
                     <button
+                      type="button"
                       onClick={() => setImportMode('replace')}
                       disabled={importData.version !== 2}
+                      aria-pressed={importMode === 'replace'}
                       className={cn(
-                        'rounded-md border p-2 text-left transition-all',
+                        'rounded-sm border p-2.5 text-left transition-colors',
                         importMode === 'replace'
-                          ? 'border-red-500 bg-red-500/10 ring-1 ring-red-500/30'
-                          : 'border-border hover:border-red-500/40 disabled:opacity-50 disabled:cursor-not-allowed'
+                          ? 'border-destructive bg-destructive/10 ring-1 ring-destructive/30'
+                          : 'border-border hover:border-destructive/40 disabled:opacity-50 disabled:cursor-not-allowed'
                       )}
                     >
-                      <div className="text-xs font-medium text-red-600">替换模式</div>
+                      <div className="text-xs font-medium text-destructive">替换模式</div>
                       <div className="text-[11px] text-muted-foreground mt-0.5">
                         {importData.version === 1 ? '旧版备份不完整，禁止替换' : '原子替换现有科研记录'}
                       </div>
@@ -721,9 +708,9 @@ function DataManagement() {
                 </div>
 
                 {importMode === 'replace' && (
-                  <div className="rounded-md bg-red-500/10 border border-red-500/30 p-2 flex items-start gap-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0 mt-0.5" />
-                    <div className="text-[11px] text-red-700 dark:text-red-400">
+                  <div role="alert" className="rounded-sm bg-destructive/10 border border-destructive/30 p-2.5 flex items-start gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" aria-hidden="true" />
+                    <div className="text-[12px] leading-relaxed text-destructive">
                       替换会用备份中的科研记录覆盖当前记录，但保留本机 API Key 和旧 PDF 文件。请先导出并妥善保存现有备份；导入失败会回滚数据库改动。
                     </div>
                   </div>

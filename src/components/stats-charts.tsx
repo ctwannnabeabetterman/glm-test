@@ -28,13 +28,8 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
+import { PanelHeader } from '@/components/section-header'
 import { TrendingUp } from 'lucide-react'
 
 export interface StatsChartsData {
@@ -44,34 +39,36 @@ export interface StatsChartsData {
 }
 
 export default function StatsCharts({ stats }: { stats: StatsChartsData | null }) {
+  /* 折线图/饼图颜色走 CSS 变量（实验 / 计划已在 experiments 里改），
+     三种论文状态用强调色明度递进：已读（最深） → 阅读中（中） → 未读（浅） */
   const paperStatusData = stats
     ? [
-        { name: '已读', value: stats.papers.read, color: '#10b981' },
-        { name: '阅读中', value: stats.papers.reading, color: '#3b82f6' },
-        { name: '未读', value: stats.papers.unread, color: '#f59e0b' },
+        { name: '已读', value: stats.papers.read, color: 'var(--chart-1)' },
+        { name: '阅读中', value: stats.papers.reading, color: 'var(--chart-2)' },
+        { name: '未读', value: stats.papers.unread, color: 'var(--chart-3)' },
       ].filter((d) => d.value > 0)
     : []
 
   const expStatusData = stats
     ? [
-        { name: '已完成', value: stats.experiments.completed, color: '#10b981' },
-        { name: '计划中', value: stats.experiments.planned, color: '#f59e0b' },
+        { name: '已完成', value: stats.experiments.completed, color: 'var(--chart-1)' },
+        { name: '计划中', value: stats.experiments.planned, color: 'var(--chart-2)' },
         {
           name: '其他',
           value:
             stats.experiments.total -
             stats.experiments.completed -
             stats.experiments.planned,
-          color: '#8b5cf6',
+          color: 'var(--chart-3)',
         },
       ].filter((d) => d.value > 0)
     : []
 
   const milestoneData = stats
     ? [
-        { name: 'Gantt 任务', value: stats.milestones.gantt, color: '#3b82f6' },
-        { name: '写作里程碑', value: stats.milestones.writing, color: '#8b5cf6' },
-        { name: '投稿计划', value: stats.milestones.submission, color: '#ec4899' },
+        { name: 'Gantt 任务', value: stats.milestones.gantt, color: 'var(--chart-1)' },
+        { name: '写作里程碑', value: stats.milestones.writing, color: 'var(--chart-2)' },
+        { name: '投稿计划', value: stats.milestones.submission, color: 'var(--chart-3)' },
       ].filter((d) => d.value > 0)
     : []
 
@@ -79,22 +76,14 @@ export default function StatsCharts({ stats }: { stats: StatsChartsData | null }
 
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-primary" />
-          数据统计可视化
-        </CardTitle>
-        <CardDescription className="text-xs">
-          论文阅读进度 · 实验状态 · 里程碑分布
-        </CardDescription>
-      </CardHeader>
+      <PanelHeader icon={TrendingUp} title="数据统计可视化" description="论文阅读进度 · 实验状态 · 里程碑分布" />
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Paper status pie */}
           <div>
-            <div className="text-xs font-medium text-muted-foreground mb-2 text-center">
+            <h3 className="eyebrow mb-2 text-center">
               论文阅读状态
-            </div>
+            </h3>
             {paperStatusData.length > 0 ? (
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
@@ -126,9 +115,9 @@ export default function StatsCharts({ stats }: { stats: StatsChartsData | null }
 
           {/* Experiment status pie */}
           <div>
-            <div className="text-xs font-medium text-muted-foreground mb-2 text-center">
+            <h3 className="eyebrow mb-2 text-center">
               实验状态分布
-            </div>
+            </h3>
             {expStatusData.length > 0 ? (
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
@@ -160,9 +149,9 @@ export default function StatsCharts({ stats }: { stats: StatsChartsData | null }
 
           {/* Milestone bar */}
           <div>
-            <div className="text-xs font-medium text-muted-foreground mb-2 text-center">
+            <h3 className="eyebrow mb-2 text-center">
               里程碑类型分布
-            </div>
+            </h3>
             {milestoneData.length > 0 ? (
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart
